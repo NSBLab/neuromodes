@@ -14,7 +14,7 @@ def surf_medmask_hetero():
 
 def test_init_params(surf_medmask_hetero):
     surf, medmask, hetero = surf_medmask_hetero
-    _ = EigenSolver(surf, mask=medmask, hetero=hetero, n_modes=2, alpha=0.5, beta=3,
+    _ = EigenSolver(surf, mask=medmask, hetero=hetero, n_modes=2, alpha=0.5, beta_old=3,
                          scaling='exponential')
     
 def test_premasked_surf(surf_medmask_hetero):
@@ -77,7 +77,7 @@ def test_nan_inf_hetero_medmask_ignored(surf_medmask_hetero):
 
 def test_init_invalid_wave_speed(surf_medmask_hetero):
     surf, medmask, hetero = surf_medmask_hetero
-    solver = EigenSolver(surf, mask=medmask, hetero=hetero, beta=11)
+    solver = EigenSolver(surf, mask=medmask, hetero=hetero, beta_old=11)
 
     # This alpha scaling should result in implausibly fast waves at some vertices
     solver.alpha = 2

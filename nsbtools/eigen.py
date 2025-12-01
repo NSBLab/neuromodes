@@ -29,9 +29,11 @@ class EigenSolver(Solver):
         surf: Union[str, Path, Trimesh, TriaMesh, dict],
         mask: Optional[ArrayLike] = None,
         hetero: Optional[ArrayLike] = None,
+        aniso: Optional[ArrayLike] = None,
         n_modes: int = 200,
         alpha: float = 1.0,
         beta: float = 1.0,
+        beta_old: float = 1.0,
         r: float = 28.9,
         gamma: float = 0.116,
         scaling: str = "sigmoid",
@@ -53,10 +55,14 @@ class EigenSolver(Solver):
             Default is None.
         hetero : array-like, optional
             A heterogeneity map to scale the Laplace-Beltrami operator. Default is None.
+        aniso : array-like, optional
+            Anisotropy map to define direction-dependent diffusion properties on the surface mesh.
         n_modes : int, optional
             Number of eigenmodes to compute. Default is 100.
-        alpha : float, optional
+        alpha_hetero : float, optional
             Scaling factor for the heterogeneity map. Default is 1.0.
+        alpha_aniso : float, optional
+            Scaling factor for anisotropic diffusion strength. Default is 1.0.
         beta : float, optional
             Exponent for the sigmoid scaling of the heterogeneity map. Default is 1.0.
         r : float, optional
@@ -83,13 +89,15 @@ class EigenSolver(Solver):
         """
         r = float(r)
         gamma = float(gamma)
-        beta = float(beta)
+        beta_old = float(beta_old)
 
         if r <= 0:
             raise ValueError("`r` must be positive.")
         if gamma <= 0:
             raise ValueError("`gamma` must be positive.")
         if beta < 0:
+            raise ValueError("`alpha_aniso` must be non-negative.")
+        if beta_old < 0:
             raise ValueError("`beta` must be non-negative.")
         if smoothit < 0 or not isinstance(smoothit, int):
             raise ValueError("`smoothit` must be a non-negative integer.")
@@ -101,8 +109,9 @@ class EigenSolver(Solver):
         self.n_modes = n_modes
         self._r = r
         self._gamma = gamma
-        self.alpha = alpha if hetero is not None else 0
-        self.beta = beta if hetero is not None else 0
+        self.alpha_hetero = alpha if hetero is not None else 0
+        self.alpha_aniso = beta if aniso is not None else 0
+        self.beta = beta_old if hetero is not None else 0
         self.scaling = scaling
         self.smoothit = smoothit
         self.lump = lump
@@ -119,6 +128,7 @@ class EigenSolver(Solver):
             self.geometry.normalize_()
         self.n_verts = surf.vertices.shape[0]
         self.hetero = hetero
+        self.aniso = aniso
 
         # Calculate the two matrices of the Laplace-Beltrami operator
         self.compute_lbo()
@@ -130,8 +140,8 @@ class EigenSolver(Solver):
     @r.setter
     def r(self, r: float) -> None:
         if not is_valid_hetero(hetero=self.hetero, r=r, gamma=self.gamma):
-            raise ValueError(f"Alpha value results in non-physiological wave speeds above 150 m/s. "
-                             "Try using a smaller alpha value.")
+            raise ValueError(f"alpha_hetero value results in non-physiological wave speeds above 150 m/s. "
+                             "Try using a smaller alpha_hetero value.")
         self._r = r
 
     @property
@@ -141,8 +151,8 @@ class EigenSolver(Solver):
     @gamma.setter
     def gamma(self, gamma: float) -> None:
         if not is_valid_hetero(hetero=self.hetero, r=self.r, gamma=gamma):
-            raise ValueError(f"Alpha value results in non-physiological wave speeds above 150 m/s. "
-                             "Try using a smaller alpha value.")
+            raise ValueError(f"alpha_hetero value results in non-physiological wave speeds above 150 m/s. "
+                             "Try using a smaller alpha_hetero value.")
         self._gamma = gamma
 
     @property
@@ -153,9 +163,9 @@ class EigenSolver(Solver):
     def hetero(self, hetero: Optional[ArrayLike]) -> None:
         # Handle None case by setting to ones
         if hetero is None:
-            if self.alpha != 0 or self.beta != 0:
-                warn('Setting `alpha` and `beta` to 0 because `hetero` is None.')
-                self.alpha = 0
+            if self.alpha_hetero != 0 or self.beta != 0:
+                warn('Setting `alpha_hetero` and `beta` to 0 because `hetero` is None.')
+                self.alpha_hetero = 0
                 self.beta = 0
             self._hetero = np.ones(self.n_verts)
         else:
@@ -176,7 +186,7 @@ class EigenSolver(Solver):
             # Scale the heterogeneity map
             hetero = scale_hetero(
                 hetero=hetero, 
-                alpha=self.alpha, 
+                alpha=self.alpha_hetero, 
                 beta=self.beta,
                 scaling=self.scaling
             )
@@ -188,19 +198,92 @@ class EigenSolver(Solver):
             # Assign to private attribute
             self._hetero = hetero
 
+    @property
+    def aniso(self) -> Optional[NDArray]:
+        return self._aniso
+
+    @aniso.setter
+    def aniso(self, aniso: Optional[ArrayLike]) -> None:
+        # Handle None case
+        if aniso is None:
+            self._aniso = None
+        else:
+            aniso = np.asarray(aniso)
+
+            # Ensure aniso has correct length
+            n_expected = len(self.mask) if self.mask is not None else self.n_verts
+            if len(aniso) != n_expected:
+                raise ValueError(f"The number of elements in `aniso` ({len(aniso)}) must match "
+                                 f"the number of vertices in the surface mesh ({n_expected}).")
+                         
+            if self.mask is not None:
+                aniso = aniso[self.mask]
+            
+            # Check for NaN/Inf values
+            if np.isnan(aniso).any() or np.isinf(aniso).any():
+                raise ValueError("`aniso` must not contain NaNs or Infs.")
+
+            # Z-score the anisotropy map for consistent scaling
+            aniso = zscore(aniso)
+
+            # Assign to private attribute
+            self._aniso = aniso
+
     def compute_lbo(self) -> None:   
         """
         This method computes the Laplace-Beltrami operator using finite element methods on a
-        triangular mesh, optionally incorporating spatial heterogeneity and smoothing of the
-        curvature. The resulting stiffness and mass matrices are stored as attributes.
+        triangular mesh, optionally incorporating spatial heterogeneity and anisotropy.
+        The resulting stiffness and mass matrices are stored as attributes.
+        
+        Notes
+        -----
+        When anisotropy is applied, the gradient components are cross-coupled with the tangent
+        basis directions due to the FEM formulation. Specifically, the gradient component in the 
+        u1 direction scales diffusion in the u2 direction, and vice versa. This corresponds to 
+        the tensor transformation R^T D R where R = [0,-1; 1,0], a standard rotation required 
+        by the finite element discretization. This ensures that positive alpha_aniso enhances 
+        diffusion parallel to the gradient direction as intended.
         """
+        from lapy.diffgeo import tria_compute_gradient
+        
         hetero_tri = self.geometry.map_vfunc_to_tfunc(self.hetero)
-
         u1, u2, _, _ = self.geometry.curvature_tria(smoothit=self.smoothit)
-
-        hetero_mat = np.tile(hetero_tri[:, np.newaxis], (1, 2))
+        
+        if self.aniso is not None:
+            # Compute 3D gradient at each triangle
+            grad_3d = tria_compute_gradient(self.geometry, self.aniso)
+            
+            # Project gradient onto local (u1, u2) coordinates
+            grad_u1 = np.sum(grad_3d * u1, axis=1)  # component in u1 direction
+            grad_u2 = np.sum(grad_3d * u2, axis=1)  # component in u2 direction
+            
+            # Compute gradient magnitude and normalize to [0, 1] range
+            grad_mag = np.sqrt(grad_u1**2 + grad_u2**2)
+            grad_mag_norm = grad_mag / np.maximum(grad_mag.max(), 1e-10)
+            
+            # Compute unit gradient directions (avoid division by zero)
+            grad_u1_unit = grad_u1 / np.maximum(grad_mag, 1e-10)
+            grad_u2_unit = grad_u2 / np.maximum(grad_mag, 1e-10)
+            
+            # Create anisotropic diffusion tensor with FEM-required cross-coupling:
+            # The FEM formulation requires swapping gradient components with basis directions.
+            # grad_u2_unit**2 (perpendicular to u2) scales diffusion in u1 direction
+            # grad_u1_unit**2 (perpendicular to u1) scales diffusion in u2 direction
+            # This implements the tensor transformation R^T D R where R = [0,-1; 1,0]
+            aniso_u1 = 1 + (self.alpha_aniso * grad_mag_norm) * grad_u2_unit**2  
+            aniso_u2 = 1 + (self.alpha_aniso * grad_mag_norm) * grad_u1_unit**2
+            
+            # Scale by heterogeneity to control overall diffusion speed
+            aniso_mat = np.column_stack([
+                hetero_tri * aniso_u1,  # when alpha_aniso=0, this becomes hetero_tri * 1
+                hetero_tri * aniso_u2   # when alpha_aniso=0, this becomes hetero_tri * 1
+            ])
+        else:
+            # Isotropic case (current implementation)
+            aniso_mat = np.tile(hetero_tri[:, np.newaxis], (1, 2))
+        
         self.stiffness, self.mass = self._fem_tria_aniso(self.geometry, u1, u2,
-                                                         hetero_mat, self.lump)
+                                                         aniso_mat, self.lump)
 
     def solve(
         self,
