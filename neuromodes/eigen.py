@@ -8,17 +8,14 @@ from pathlib import Path
 from typing import Union, Tuple, TYPE_CHECKING
 from warnings import warn
 from lapy import Solver, TriaMesh, TetMesh
+from nibabel import Nifti1Image
+from nibabel.loadsave import load
 import numpy as np
-from scipy.sparse import spmatrix
+from scipy.interpolate import griddata
+from scipy.sparse import csc_matrix, spmatrix
 from scipy.sparse.linalg import LinearOperator, eigsh, splu
 from trimesh import Trimesh
-from neuromodes.io import read_surf, mask_surf
-
-# =============================================================================================
-import nibabel as nib
-from scipy.interpolate import griddata
-from trimesh.voxel.ops import matrix_to_marching_cubes
-import gmsh
+from neuromodes.io import read_surf, mask_surf, is_vol, read_vol
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
@@ -34,7 +31,7 @@ class EigenSolver(Solver):
 
     def __init__(
         self,
-        geometry: Union[str, Path, Trimesh, TriaMesh, dict],
+        geometry: Union[str, Path, Trimesh, TriaMesh, TetMesh, dict],
         mask: Union[ArrayLike, None] = None,
         normalize: bool = False,
         hetero: Union[ArrayLike, None] = None,
@@ -76,19 +73,19 @@ class EigenSolver(Solver):
             If `hetero` is constant (raised by `scale_hetero`).
         """
         # Infer surface or volume (TODO: allow TetMesh, dict, .mgh, .mgz)
-        if isinstance(geometry, (str, Path)) and str(geometry).endswith(('.nii', '.nii.gz')):
-            geometry, roi_vol = make_tetra_mesh(geometry)
+        if is_vol(geometry):
+            geometry = read_vol(geometry)
             
             # Normalise to unit volume
             if normalize:
-                geometry.v = geometry.v/roi_vol**(1/3)
+                mesh_vol = calc_tetmesh_vol(geometry)
+                geometry.v = geometry.v/mesh_vol**(1/3)
 
             self.n_verts = geometry.v.shape[0]
             self.geometry = geometry
-
-            if mask is not None or hetero is not None:
-                raise NotImplementedError("`mask` and `hetero` are not implemented for volumes yet "
-                                          "and must be `None`.")
+            if mask is not None:
+                warn("`mask` is not implemented for volumes yet and will be ignored.")
+            self.mask = None
         else:
             # Surface inputs and checks (check_surf called in read_surf and mask_surf)
             surf = read_surf(geometry)
@@ -141,7 +138,9 @@ class EigenSolver(Solver):
 
     def __str__(self) -> str:
         """String representation of the EigenSolver object."""
-        str_out = f'EigenSolver\n-----------\nSurface mesh: {self.n_verts} vertices'
+        str_out = f'EigenSolver\n-----------\n{(
+            "Surface" if isinstance(self.geometry, TriaMesh) else "Volume"
+            )} mesh: {self.n_verts} vertices'
         if self.mask is not None:
             str_out += f' ({np.sum(self.mask == 0)} vertices masked out)'
         if self._raw_hetero is not None:
@@ -182,10 +181,8 @@ class EigenSolver(Solver):
         if isinstance(self.geometry, TetMesh):
             # Isotropic volumetric FEM (no Solver._fem_tet_aniso yet)
             if smoothit is not None:
-                warn("`smoothit` is not yet supported for volumetric meshes and will be ignored.")
-            fem = Solver(self.geometry, lump=lump)
-            self.stiffness = fem.stiffness
-            self.mass = fem.mass
+                warn("`smoothit` is not supported for volumetric meshes and will be ignored.")
+            self.stiffness, self.mass = self._fem_tetra_hetero(lump)
         else:
             # Anisotropic surface FEM
             if smoothit is None:
@@ -258,8 +255,7 @@ class EigenSolver(Solver):
         AssertionError
             If computed eigenvalues or eigenmodes contain NaNs.
         """
-
-        # Validate inputs
+        # Validate arguments
         if not isinstance(n_modes, int) or n_modes <= 0:
             raise ValueError("`n_modes` must be a positive integer.")
 
@@ -312,6 +308,146 @@ class EigenSolver(Solver):
             self.emodes = standardize_modes(self.emodes)
 
         return self
+    
+    def _fem_tetra_hetero(
+        self,
+        lump: bool = False
+    ) -> spmatrix:
+        """
+        This method is a copy of `lapy.solver.Solver._fem_tetra`, modified to incorporate
+        heterogeneity. In the homogeneous case (i.e., hetero=ones), output is identical to
+        `Solver(geometry).stiffness, Solver(geometry).mass`.
+        """
+        # Compute vertex coordinates and a difference vector for each triangle:
+        t1 = self.geometry.t[:, 0]
+        t2 = self.geometry.t[:, 1]
+        t3 = self.geometry.t[:, 2]
+        t4 = self.geometry.t[:, 3]
+        v1 = self.geometry.v[t1, :]
+        v2 = self.geometry.v[t2, :]
+        v3 = self.geometry.v[t3, :]
+        v4 = self.geometry.v[t4, :]
+        e1 = v2 - v1
+        e2 = v3 - v2
+        e3 = v1 - v3
+        e4 = v4 - v1
+        e5 = v4 - v2
+        e6 = v4 - v3
+        # Compute cross product and 6 * vol for each triangle:
+        cr = np.cross(e1, e3)
+        vol = np.abs(np.sum(e4 * cr, axis=1))
+        # zero vol will cause division by zero below, so set to small value:
+        vol_mean = 0.0001 * np.mean(vol)
+        vol[vol == 0] = vol_mean
+        # compute dot products of edge vectors
+        e11 = np.sum(e1 * e1, axis=1)
+        e22 = np.sum(e2 * e2, axis=1)
+        e33 = np.sum(e3 * e3, axis=1)
+        e44 = np.sum(e4 * e4, axis=1)
+        e55 = np.sum(e5 * e5, axis=1)
+        e66 = np.sum(e6 * e6, axis=1)
+        e12 = np.sum(e1 * e2, axis=1)
+        e13 = np.sum(e1 * e3, axis=1)
+        e14 = np.sum(e1 * e4, axis=1)
+        e15 = np.sum(e1 * e5, axis=1)
+        e23 = np.sum(e2 * e3, axis=1)
+        e25 = np.sum(e2 * e5, axis=1)
+        e26 = np.sum(e2 * e6, axis=1)
+        e34 = np.sum(e3 * e4, axis=1)
+        e36 = np.sum(e3 * e6, axis=1)
+        # compute entries for A (negations occur when one edge direction is flipped)
+        # these can be computed multiple ways
+        # basically for ij, take opposing edge (call it Ek) and two edges from the
+        # starting point of Ek to point i (=El) and to point j (=Em), then these are of
+        # the scheme:   (El * Ek)  (Em * Ek) - (El * Em) (Ek * Ek)
+        # where * is vector dot product
+        a12 = (-e36 * e26 + e23 * e66) / vol
+        a13 = (-e15 * e25 + e12 * e55) / vol
+        a14 = (e23 * e26 - e36 * e22) / vol
+        a23 = (-e14 * e34 + e13 * e44) / vol
+        a24 = (e13 * e34 - e14 * e33) / vol
+        a34 = (-e14 * e13 + e11 * e34) / vol
+        # compute diagonals (from row sum = 0)
+        a11 = -a12 - a13 - a14
+        a22 = -a12 - a23 - a24
+        a33 = -a13 - a23 - a34
+        a44 = -a14 - a24 - a34
+
+        # ----------------------------------- APPLY HETEROGENEITY ---------------------------------
+        hetero_tetras = self.hetero[self.geometry.t].mean(axis=1)
+        a12 *= hetero_tetras
+        a13 *= hetero_tetras
+        a14 *= hetero_tetras
+        a23 *= hetero_tetras
+        a24 *= hetero_tetras
+        a34 *= hetero_tetras
+        a11 *= hetero_tetras
+        a22 *= hetero_tetras
+        a33 *= hetero_tetras
+        a44 *= hetero_tetras
+        # -----------------------------------------------------------------------------------------
+
+        # stack columns to assemble data
+        local_a = np.column_stack(
+            (
+                a12,
+                a12,
+                a23,
+                a23,
+                a13,
+                a13,
+                a14,
+                a14,
+                a24,
+                a24,
+                a34,
+                a34,
+                a11,
+                a22,
+                a33,
+                a44,
+            )
+        ).reshape(-1)
+        i = np.column_stack(
+            (t1, t2, t2, t3, t3, t1, t1, t4, t2, t4, t3, t4, t1, t2, t3, t4)
+        ).reshape(-1)
+        j = np.column_stack(
+            (t2, t1, t3, t2, t1, t3, t4, t1, t4, t2, t4, t3, t1, t2, t3, t4)
+        ).reshape(-1)
+        local_a = local_a / 6.0
+        a = csc_matrix((local_a, (i, j)))
+        if not lump:
+            # create b matrix data (account for that vol is 6 times tet volume)
+            bii = vol / 60.0
+            bij = vol / 120.0
+            local_b = np.column_stack(
+                (
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bij,
+                    bii,
+                    bii,
+                    bii,
+                    bii,
+                )
+            ).reshape(-1)
+            b = csc_matrix((local_b, (i, j)))
+        else:
+            # when lumping put all onto diagonal (volume/4 for each vertex)
+            bii = vol / 24.0
+            local_b = np.column_stack((bii, bii, bii, bii)).reshape(-1)
+            i = np.column_stack((t1, t2, t3, t4)).reshape(-1)
+            b = csc_matrix((local_b, (i, i)))
+        return a, b
     
     def _check_for_emodes(self) -> None:
         if not hasattr(self, 'emodes'):
@@ -577,131 +713,38 @@ def is_orthonormal_basis(
     prod = emodes.T @ emodes if mass is None else emodes.T @ mass @ emodes
     return np.allclose(prod, np.eye(n_modes), rtol=rtol, atol=atol, equal_nan=False)
 
-# ================================================================================================================================================================================================
-# JAMES & KEVIN'S CODE BELOW FOR VOLUME EIGENMODES
-
-def get_tkrvox2ras(voldim, voxres):
-    """Generate transformation matrix to switch between tetrahedral and volume space.
-
-    Parameters
-    ----------
-    voldim : array (1x3)
-        Dimension of the volume (number of voxels in each of the 3 dimensions)
-    voxres : array (!x3)
-        Voxel resolution (resolution in each of the 3 dimensions)
-
-    Returns
-    ------
-    T : array (4x4)
-        Transformation matrix
+def calc_tetmesh_vol(mesh: TetMesh) -> float:
     """
-
-    T = np.zeros([4,4])
-    T[3,3] = 1
-
-    T[0,0] = -voxres[0]
-    T[0,3] = voxres[0]*voldim[0]/2
-
-    T[1,2] = voxres[2]
-    T[1,3] = -voxres[2]*voldim[2]/2
-
-
-    T[2,1] = -voxres[1]
-    T[2,3] = voxres[1]*voldim[1]/2
-
-    return T
-
-def make_tetra_mesh(nifti_input_filename):
+    Compute total volume of a TetMesh by summing volumes of all tetrahedra.
+    Units follow the mesh vertex coordinates (e.g., mm^3 if vertices are in mm).
     """
-    Tetrahedral meshing using Gmsh's python API.
-    Returns a lapy.TetMesh object.
+    v = mesh.v.astype(np.float64)
+    t = mesh.t.astype(np.int64)
+
+    A = v[t[:, 0]]
+    B = v[t[:, 1]]
+    C = v[t[:, 2]]
+    D = v[t[:, 3]]
+
+    # Volume of a tetrahedron = |det([B-A, C-A, D-A])| / 6
+    M = np.stack((B - A, C - A, D - A), axis=1)  # shape (n_tets, 3, 3)
+    vol = np.abs(np.linalg.det(M)) / 6.0
+    return vol.sum()
+
+def project_tetmesh_data(
+    nifti_input_filename: Union[str, Path],
+    data: ArrayLike,
+    tetmesh: TetMesh
+) -> Nifti1Image:
     """
-
-    # Load binary NIFTI with ROI
-    img = nib.load(nifti_input_filename)
-    vol = img.get_fdata()
-    vol = (vol > 0).astype(np.uint8)
-
-    # Marching cubes to extract surface (replacing mri_mc from FreeSurfer)
-    surface = matrix_to_marching_cubes(vol)
-    verts = nib.affines.apply_affine(img.affine, surface.vertices)
-    faces = surface.faces
-
-    # Gmsh tetrahedral meshing (replacing terminal commands to gmsh)
-    gmsh.initialize()
-    gmsh.model.add("brain")
-
-    # Add points to gmsh
-    point_tags = []
-    for v in verts:
-        tag = gmsh.model.geo.addPoint(v[0], v[1], v[2])
-        point_tags.append(tag)
-
-    # Add triangular faces
-    triangle_tags = []
-    for f in faces:
-        l1 = gmsh.model.geo.addLine(point_tags[f[0]], point_tags[f[1]])
-        l2 = gmsh.model.geo.addLine(point_tags[f[1]], point_tags[f[2]])
-        l3 = gmsh.model.geo.addLine(point_tags[f[2]], point_tags[f[0]])
-
-        cl = gmsh.model.geo.addCurveLoop([l1, l2, l3])
-        s = gmsh.model.geo.addPlaneSurface([cl])
-        triangle_tags.append(s)
-
-    # Create surface loop and volume
-    sl = gmsh.model.geo.addSurfaceLoop(triangle_tags)
-    gmsh.model.geo.addVolume([sl])
-
-    gmsh.model.geo.synchronize()
-
-    # Match James' Gmsh settings
-    gmsh.option.setNumber("Mesh.Algorithm3D", 4)
-    gmsh.option.setNumber("Mesh.Optimize", 1)
-    gmsh.option.setNumber("Mesh.OptimizeNetgen", 1)
-    
-    gmsh.model.mesh.generate(3)
-
-    # Get mesh data
-    _, node_coords, _ = gmsh.model.mesh.getNodes()
-    elements = gmsh.model.mesh.getElements()
-
-    # Extract tetrahedra
-    elem_types, _, elem_nodes = elements
-
-    tetra_nodes = None
-
-    for etype, nodes in zip(elem_types, elem_nodes):
-        if etype == 4:  # Gmsh tetrahedron element type
-            tetra_nodes = nodes.reshape(-1, 4)
-
-    if tetra_nodes is None:
-        gmsh.finalize()
-        raise RuntimeError("No tetrahedral elements generated")
-
-    points = node_coords.reshape(-1, 3)
-
-    tets = tetra_nodes - 1   # gmsh uses 1-based indexing
-
-    gmsh.finalize()
-
-    # Create lapy TetMesh from vertices and tets
-    mesh = TetMesh(v=points.astype(np.float64), t=tets.astype(np.int32))
-
-    # Get ROI volume in mm^3
-    voxel_dims = (img.header["pixdim"])[1:4]
-    roi_vol = np.sum(vol) * np.prod(voxel_dims)
-
-    return mesh, roi_vol
-
-def project_emodes(nifti_input_filename, emodes, tetmesh):
+    Project data defined on a tetrahedral mesh to a volumetric NIFTI space. Modified from James
+    Pang's original code in the `BrainEigenmodes` repository.
     """
-    Main function to calculate the eigenmodes of the ROI volume in a nifti file.
-    """
-    n_modes = emodes.shape[1]
-    # project eigenmodes in tetrahedral surface space into volume space
+    data = np.asarray_chkfinite(data)
+    n_maps = data.shape[1]
 
     # prepare transformation
-    ROI_data = nib.load(nifti_input_filename)
+    ROI_data = load(nifti_input_filename)
     roi_data = ROI_data.get_fdata()
     inds_all = np.where(roi_data==1)
     xx = inds_all[0]
@@ -715,7 +758,7 @@ def project_emodes(nifti_input_filename, emodes, tetmesh):
     points[:,3] = 1
 
     # calculate transformation matrix
-    T = get_tkrvox2ras(ROI_data.shape, ROI_data.header.get_zooms())
+    T = _get_tkrvox2ras(ROI_data.shape, ROI_data.header.get_zooms())
 
     # apply transformation
     points2 = np.matmul(T, np.transpose(points))
@@ -723,15 +766,44 @@ def project_emodes(nifti_input_filename, emodes, tetmesh):
     # initialize nifti output array
     new_shape = np.array(roi_data.shape)
     if roi_data.ndim>3:
-        new_shape[3] = n_modes
+        new_shape[3] = n_maps
     else:
-        new_shape = np.append(new_shape, n_modes)
+        new_shape = np.append(new_shape, n_maps)
     new_data = np.zeros(new_shape)
 
     # perform interpolation of eigenmodes from tetrahedral surface space to volume space
-    for mode in range(0, n_modes):
-        interpolated_data = griddata(tetmesh.v, emodes[:,mode], np.transpose(points2[0:3,:]), method='linear')
+    for map in range(0, n_maps):
+        interpolated_data = griddata(tetmesh.v, data[:,map], np.transpose(points2[0:3,:]), method='linear')
         for ind in range(0, len(interpolated_data)):
-            new_data[xx[ind],yy[ind],zz[ind],mode] = interpolated_data[ind]
+            new_data[xx[ind],yy[ind],zz[ind],map] = interpolated_data[ind]
 
-    return nib.Nifti1Image(new_data, ROI_data.affine, header=ROI_data.header)
+    return Nifti1Image(new_data, ROI_data.affine, header=ROI_data.header)
+
+def _get_tkrvox2ras(
+    voldim: NDArray,
+    voxres: NDArray
+) -> NDArray:
+    """Generate transformation matrix to switch between tetrahedral and volume space. Modified from
+    James Pang's original code in the `BrainEigenmodes` repository.
+
+    Parameters
+    ----------
+    voldim : array (1x3)
+        Dimension of the volume (number of voxels in each of the 3 dimensions)
+    voxres : array (!x3)
+        Voxel resolution (resolution in each of the 3 dimensions)
+
+    Returns
+    ------
+    T : array (4x4)
+        Transformation matrix
+    """
+    x_res, y_res, z_res = voxres
+    x_dim, y_dim, z_dim = voldim
+
+    return np.array([
+        [-x_res, 0,      0,     x_res*x_dim/2 ],
+        [0,      0,      z_res, -z_res*z_dim/2],
+        [0,      -y_res, 0,     y_res*y_dim/2 ],
+        [0,      0,      0,     1             ]
+    ])

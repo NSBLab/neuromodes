@@ -7,15 +7,123 @@ from importlib.resources import files, as_file
 import os
 from pathlib import Path
 from typing import Union, Tuple, cast, TYPE_CHECKING
-from lapy import TriaMesh
+from warnings import warn
+import gmsh
+from lapy import TriaMesh, TetMesh
+from nibabel.affines import apply_affine
 from nibabel.freesurfer.io import read_geometry
 from nibabel.gifti.gifti import GiftiImage
 from nibabel.loadsave import load
 import numpy as np
 from trimesh import Trimesh
+from trimesh.voxel.ops import matrix_to_marching_cubes
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
+    from nibabel import Nifti1Image
+
+def is_vol(geometry) -> bool:
+    return True if (isinstance(geometry, (str, Path))
+                    and str(geometry).endswith(('.nii', '.nii.gz', '.tetra.vtk'))
+        or isinstance(geometry, dict) and 'tetras' in geometry
+        or isinstance(geometry, TetMesh)) else False
+
+def read_vol(
+    geometry: Union[str, Path, TetMesh, dict]
+) -> TetMesh:
+    """
+    Tetrahedral meshing using Gmsh's python API.
+    Returns a lapy.TetMesh object.
+    """
+    if isinstance(geometry, dict):
+        tetras = geometry['tetras']
+        verts = geometry['vertices']
+        mesh = TetMesh(v=verts.astype(np.float64), t=tetras.astype(np.int32))
+    elif isinstance(geometry, (str, Path)) and (geometry.endswith('.nii') or geometry.endswith('.nii.gz')):
+        # Load binary NIFTI with ROI
+        nifti = load(geometry)
+        warn("Provided geometry is a NIFTI file. Generating tetrahedral mesh using Gmsh and "
+             "marching cubes algorithm.")
+        verts, tetras = make_tetra_mesh(nifti)
+        mesh = TetMesh(v=verts.astype(np.float64), t=tetras.astype(np.int32))
+    elif isinstance(geometry, (str, Path)) and (geometry.endswith('.vtk')):
+        # Load with lapy
+        mesh = TetMesh.read_vtk(str(geometry))
+    elif isinstance(geometry, TetMesh):
+        mesh = geometry
+    else:
+        raise ValueError("Unsupported volume geometry format. Provide a NIFTI (.nii, .nii.gz) or "
+                         "VTK (.vtk) file path, or a dictionary with 'vertices' and 'tetras' keys.")
+
+    return mesh
+
+def make_tetra_mesh(
+    nifti: Nifti1Image
+) -> Tuple[NDArray, NDArray]:
+    """
+    Tetrahedral meshing using Gmsh's python API and marching cubes algorithm.
+    Returns vertices and tetrahedra arrays.
+    """
+    # Get ROI from NIFTI
+    vol = nifti.get_fdata()
+    vol = (vol > 0).astype(np.uint8)
+
+    # Marching cubes to extract surface (replacing mri_mc from FreeSurfer)
+    surface = matrix_to_marching_cubes(vol)
+    verts = apply_affine(nifti.affine, surface.vertices)
+    faces = surface.faces
+
+    # Gmsh tetrahedral meshing (replacing terminal commands to gmsh)
+    gmsh.initialize()
+    gmsh.model.add("brain")
+
+    # Add points to gmsh
+    point_tags = []
+    for v in verts:
+        tag = gmsh.model.geo.addPoint(v[0], v[1], v[2])
+        point_tags.append(tag)
+
+    # Add triangular faces
+    triangle_tags = []
+    for f in faces:
+        l1 = gmsh.model.geo.addLine(point_tags[f[0]], point_tags[f[1]])
+        l2 = gmsh.model.geo.addLine(point_tags[f[1]], point_tags[f[2]])
+        l3 = gmsh.model.geo.addLine(point_tags[f[2]], point_tags[f[0]])
+
+        cl = gmsh.model.geo.addCurveLoop([l1, l2, l3])
+        s = gmsh.model.geo.addPlaneSurface([cl])
+        triangle_tags.append(s)
+
+    # Create surface loop and volume
+    sl = gmsh.model.geo.addSurfaceLoop(triangle_tags)
+    gmsh.model.geo.addVolume([sl])
+
+    gmsh.model.geo.synchronize()
+
+    # Match James' Gmsh settings
+    gmsh.option.setNumber("Mesh.Algorithm3D", 4)
+    gmsh.option.setNumber("Mesh.Optimize", 1)
+    gmsh.option.setNumber("Mesh.OptimizeNetgen", 1)
+    
+    gmsh.model.mesh.generate(3)
+
+    # Get mesh data
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
+    elements = gmsh.model.mesh.getElements()
+
+    # Extract tetrahedra
+    elem_types, _, elem_nodes = elements
+
+    tetra_nodes = None
+
+    for etype, nodes in zip(elem_types, elem_nodes):
+        if etype == 4:  # Gmsh tetrahedron element type
+            tetra_nodes = nodes.reshape(-1, 4)
+
+    verts = node_coords.reshape(-1, 3)
+    tetras = tetra_nodes - 1   # gmsh uses 1-based indexing
+
+    return verts, tetras
 
 def read_surf(
     mesh: Union[str, Path, Trimesh, TriaMesh, dict]
