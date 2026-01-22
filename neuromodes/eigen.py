@@ -14,7 +14,7 @@ from scipy.interpolate import griddata
 from scipy.sparse import csc_matrix, spmatrix
 from scipy.sparse.linalg import LinearOperator, eigsh, splu
 from trimesh import Trimesh
-from neuromodes.io import read_surf, mask_surf, is_vol, read_vol, check_vol
+from neuromodes.io import read_surf, mask_surf, is_vol, is_surf, read_vol, check_vol
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
@@ -46,9 +46,12 @@ class EigenSolver(Solver):
         Parameters
         ----------
         geometry : str, pathlib.Path, trimesh.Trimesh, lapy.TriaMesh, lapy.TetMesh, or dict
-            The surface or volume mesh of a brain structure. Can be a file path to a supported
-            format (see `io.read_surf` and `io.read_vol`), a supported mesh object, or a dictionary
-            with keys `'vertices'` and either `'faces'` (for surfaces) or `'tetras'` (for volumes).
+            The surface or volume mesh of a brain structure. Can be:
+            - A path to one of the following file formats: `.gii`, `.vtk`, `.tetra.vtk`, `.white`,
+            `.pial`, `.inflated`, `.orig`, `.sphere`, `.smoothwm`, `.qsphere`, `.fsaverage`
+            - A supported mesh object (`trimesh.Trimesh`, `lapy.TriaMesh`, or `lapy.TetMesh`)
+            - A dictionary with keys `'vertices'` and either `'faces'` (for surfaces) or `'tetras'`
+            (for volumes).
         mask : array-like, optional
             A boolean mask to exclude certain points (e.g., medial wall) from a surface mesh. This
             parameter is not yet supported for volumes. Default is `None`.
@@ -68,6 +71,8 @@ class EigenSolver(Solver):
         Raises
         ------
         ValueError
+            If `geometry` is not a valid surface or volume mesh.
+        ValueError
             If `hetero` length does not match the number of vertices (masked or unmasked).
         ValueError
             If `scaling` is not 'sigmoid' or 'exponential' (raised by `scale_hetero`).
@@ -76,23 +81,22 @@ class EigenSolver(Solver):
         """
         # Infer surface or volume
         if is_vol(geometry):
-            if not isinstance(geometry, TetMesh):
-                geometry = read_vol(geometry)
+            vol = read_vol(geometry) if not isinstance(geometry, TetMesh) else geometry
 
             if normalize:
                 # Modify vertices so that volume = 1 and centroid at origin
-                vol = calc_tetmesh_vol(geometry)
-                centroid = geometry.v.mean(axis=0)
-                geometry.v = (geometry.v - centroid) / vol**(1/3)
+                roi_volume = calc_tetmesh_vol(vol)
+                centroid = vol.v.mean(axis=0)
+                vol.v = (vol.v - centroid) / roi_volume**(1/3)
 
-            check_vol(geometry)
+            check_vol(vol)
 
-            self.n_verts = geometry.v.shape[0]
-            self.geometry = geometry
+            self.n_verts = vol.v.shape[0]
+            self.geometry = vol
             if mask is not None:
                 warn("`mask` is not supported for volumes yet and will be ignored.")
             self.mask = None
-        else:
+        elif is_surf(geometry):
             # Surface inputs and checks (check_surf called in read_surf and mask_surf)
             surf = read_surf(geometry)
             if mask is not None:
@@ -104,6 +108,12 @@ class EigenSolver(Solver):
             if normalize:
                 self.geometry.normalize_()
             self.n_verts = surf.vertices.shape[0]
+        else:
+            raise ValueError(
+                '`geometry` must be a path-like string to a valid surface or volume mesh, a '
+                '`trimesh.Trimesh`, `lapy.TriaMesh`, or `lapy.TetMesh` instance, or a dictionary '
+                'with keys `vertices` and either `faces` (for surfaces) or `tetras` (for volumes).'
+            )
 
         # Hetero inputs
         if hetero is None: # Handle None case by setting to ones
@@ -143,11 +153,13 @@ class EigenSolver(Solver):
 
     def __str__(self) -> str:
         """String representation of the EigenSolver object."""
+        is_vol = isinstance(self.geometry, TetMesh)
         str_out = f'EigenSolver\n-----------\n{(
-            "Surface" if isinstance(self.geometry, TriaMesh) else "Volume"
+            "Volume" if is_vol else "Surface"
             )} mesh: {self.n_verts} vertices'
         if self.mask is not None:
-            str_out += f' ({np.sum(self.mask == 0)} vertices masked out)'
+            str_out += f' ({np.sum(self.mask == 0)} others masked out)'
+        str_out += f', {self.geometry.t.shape[0]} {"tetrahedra" if is_vol else "triangles"}'
         if self.hetero is not None:
             str_out += f'\nHeterogeneity map scaling: {self._scaling} (alpha={self._alpha})'
         str_out += f'\n{self.n_modes if hasattr(self, "n_modes") else "No"} eigenmodes computed'
@@ -325,9 +337,12 @@ class EigenSolver(Solver):
     ) -> Tuple[spmatrix, spmatrix]:
         """
         This method is a copy of `lapy.solver.Solver._fem_tetra`, modified to incorporate
-        heterogeneity. In the homogeneous case (i.e., hetero=ones), output is identical to
-        `Solver(geometry).stiffness, Solver(geometry).mass`.
+        heterogeneity. For a `hetero` of ones, output is identical to LaPy's `_fem_tetra` method.
         """
+        # Use LaPy's method for homogeneous case
+        if self.hetero is None:
+            return self._fem_tetra(self.geometry, lump)
+        
         # Compute vertex coordinates and a difference vector for each triangle:
         t1 = self.geometry.t[:, 0]
         t2 = self.geometry.t[:, 1]

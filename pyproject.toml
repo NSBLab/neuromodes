@@ -14,8 +14,10 @@ dependencies = [
     "nibabel>=5.2.1",
     "nilearn>=0.12.1",
     "numpy>=1.24.4",
+    "pyvista>=0.46.5",
     "scikit-image>=0.24.0",
     "scipy>=1.10.1",
+    "tetgen>=0.7.0",
     "trimesh>=4.8.1",
 ]
 

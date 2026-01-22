@@ -21,11 +21,20 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
     from nibabel import Nifti1Image
 
+fs_extensions = ('.white', '.pial', '.inflated', '.orig', '.sphere', '.smoothwm', '.qsphere',
+                 '.fsaverage')
+
 def is_vol(geometry) -> bool:
     return True if (isinstance(geometry, (str, Path))
-                    and str(geometry).endswith(('.nii', '.nii.gz', '.tetra.vtk'))
+                    and str(geometry).endswith(('.tetra.vtk'))
         or isinstance(geometry, dict) and 'tetras' in geometry
         or isinstance(geometry, TetMesh)) else False
+
+def is_surf(geometry) -> bool:
+    return True if (isinstance(geometry, (str, Path))
+                    and str(geometry).endswith(('.vtk', '.gii') + fs_extensions)
+        or isinstance(geometry, (Trimesh, TriaMesh))
+        or isinstance(geometry, dict) and 'faces' in geometry) else False
 
 def read_vol(
     vol: Union[str, Path, dict]
@@ -181,9 +190,7 @@ def read_surf(
         elif mesh_str.endswith('.gii'):
             mesh_data = cast(GiftiImage, load(mesh_str)).darrays
             trimesh = Trimesh(vertices=mesh_data[0].data, faces=mesh_data[1].data)
-        elif mesh_str.endswith(
-            ('white', 'pial', 'inflated', 'orig', 'sphere', 'smoothwm', 'qsphere', 'fsaverage')
-            ):
+        elif mesh_str.endswith(fs_extensions):
             vertices, faces = read_geometry(
                 mesh_str, read_metadata=False, read_stamp=False
                 ) # will only return two outputs now # type: ignore
@@ -191,9 +198,8 @@ def read_surf(
         else:
             raise ValueError(
                 '`surf` must be a path-like string to a valid VTK (.vtk), GIFTI (.gii), or '
-                'FreeSurfer file (.white, .pial, .inflated, .orig, .sphere, .smoothwm, .qsphere, '
-                '.fsaverage), an instance of `trimesh.Trimesh` or `lapy.TriaMesh`, or a dictionary '
-                'of `faces` and `vertices`.'
+                f'FreeSurfer file {fs_extensions}, an instance of `trimesh.Trimesh` or '
+                '`lapy.TriaMesh`, or a dictionary of `faces` and `vertices`.'
                 )
     
     # Validate the mesh before returning

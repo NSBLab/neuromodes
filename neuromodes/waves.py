@@ -86,7 +86,8 @@ def simulate_waves(
         If `True` and `ext_input` is `None`, cache the generated random input to avoid
         recomputation for the same values of `nt`, `seed`, and number of rows (vertices) in
         `emodes`. Inputs are cached in the directory specified by the `CACHE_DIR` environment
-        variable. If not set, the user's home directory is chosen. Default is `False`.
+        variable. If not set, the user's home directory is chosen. This requires the `joblib`
+        package to be installed. Default is `False`.
     **balloon_params
         Optional balloon model parameters to override defaults (e.g., `rho`, `k1`). See
         `get_balloon_params()` for available parameters. Only used when `bold_out=True`.

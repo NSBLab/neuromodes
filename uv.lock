@@ -1859,12 +1859,14 @@ dependencies = [
     { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyvista" },
     { name = "scikit-image", version = "0.24.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
     { name = "scipy", version = "1.16.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "tetgen" },
     { name = "trimesh" },
 ]
 
@@ -1899,8 +1901,10 @@ requires-dist = [
     { name = "nsbutils", marker = "extra == 'tutorials'", git = "https://github.com/NSBLab/nsbutils.git?rev=dev" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=8.4.2" },
+    { name = "pyvista", specifier = ">=0.46.5" },
     { name = "scikit-image", specifier = ">=0.24.0" },
     { name = "scipy", specifier = ">=1.10.1" },
+    { name = "tetgen", specifier = ">=0.7.0" },
     { name = "trimesh", specifier = ">=4.8.1" },
 ]
 provides-extras = ["testing", "tutorials", "cache"]
@@ -2566,6 +2570,21 @@ wheels = [
 ]
 
 [[package]]
+name = "pooch"
+version = "1.8.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "platformdirs", version = "4.4.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "platformdirs", version = "4.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/77/b3d3e00c696c16cf99af81ef7b1f5fe73bd2a307abca41bd7605429fe6e5/pooch-1.8.2.tar.gz", hash = "sha256:76561f0de68a01da4df6af38e9955c4c9d1a5c90da73f7e40276a5728ec83d10", size = 59353, upload_time = "2024-06-06T16:53:46.224Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/87/77cc11c7a9ea9fd05503def69e3d18605852cd0d4b0d3b8f15bbeb3ef1d1/pooch-1.8.2-py3-none-any.whl", hash = "sha256:3529a57096f7198778a5ceefd5ac3ef0e4d06a6ddaf9fc2d609b806f25302c47", size = 64574, upload_time = "2024-06-06T16:53:44.343Z" },
+]
+
+[[package]]
 name = "prompt-toolkit"
 version = "3.0.52"
 source = { registry = "https://pypi.org/simple" }
@@ -2675,6 +2694,28 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/f8/bf/abbd3cdfb8fbc7fb3d4d38d320f2441b1e7cbe29be4f23797b4a2b5d8aac/pytz-2025.2.tar.gz", hash = "sha256:360b9e3dbb49a209c21ad61809c7fb453643e048b38924c765813546746e81c3", size = 320884, upload_time = "2025-03-25T02:25:00.538Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/c4/34e93fe5f5429d7570ec1fa436f1986fb1f00c3e0f43a589fe2bbcd22c3f/pytz-2025.2-py2.py3-none-any.whl", hash = "sha256:5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00", size = 509225, upload_time = "2025-03-25T02:24:58.468Z" },
+]
+
+[[package]]
+name = "pyvista"
+version = "0.46.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "matplotlib", version = "3.9.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "matplotlib", version = "3.10.8", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pillow", version = "11.3.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pillow", version = "12.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pooch" },
+    { name = "scooby" },
+    { name = "typing-extensions" },
+    { name = "vtk" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/bd/a4e4131b2d4b908a060b43f8346ce863d76a6fecf8a1c2c845602e96c610/pyvista-0.46.5.tar.gz", hash = "sha256:b637bfa32136b95e5e5a6d972871606a68e3c625fc652ff5d9f00390294e99c0", size = 2397682, upload_time = "2026-01-15T00:29:12.727Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/df/39a108f198dd2240f2c9dad06c7c81d44809aeb83f3eb2c9d5a1ae9e4311/pyvista-0.46.5-py3-none-any.whl", hash = "sha256:d254e1e32e1df0dc04b409f989bd56b24d9e94086d868597af6c501151ec17fa", size = 2448206, upload_time = "2026-01-15T00:29:10.035Z" },
 ]
 
 [[package]]
@@ -3611,6 +3652,15 @@ wheels = [
 ]
 
 [[package]]
+name = "scooby"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d1/d1/a28f3be1503a9c474a4878424bbeb93a55a2ec7d0cb66559aa258e690aea/scooby-0.11.0.tar.gz", hash = "sha256:3dfacc6becf2d6558efa4b625bae3b844ced5d256f3143ebf774e005367e712a", size = 22102, upload_time = "2025-11-01T19:22:53.894Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a3/bb/bbae36d06c0fd670e8373da67096cd57058b57c9bad7d92969b5e3b730af/scooby-0.11.0-py3-none-any.whl", hash = "sha256:a79663d1a7711eb104e4b2935988ea1ed5f7be6b7288fad23b4fba7462832f9d", size = 19877, upload_time = "2025-11-01T19:22:53.046Z" },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3653,6 +3703,32 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/d4/f8/1b74ddcb05764db182b1f468bcb8efb5548b8efe5f6e29be86c07d25cd8e/surfplot-0.2.0.tar.gz", hash = "sha256:1dd4ae3943860b1756f97e6acb10decc6e0411637a9d3ab4d365c4df99bb7bad", size = 72066, upload_time = "2022-12-20T18:51:23.229Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b1/17/440347ae24a38c78a9b116e0b80d91ee980ab88936a474546b7d2b5238c9/surfplot-0.2.0-py3-none-any.whl", hash = "sha256:cec0cc4283406898ef0c92e7c952dddc0f77993a8c05a6ceb9974a556a228ab8", size = 69762, upload_time = "2022-12-20T18:51:21.26Z" },
+]
+
+[[package]]
+name = "tetgen"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy", version = "2.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
+    { name = "numpy", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "pyvista" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6d/ba/dccbdad0ab662ff7533d55d9a39872e98ae02172daf967d4b9523c1d474e/tetgen-0.7.0.tar.gz", hash = "sha256:9b0778d210b20a4ac3c9105fa1f7fd40d74ad5afb3ab404daa6df348b411f826", size = 528744, upload_time = "2025-11-25T20:34:30.7Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d6/d1/18ba4813e51d53e0bd6b29b2807080b7b7c313243d371dee9a716e828e50/tetgen-0.7.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:2f3a592e84db4d81d62bb62e6fc1b7126dae913ce502f683607f2a6cc3aa6a3d", size = 456652, upload_time = "2025-11-25T20:34:08.082Z" },
+    { url = "https://files.pythonhosted.org/packages/00/89/37cf2412071fea04e8c7ad828108f614bdb24ae7ced3f52d78205a351fc1/tetgen-0.7.0-cp310-cp310-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:23789e4fdf34c2615b59c7ab2f119c51b5ff49a413876d901ecc01fd60a5d811", size = 2216515, upload_time = "2025-11-25T20:34:10.275Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/fb/6cd60c9f779d76d6c9b1e39c8114ddee986fa16053eea756ee36b1de8c3e/tetgen-0.7.0-cp310-cp310-win_amd64.whl", hash = "sha256:3de49c4be8a4fbaa8b40d1128966f32afb6302528a257ce8aa94222106a74583", size = 353188, upload_time = "2025-11-25T20:34:12.029Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/c6/b805d39d1cdf5452c10756d95be2059fae393a95cf86197e202e3a7a661b/tetgen-0.7.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:a94f965c87b78315bf0ea0178aec9d67fe6a65c74f6547b4b68db5987aa95ffd", size = 458268, upload_time = "2025-11-25T20:34:13.62Z" },
+    { url = "https://files.pythonhosted.org/packages/38/42/8fdf579385ba52c7a4ff19cfe44c35123b432a0374d7ddcdd9bf891dc726/tetgen-0.7.0-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9fbe32e96685f5f594f0f8512ee59839975b1d6a7182424427c1d3363d721ac8", size = 2255344, upload_time = "2025-11-25T20:34:15.674Z" },
+    { url = "https://files.pythonhosted.org/packages/5a/08/c769740601c073f5952b0e8175e4df5894f07de5267f7bbbbcbdbac096eb/tetgen-0.7.0-cp311-cp311-win_amd64.whl", hash = "sha256:7f9590da2c7a0a077f7582634b7980d663a406048166160b44a6da85a17723af", size = 353185, upload_time = "2025-11-25T20:34:17.245Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/fd/71686ced199170bac3b14e9d3798d0b272391e1760154100294683ecab3b/tetgen-0.7.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7d500c26b6188fb06a8a5e983227f25de7d2b5dfbfc21fc16274743d2d358ffa", size = 457522, upload_time = "2025-11-25T20:34:18.99Z" },
+    { url = "https://files.pythonhosted.org/packages/53/9d/2824cd01d204151f57f33c1a8ac0064b96c474adb27066a35dedaf6b0651/tetgen-0.7.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b66a15c4fade6b7e25d975fe87a38b2ae346463ba7de21c147774b5add6d90ab", size = 2268315, upload_time = "2025-11-25T20:34:21.542Z" },
+    { url = "https://files.pythonhosted.org/packages/60/b5/0fd1f5af64909f0140e12ab6d5d66f9927a1679aa63f706a9d91bebb1dd9/tetgen-0.7.0-cp312-cp312-win_amd64.whl", hash = "sha256:5968d8f7ae72ea5da8f1477ed065455c05190f826db5581926760552216c6d89", size = 354484, upload_time = "2025-11-25T20:34:23.102Z" },
+    { url = "https://files.pythonhosted.org/packages/56/56/0e0a44ac76f6bb4c0e448f15c1740a0fb1454330a865df8e2912f43ab535/tetgen-0.7.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:a1cf6125305f652d0a4d061c3915047bd36dcac118f01ddf9abbbf01a9679a3b", size = 456671, upload_time = "2025-11-25T20:34:24.58Z" },
+    { url = "https://files.pythonhosted.org/packages/04/64/e3a596ded9f24db18635e07f61d6aa1d50932b68254909e56c06c954a581/tetgen-0.7.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:9414de626f625a6e28c17c826dc3623f6a3728f23c98c675339f1479f1359917", size = 2264968, upload_time = "2025-11-25T20:34:26.875Z" },
+    { url = "https://files.pythonhosted.org/packages/91/0c/bedb5f11f806aaecada5bb84e73d56f530985227801f8bc21320b2244908/tetgen-0.7.0-cp313-cp313-win_amd64.whl", hash = "sha256:d78a1f13b7c82018e2d7ee1a64c94ec0e87c9a79bc9742d043b94839fc97d753", size = 354389, upload_time = "2025-11-25T20:34:28.836Z" },
 ]
 
 [[package]]
