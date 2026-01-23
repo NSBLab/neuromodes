@@ -122,8 +122,13 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
+   neuromodes.io.is_vol
+   neuromodes.io.is_surf
+   neuromodes.io.read_vol
    neuromodes.io.read_surf
    neuromodes.io.mask_surf
+   neuromodes.io.check_vol
    neuromodes.io.check_surf
+   neuromodes.io.fetch_vol
    neuromodes.io.fetch_surf
    neuromodes.io.fetch_map

@@ -566,23 +566,23 @@ def _model_balloon_ode(
     for j in range(n_modes):
         def balloon_odes_j(t_, y):
             """Returns the balloon model ODEs for mode j."""
-            s, f, v, q = y
+            z, f, v, q = y
 
             # Interpolate input coefficient at time t_
-            u = np.interp(t_, t, activity_coeffs[j])
+            N = np.interp(t_, t, activity_coeffs[j])
 
             # Set expressions for time derivatives
-            dsdt = u - kappa * s - gamma_h * (f - 1)
-            dfdt = s
+            dzdt = N - kappa * z - gamma_h * (f - 1)
+            dfdt = z
             dvdt = (f - v ** (1 / alpha)) / tau
             dqdt = (f * (1 - (1 - rho) ** (1 / f)) / rho - q * v ** (1 / alpha - 1)) / tau
-            return [dsdt, dfdt, dvdt, dqdt]
+            return [dzdt, dfdt, dvdt, dqdt]
 
         # Call ODE solver
         sol = solve_ivp(
             balloon_odes_j,
             t_span=(t[0], t[-1]),
-            y0=[0.0, 1.0, 1.0, 1.0], # Initial condition for [s, f, v, q]
+            y0=[0.0, 1.0, 1.0, 1.0], # Initial condition for [z, f, v, q]
             t_eval=t,
             method='RK45',
             rtol=1e-6,

@@ -113,7 +113,6 @@ class EigenSolver(Solver):
                 'with keys `vertices` and either `faces` (for surfaces) or `tetras` (for volumes).'
             )
         self.n_verts = self.geometry.v.shape[0]
-        self.n_elems = self.geometry.t.shape[0]
 
         # Hetero inputs
         if hetero is None: # Handle None case by setting to ones
@@ -130,11 +129,9 @@ class EigenSolver(Solver):
             scaling = "sigmoid" if scaling is None else scaling
 
             # Ensure hetero has correct length (masked or unmasked)
-            if hetero.shape == (self.n_verts,):
-                pass
-            elif self.mask is not None and hetero.shape == (len(self.mask),):
+            if self.mask is not None and hetero.shape == (len(self.mask),):
                 hetero = hetero[self.mask]
-            else:
+            elif hetero.shape != (self.n_verts,):
                 err_str = f"the number of vertices in the provided mesh ({self.n_verts})"
                 if self.mask is not None:
                     err_str += f" or the masked mesh ({self.mask.sum()})"
@@ -159,7 +156,7 @@ class EigenSolver(Solver):
             )} mesh: {self.n_verts} vertices'
         if self.mask is not None:
             str_out += f' ({np.sum(self.mask == 0)} others masked out)'
-        str_out += f', {self.n_elems} {"tetrahedra" if is_vol else "triangles"}'
+        str_out += f', {self.geometry.t.shape[0]} {"tetrahedra" if is_vol else "triangles"}'
         if self.hetero is not None:
             str_out += f'\nHeterogeneity map scaling: {self._scaling} (alpha={self._alpha})'
         str_out += f'\n{self.n_modes if hasattr(self, "n_modes") else "No"} eigenmodes computed'
@@ -197,7 +194,7 @@ class EigenSolver(Solver):
             If `smoothit` is negative or not an integer.
         """
         if isinstance(self.geometry, TetMesh):
-            # Isotropic volumetric FEM (no Solver._fem_tet_aniso yet)
+            # Isotropic volumetric FEM (no Solver._fem_tetra_aniso yet)
             if smoothit is not None:
                 warn("`smoothit` is not supported for volumetric meshes and will be ignored.")
             self.stiffness, self.mass = self._fem_tetra_hetero(lump)

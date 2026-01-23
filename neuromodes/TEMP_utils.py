@@ -6,15 +6,7 @@ import plotly.graph_objs as go
 from lapy import TetMesh
 from matplotlib import colormaps
 
-# Make seismic_r colormap for plotly
-cmap = colormaps.get_cmap('seismic_r')
-vals = np.linspace(0, 1, 256)
-seismic_r = [
-    [i / (256 - 1), f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"]
-    for i, (r, g, b, _) in enumerate(cmap(vals))
-]
-
-def make_thin_vol(surface_mesh, scaling=0.99):
+def make_thin_vol(surface_mesh, scaling=0.99, **kwargs):
     """
     Create a thin shell tetrahedral volume mesh from a surface mesh.
     
@@ -24,6 +16,8 @@ def make_thin_vol(surface_mesh, scaling=0.99):
         The outer surface mesh.
     scaling : float, optional
         Scale factor for the inner surface (default: 0.99).
+    **kwargs
+        Additional keyword arguments for tetgen.TetGen.tetrahedralize().
     
     Returns
     -------
@@ -42,7 +36,7 @@ def make_thin_vol(surface_mesh, scaling=0.99):
     
     # Tetrahedralize
     tet = tetgen.TetGen(vertices, faces)
-    tet.tetrahedralize()
+    tet.tetrahedralize(**kwargs)
     
     # Extract tetrahedral mesh
     vol_vertices = tet.grid.points
@@ -50,9 +44,7 @@ def make_thin_vol(surface_mesh, scaling=0.99):
     
     return TetMesh(v=vol_vertices, t=vol_tets)
 
-
-def plot_mesh_data(geometry, emodes, mode_idx, colorscale=seismic_r, 
-                         width=700, height=700):
+def plot_mesh_data(geometry, data, cmap='seismic_r', width=700, height=700):
     """
     Plot a colored mesh surface with overlaid edges.
     
@@ -60,22 +52,23 @@ def plot_mesh_data(geometry, emodes, mode_idx, colorscale=seismic_r,
     ----------
     geometry : lapy.TriaMesh
         The surface mesh geometry.
-    emodes : ndarray
-        Eigenmode data (n_vertices, n_modes).
-    mode_idx : int
-        Index of the mode to visualize.
-    colorscale : list
-        Plotly colorscale specification.
+    data : ndarray
+        Data values (n_vertices,).
+    cmap : str, optional
+        Matplotlib colormap name (default: 'seismic_r').
     width : int, optional
         Figure width in pixels (default: 700).
     height : int, optional
         Figure height in pixels (default: 700).
-    
-    Returns
-    -------
-    fig : plotly.graph_objs.Figure
-        The interactive figure.
     """
+    # Make seismic_r colormap for plotly
+    cmap = colormaps.get_cmap(cmap)
+    vals = np.linspace(0, 1, 256)
+    colorscale = [
+        [i / (256 - 1), f"rgb({int(r*255)},{int(g*255)},{int(b*255)})"]
+        for i, (r, g, b, _) in enumerate(cmap(vals))
+]
+
     x, y, z = geometry.v.T
     i, j, k = geometry.t.T
     
@@ -83,7 +76,7 @@ def plot_mesh_data(geometry, emodes, mode_idx, colorscale=seismic_r,
     fig = go.Figure(data=[
         go.Mesh3d(
             x=x, y=y, z=z, i=i, j=j, k=k,
-            intensity=emodes[:, mode_idx],
+            intensity=data,
             colorscale=colorscale,
             flatshading=False,
             showscale=False,
