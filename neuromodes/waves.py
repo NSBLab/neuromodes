@@ -112,8 +112,6 @@ def simulate_waves(
     ValueError
         If `speed_limits` is not a tuple (min_speed, max_speed), where 0 ≤ min_speed < max_speed.
     ValueError
-        If `ext_input` is provided but does not have shape (n_verts, nt).
-    ValueError
         If `nt` is not provided when `ext_input` is `None`.
     ValueError
         If `pde_method` is not `'fourier'` or `'ode'`.
@@ -122,7 +120,7 @@ def simulate_waves(
 
     Notes
     -----
-    Since the simulation begins at rest, consider discarding the first ~50 timepoints to allow the
+    Since the simulation begins at rest, consider discarding the first ~50 seconds to allow the
     system to reach a steady state.
     """
     # Format / validate arguments
@@ -144,8 +142,8 @@ def simulate_waves(
         raise ValueError("Parameter `gamma` must be positive.")
     if dt <= 0:
         raise ValueError("`dt` must be positive.")
-    if not isinstance(nt, int) or nt <= 0:
-        raise ValueError("`nt` must be a positive integer.")
+    if nt is not None and (not isinstance(nt, int) or nt <= 0):
+        raise ValueError("`nt` must be `None` or a positive integer.")
     if speed_limits is not None:
         if (not isinstance(speed_limits, tuple) or not len(speed_limits) == 2
             or speed_limits[0] < 0 or speed_limits[0] >= speed_limits[1]):
@@ -166,12 +164,13 @@ def simulate_waves(
 
     if ext_input is not None:
         ext_input = np.asarray_chkfinite(ext_input)
-        if nt is not None and ext_input.shape != (n_verts, nt):
-            raise ValueError(f"`ext_input` must have shape (n_verts, nt) = {(n_verts, nt)}.")
+        if nt is not None:
+            warn("`nt` is ignored when `ext_input` is provided.")
         if seed is not None:
             warn("`seed` is ignored when `ext_input` is provided.")
         if cache_input:
             warn("`cache_input` is ignored when `ext_input` is provided.")
+        nt = ext_input.shape[1]
     else:
         if nt is None:
             raise ValueError("`nt` must be provided when `ext_input` is `None`.")
@@ -636,8 +635,8 @@ def _simulate_waves_fem(
         raise ValueError("Parameter `gamma` must be positive.")
     if dt <= 0:
         raise ValueError("`dt` must be positive.")
-    if not isinstance(nt, int) or nt <= 0:
-        raise ValueError("`nt` must be a positive integer.")
+    if nt is not None and (not isinstance(nt, int) or nt <= 0):
+        raise ValueError("`nt` must be `None` or a positive integer.")
     if speed_limits is not None:
         if (not isinstance(speed_limits, tuple) or not len(speed_limits) == 2
             or speed_limits[0] < 0 or speed_limits[0] >= speed_limits[1]):
@@ -654,12 +653,13 @@ def _simulate_waves_fem(
 
     if ext_input is not None:
         ext_input = np.asarray_chkfinite(ext_input)
-        if nt is not None and ext_input.shape != (n_verts, nt):
-            raise ValueError(f"`ext_input` must have shape (n_verts, nt) = {(n_verts, nt)}.")
+        if nt is not None:
+            warn("`nt` is ignored when `ext_input` is provided.")
         if seed is not None:
             warn("`seed` is ignored when `ext_input` is provided.")
         if cache_input:
             warn("`cache_input` is ignored when `ext_input` is provided.")
+        nt = ext_input.shape[1]
     else:
         if nt is None:
             raise ValueError("`nt` must be provided when `ext_input` is `None`.")
@@ -684,13 +684,16 @@ def _simulate_waves_fem(
     ext_input_freqs = np.fft.fftshift(np.fft.ifft(ext_input_padded, axis=1), axes=1)
     omega = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(2 * nt, dt))
 
+    # Treat noise input as a continuous field
+    mass_ext_input_freqs = mass @ ext_input_freqs
+
     # Compute response at each frequency
     phi_freqs = np.zeros_like(ext_input_freqs, dtype=complex)
     for k, w in enumerate(omega):
         operator = mass * (-w**2 / gamma**2 - 2j * w / gamma + 1) + stiffness * r**2
 
         # Sparse LU decomposition and solve PDE
-        phi_freqs[:, k] = linalg.splu(operator).solve(ext_input_freqs[:, k])
+        phi_freqs[:, k] = linalg.splu(operator).solve(mass_ext_input_freqs[:, k])
 
     # Inverse transform to time domain, implemented as forward FFT for causality
     phi = np.real(np.fft.fft(np.fft.ifftshift(phi_freqs, axes=1), axis=1))
