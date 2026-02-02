@@ -103,8 +103,8 @@ def test_reconstruct_mode_superposition(solver, gen_eigenmap):
 def test_reconstruct_regress_method(solver, gen_eigenmap):
     eigenmaps, _ = gen_eigenmap
 
-    _, correlation_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', check_ortho=False, metric='correlation')
-    _, euclidean_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', check_ortho=False, metric='euclidean')
+    _, correlation_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', checks=False, metric='correlation')
+    _, euclidean_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', checks=False, metric='euclidean')
 
     # Errors should strictly decrease when adding modes
     assert np.all(np.diff(correlation_error[1:,:], axis=0) < 0), \
@@ -129,10 +129,10 @@ def test_reconstruct_mode_superposition_timeseries(solver, gen_eigenmap):
 
     # Treat eigenmaps as timepoints of activity
     fc_recon, correlation_error, _, _, _ = reconstruct_timeseries(
-        eigen_ts, solver.emodes, method='regress', check_ortho=False, metric='correlation')
+        eigen_ts, solver.emodes, method='regress', checks=False, metric='correlation')
 
     _, euclidean_error, _, _, _ = reconstruct_timeseries(
-        eigen_ts, solver.emodes, method='regress', check_ortho=False, metric='euclidean')
+        eigen_ts, solver.emodes, method='regress', checks=False, metric='euclidean')
     mse = euclidean_error / fc.size  # Convert to MSE
     
     assert np.allclose(np.tanh(fc_recon[:,-1]), np.tanh(fc), atol=1e-5), \

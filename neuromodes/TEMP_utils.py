@@ -5,6 +5,16 @@ import tetgen
 import plotly.graph_objs as go
 from lapy import TetMesh
 from matplotlib import colormaps
+from typing import Union, TYPE_CHECKING
+from nibabel import Nifti1Image, load
+from scipy.interpolate import griddata
+from trimesh.voxel.ops import matrix_to_marching_cubes
+import gmsh
+from nibabel.affines import apply_affine
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray, ArrayLike
+    from pathlib import Path
 
 def make_thin_vol(surface_mesh, scaling=0.99, **kwargs):
     """
@@ -176,3 +186,154 @@ def plot_mesh_data(geometry, data, cmap='seismic_r', cnorm=True, width=700, heig
 
     fig.update_layout(**layout_kwargs)
     fig.show()
+
+def project_tetmesh_data(
+    nifti_input_filename: Union[str, Path],
+    data: ArrayLike,
+    tetmesh: TetMesh
+) -> Nifti1Image:
+    """
+    Project data defined on a tetrahedral mesh to a volumetric NIFTI space. Modified from James
+    Pang's original code in the `BrainEigenmodes` repository.
+    """
+    data = np.asarray_chkfinite(data)
+    n_maps = data.shape[1]
+
+    # prepare transformation
+    ROI_data = load(nifti_input_filename)
+    roi_data = ROI_data.get_fdata()
+    inds_all = np.where(roi_data==1)
+    xx = inds_all[0]
+    yy = inds_all[1]
+    zz = inds_all[2]
+
+    points = np.zeros([xx.shape[0],4])
+    points[:,0] = xx
+    points[:,1] = yy
+    points[:,2] = zz
+    points[:,3] = 1
+
+    # calculate transformation matrix
+    T = _get_tkrvox2ras(ROI_data.shape, ROI_data.header.get_zooms())
+
+    # apply transformation
+    points2 = np.matmul(T, np.transpose(points))
+
+    # initialize nifti output array
+    new_shape = np.array(roi_data.shape)
+    if roi_data.ndim>3:
+        new_shape[3] = n_maps
+    else:
+        new_shape = np.append(new_shape, n_maps)
+    new_data = np.zeros(new_shape)
+
+    # perform interpolation of eigenmodes from tetrahedral surface space to volume space
+    for map in range(0, n_maps):
+        interpolated_data = griddata(tetmesh.v, data[:,map], np.transpose(points2[0:3,:]), method='linear')
+        for ind in range(0, len(interpolated_data)):
+            new_data[xx[ind],yy[ind],zz[ind],map] = interpolated_data[ind]
+
+    return Nifti1Image(new_data, ROI_data.affine, header=ROI_data.header)
+
+def _get_tkrvox2ras(
+    voldim: NDArray,
+    voxres: NDArray
+) -> NDArray:
+    """Generate transformation matrix to switch between tetrahedral and volume space. Modified from
+    James Pang's original code in the `BrainEigenmodes` repository.
+
+    Parameters
+    ----------
+    voldim : array (1x3)
+        Dimension of the volume (number of voxels in each of the 3 dimensions)
+    voxres : array (!x3)
+        Voxel resolution (resolution in each of the 3 dimensions)
+
+    Returns
+    ------
+    T : array (4x4)
+        Transformation matrix
+    """
+    x_res, y_res, z_res = voxres
+    x_dim, y_dim, z_dim = voldim
+
+    return np.array([
+        [-x_res, 0,      0,     x_res*x_dim/2 ],
+        [0,      0,      z_res, -z_res*z_dim/2],
+        [0,      -y_res, 0,     y_res*y_dim/2 ],
+        [0,      0,      0,     1             ]
+    ])
+
+def make_vol_mesh(
+    nifti: Union[str, Path, Nifti1Image]
+) -> TetMesh:
+    """
+    TODO: Validate this implementation / test edge cases.
+    Tetrahedral meshing using Gmsh's python API and marching cubes algorithm.
+    Returns a lapy.TetMesh object.
+    """
+    # Get ROI from NIFTI
+    if isinstance(nifti, (str, Path)):
+        nifti = load(nifti)
+    elif not isinstance(nifti, Nifti1Image):
+        raise ValueError("nifti must be a Nifti1Image object or a path-like string to a valid "
+                         "`.nii` or `.nii.gz` file.")
+    vol = nifti.get_fdata()
+    vol = (vol > 0).astype(np.uint8)
+
+    # Marching cubes to extract surface (replacing mri_mc from FreeSurfer)
+    surface = matrix_to_marching_cubes(vol)
+    verts = apply_affine(nifti.affine, surface.vertices)
+    faces = surface.faces
+
+    # Gmsh tetrahedral meshing (replacing terminal commands to gmsh)
+    gmsh.initialize()
+    gmsh.model.add("brain")
+
+    # Add points to gmsh
+    point_tags = []
+    for v in verts:
+        tag = gmsh.model.geo.addPoint(v[0], v[1], v[2])
+        point_tags.append(tag)
+
+    # Add triangular faces
+    triangle_tags = []
+    for f in faces:
+        l1 = gmsh.model.geo.addLine(point_tags[f[0]], point_tags[f[1]])
+        l2 = gmsh.model.geo.addLine(point_tags[f[1]], point_tags[f[2]])
+        l3 = gmsh.model.geo.addLine(point_tags[f[2]], point_tags[f[0]])
+
+        cl = gmsh.model.geo.addCurveLoop([l1, l2, l3])
+        s = gmsh.model.geo.addPlaneSurface([cl])
+        triangle_tags.append(s)
+
+    # Create surface loop and volume
+    sl = gmsh.model.geo.addSurfaceLoop(triangle_tags)
+    gmsh.model.geo.addVolume([sl])
+
+    gmsh.model.geo.synchronize()
+
+    # Match James' Gmsh settings
+    gmsh.option.setNumber("Mesh.Algorithm3D", 4)
+    gmsh.option.setNumber("Mesh.Optimize", 1)
+    gmsh.option.setNumber("Mesh.OptimizeNetgen", 1)
+    
+    gmsh.model.mesh.generate(3)
+
+    # Get mesh data
+    _, node_coords, _ = gmsh.model.mesh.getNodes()
+    elements = gmsh.model.mesh.getElements()
+
+    # Extract tetrahedra
+    elem_types, _, elem_nodes = elements
+
+    tetra_nodes = None
+
+    for etype, nodes in zip(elem_types, elem_nodes):
+        if etype == 4:  # Gmsh tetrahedron element type
+            tetra_nodes = nodes.reshape(-1, 4)
+
+    verts = node_coords.reshape(-1, 3)
+    tetras = tetra_nodes - 1   # gmsh uses 1-based indexing
+
+    return TetMesh(v=verts.astype(np.float64), t=tetras.astype(np.int32))

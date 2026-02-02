@@ -4,7 +4,8 @@ from tempfile import TemporaryDirectory
 import numpy as np
 from neuromodes.io import fetch_surf
 from neuromodes.eigen import EigenSolver
-from neuromodes.waves import simulate_waves, calc_wave_speed, get_balloon_params
+from neuromodes.waves import (simulate_waves, calc_wave_speed, get_balloon_params,
+                              _simulate_waves_fem)
 
 @pytest.fixture
 def solver():
@@ -15,7 +16,7 @@ def solver():
 
 def test_unusual_wave_speed(solver):
     with pytest.warns(UserWarning, match=r'range of 0-150 m/s \(calculated 23.3-160.4 m/s\).'):
-        solver.simulate_waves(r=1000)
+        solver.simulate_waves(r=1000, nt=100)
 
 def test_unusual_wave_speed_no_hetero(solver):
     with pytest.warns(UserWarning, match=r'range of 0-115 m/s \(calculated 116.0 m/s\).'):
@@ -24,7 +25,8 @@ def test_unusual_wave_speed_no_hetero(solver):
             solver.evals,
             mass=solver.mass,
             r=1000,
-            speed_limits=(0, 115)
+            speed_limits=(0, 115),
+            nt=100
         )
 
 def test_single_speed_limit(solver):
@@ -64,19 +66,17 @@ def test_simulate_waves_impulse(solver):
         solver.evals,
         ext_input=ext_input,
         mass=solver.mass,
-        nt=nt,
         dt=dt,
-        check_ortho=False
+        checks=False
     )
     ode_ts = simulate_waves(
         solver.emodes,
         solver.evals,
         ext_input=ext_input,
         mass=solver.mass,
-        nt=nt,
         dt=dt,
         pde_method='ode',
-        check_ortho=False
+        checks=False
     )
 
     # Check output shapes
@@ -110,7 +110,7 @@ def test_simulate_waves_methods(solver):
         nt=nt,
         dt=dt,
         seed=seed,
-        check_ortho=False
+        checks=False
     )
     ode_ts = simulate_waves(
         solver.emodes,
@@ -120,7 +120,7 @@ def test_simulate_waves_methods(solver):
         dt=dt,
         seed=seed,
         pde_method='ode',
-        check_ortho=False
+        checks=False
     )
 
     for t in range(50, nt):
@@ -143,7 +143,7 @@ def test_simulate_waves_methods_bold(solver):
         dt=dt,
         bold_out=True,
         seed=seed,
-        check_ortho=False
+        checks=False
     )
     bold_ode = simulate_waves(
         solver.emodes,
@@ -154,7 +154,7 @@ def test_simulate_waves_methods_bold(solver):
         bold_out=True,
         seed=seed,
         pde_method='ode',
-        check_ortho=False
+        checks=False
     )
 
     # Methods converge to r=.98 by t=500, but this takes too long to run, so just anchor the test
@@ -177,7 +177,7 @@ def test_simulate_waves_seed_bold_reproducibility_fourier(solver):
         dt=dt,
         seed=seed,
         bold_out=True,
-        check_ortho=False
+        checks=False
     )
     ts2 = simulate_waves(
         solver.emodes,
@@ -187,7 +187,7 @@ def test_simulate_waves_seed_bold_reproducibility_fourier(solver):
         dt=dt,
         seed=seed,
         bold_out=True,
-        check_ortho=False
+        checks=False
     )
     ts3 = simulate_waves(
         solver.emodes,
@@ -197,7 +197,7 @@ def test_simulate_waves_seed_bold_reproducibility_fourier(solver):
         dt=dt,
         seed=seed+1,
         bold_out=True,
-        check_ortho=False
+        checks=False
     )
 
     assert np.allclose(ts1, ts2), "Simulations with the same seed do not match."
@@ -205,7 +205,7 @@ def test_simulate_waves_seed_bold_reproducibility_fourier(solver):
 
 def test_simulate_waves_invalid_input_shape(solver):
 
-    with pytest.raises(ValueError, match=r"must have shape \(n_verts, nt\) = \(3636, 1000\)."):
+    with pytest.raises(ValueError, match=r"n_verts is the number of rows in `emodes` \(3636\)."):
         simulate_waves(
             solver.emodes,
             solver.evals,
@@ -240,7 +240,7 @@ def test_simulate_waves_ode_balloon_overflow(solver):
             nt=10,
             pde_method='ode',
             bold_out=True,
-            check_ortho=False
+            checks=False
         )
 
 def test_simulate_waves_cached(solver):
@@ -257,7 +257,7 @@ def test_simulate_waves_cached(solver):
                 mass=solver.mass,
                 nt=10,
                 cache_input=True,
-                check_ortho=False,
+                checks=False,
                 seed=0
             )
 
@@ -286,7 +286,7 @@ def test_simulate_waves_balloon_param(solver):
         nt=nt,
         dt=dt,
         bold_out=True,
-        check_ortho=False
+        checks=False
     )
 
     ts_custom = simulate_waves(
@@ -297,7 +297,7 @@ def test_simulate_waves_balloon_param(solver):
         dt=dt,
         bold_out=True,
         rho = 0.5,
-        check_ortho=False
+        checks=False
     )
 
     assert not np.allclose(ts_default, ts_custom), \
@@ -331,4 +331,14 @@ def test_calc_wave_speed(solver):
     speed = calc_wave_speed(r=18.0, gamma=116, scaled_hetero=solver.hetero)
     assert np.all(speed > 0), "Output contains non-positive wave speeds when using `scaled_hetero`."
     assert speed.shape == (solver.n_verts,), "Output shape is incorrect when using `scaled_hetero`."
-    
+
+def test_fem_alignment(solver):
+    # Check that modal approximation aligns with FEM solution
+    nt=50
+    dt=0.01
+
+    modal_ts = solver.simulate_waves(nt=nt, dt=dt, seed=0)
+    fem_ts = _simulate_waves_fem(solver.mass, solver.stiffness, nt=nt, dt=dt, seed=0)
+    for t in range(10, nt):
+        assert np.corrcoef(modal_ts[:, t], fem_ts[:, t])[0, 1] > 0.8, \
+            f'Modal and FEM solutions are not correlated at r>.8 at t={t}.'

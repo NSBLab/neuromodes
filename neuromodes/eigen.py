@@ -3,20 +3,17 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 """
 
 from __future__ import annotations
-from pathlib import Path
 from typing import Union, Tuple, TYPE_CHECKING
 from warnings import warn
 from lapy import Solver, TriaMesh, TetMesh
-from nibabel import Nifti1Image
-from nibabel.loadsave import load
 import numpy as np
-from scipy.interpolate import griddata
 from scipy.sparse import csc_matrix, spmatrix
 from scipy.sparse.linalg import LinearOperator, eigsh, splu
 from trimesh import Trimesh
 from neuromodes.io import read_surf, mask_surf, is_vol, is_surf, read_vol, check_vol
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from numpy.typing import NDArray, ArrayLike
 
 class EigenSolver(Solver):
@@ -206,14 +203,19 @@ class EigenSolver(Solver):
                 raise ValueError("`smoothit` must be a non-negative integer.")
 
             if self.hetero is None:
-                self.stiffness, self.mass = self._fem_tria(self.geometry, lump)
+                # Compute mass and stiffness under homogeneous LBO
+                K, M = self._fem_tria(self.geometry, lump)
+                self.stiffness = K.astype(np.float32)  # Match float32 output of _fem_tria_aniso
+                self.mass = M.astype(np.float32)
             else:
-                # Get principal curvatures
+                # Get principal curvatures to define direction of anisotropy
+                # Note: not strictly needed for hetero, but _fem_tria_aniso requires them
                 u1, u2, _, _ = self.geometry.curvature_tria(smoothit)
 
                 # Map hetero from vertices to triangles by averaging
                 hetero_mat = self.geometry.map_vfunc_to_tfunc(self.hetero)[:, np.newaxis]
 
+                # Compute mass and stiffness under heterogeneous LBO
                 self.stiffness, self.mass = self._fem_tria_aniso(self.geometry, u1, u2, hetero_mat,
                                                                  lump)
         return self
@@ -756,80 +758,3 @@ def calc_tetmesh_vol(mesh: TetMesh) -> float:
     M = np.stack((B - A, C - A, D - A), axis=1)  # shape (n_tets, 3, 3)
     vol = np.abs(np.linalg.det(M)) / 6.0
     return vol.sum()
-
-def project_tetmesh_data(
-    nifti_input_filename: Union[str, Path],
-    data: ArrayLike,
-    tetmesh: TetMesh
-) -> Nifti1Image:
-    """
-    Project data defined on a tetrahedral mesh to a volumetric NIFTI space. Modified from James
-    Pang's original code in the `BrainEigenmodes` repository.
-    """
-    data = np.asarray_chkfinite(data)
-    n_maps = data.shape[1]
-
-    # prepare transformation
-    ROI_data = load(nifti_input_filename)
-    roi_data = ROI_data.get_fdata()
-    inds_all = np.where(roi_data==1)
-    xx = inds_all[0]
-    yy = inds_all[1]
-    zz = inds_all[2]
-
-    points = np.zeros([xx.shape[0],4])
-    points[:,0] = xx
-    points[:,1] = yy
-    points[:,2] = zz
-    points[:,3] = 1
-
-    # calculate transformation matrix
-    T = _get_tkrvox2ras(ROI_data.shape, ROI_data.header.get_zooms())
-
-    # apply transformation
-    points2 = np.matmul(T, np.transpose(points))
-
-    # initialize nifti output array
-    new_shape = np.array(roi_data.shape)
-    if roi_data.ndim>3:
-        new_shape[3] = n_maps
-    else:
-        new_shape = np.append(new_shape, n_maps)
-    new_data = np.zeros(new_shape)
-
-    # perform interpolation of eigenmodes from tetrahedral surface space to volume space
-    for map in range(0, n_maps):
-        interpolated_data = griddata(tetmesh.v, data[:,map], np.transpose(points2[0:3,:]), method='linear')
-        for ind in range(0, len(interpolated_data)):
-            new_data[xx[ind],yy[ind],zz[ind],map] = interpolated_data[ind]
-
-    return Nifti1Image(new_data, ROI_data.affine, header=ROI_data.header)
-
-def _get_tkrvox2ras(
-    voldim: NDArray,
-    voxres: NDArray
-) -> NDArray:
-    """Generate transformation matrix to switch between tetrahedral and volume space. Modified from
-    James Pang's original code in the `BrainEigenmodes` repository.
-
-    Parameters
-    ----------
-    voldim : array (1x3)
-        Dimension of the volume (number of voxels in each of the 3 dimensions)
-    voxres : array (!x3)
-        Voxel resolution (resolution in each of the 3 dimensions)
-
-    Returns
-    ------
-    T : array (4x4)
-        Transformation matrix
-    """
-    x_res, y_res, z_res = voxres
-    x_dim, y_dim, z_dim = voldim
-
-    return np.array([
-        [-x_res, 0,      0,     x_res*x_dim/2 ],
-        [0,      0,      z_res, -z_res*z_dim/2],
-        [0,      -y_res, 0,     y_res*y_dim/2 ],
-        [0,      0,      0,     1             ]
-    ])

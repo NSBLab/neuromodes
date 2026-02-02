@@ -63,7 +63,7 @@ def test_no_hetero_alpha_scaling(surf_medmask_hetero):
 def test_invalid_hetero_shape(surf_medmask_hetero):
     surf, _, _ = surf_medmask_hetero
     bad_hetero = np.ones(10)
-    with pytest.raises(ValueError, match=r"vertices in the surface mesh \(4002\)."):
+    with pytest.raises(ValueError, match=r"vertices in the provided mesh \(4002\)."):
         EigenSolver(surf, hetero=bad_hetero)
 
 def test_nan_inf_hetero(surf_medmask_hetero):
@@ -103,6 +103,20 @@ def test_nan_inf_hetero_medmask_ignored(surf_medmask_hetero):
     EigenSolver(surf, mask=medmask, hetero=hetero)
     hetero[medial_vertex] = np.inf  
     EigenSolver(surf, mask=medmask, hetero=hetero)
+
+def test_hetero_ones(surf_medmask_hetero):
+    surf, medmask, _ = surf_medmask_hetero
+    hetero = np.ones(sum(medmask))
+
+    homo_solver = EigenSolver(surf, mask=medmask).solve(20, seed=0)
+    with pytest.warns(UserWarning, match="Provided `hetero` is constant"):
+        het_solver = EigenSolver(surf, mask=medmask, hetero=hetero).solve(20, seed=0)
+
+    assert np.allclose(het_solver.evals, homo_solver.evals), \
+        'Eigenvalues with hetero=ones do not match homogeneous eigenvalues.'
+    for i in range(homo_solver.n_modes):
+        assert np.allclose(het_solver.emodes[:, i], homo_solver.emodes[:, i], atol=1e-4), \
+            f'Eigenmode {i+1} with hetero=ones does not match its homogeneous equivalent.'
 
 def test_real_heteromaps(surf_medmask_hetero):
     mesh, medmask = fetch_surf() # 32k density to match real maps
@@ -218,6 +232,12 @@ def test_solutions(solver):
                                          f'{solver.n_modes}.')
     assert np.all(np.diff(evals) > 0), 'Eigenvalues are not sorted in descending order.'
 
+def test_n_modes_consistency(solver):
+    emode_set = solver.emodes[:, 1:11]
+    emode_set_diff_n = solver.solve(11, seed=0).emodes[:, 1:11]
+    assert np.allclose(emode_set, emode_set_diff_n, atol=1e-4), \
+        'Modes differ when solving for different n_modes.'
+
 def test_constant_mode1(solver):
     emode1 = solver.emodes[:, 0]
 
@@ -244,11 +264,11 @@ def test_check_orthonorm(solver):
 
 def test_check_euclidean_orthonorm():
     # Create orthonormal vectors in Euclidean space
-    vecs = np.eye(5)
+    vecs = np.eye(5)[[2, 0, 4, 1, 3], :]
 
     assert is_orthonormal_basis(vecs)
     assert is_orthonormal_basis(vecs, mass=np.eye(5))
-    assert not is_orthonormal_basis(vecs, mass=np.zeros((5, 5)))
+    assert not is_orthonormal_basis(vecs, mass=np.ones((5, 5)))
 
 def test_scale_hetero(surf_medmask_hetero):
     _, _, hetero = surf_medmask_hetero
@@ -267,5 +287,3 @@ def test_invalid_scale_hetero(surf_medmask_hetero):
 
     with pytest.raises(ValueError, match="Invalid scaling 'plantasia'"):
         scale_hetero(hetero, scaling='plantasia')
-
-    

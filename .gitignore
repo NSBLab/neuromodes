@@ -53,6 +53,3 @@ venv.bak/
 
 # Mac OS
 .DS_Store
-
-# pyiso2mesh
-.iso2mesh_temp
