@@ -4,6 +4,7 @@ Module for expressing brain maps as linear combinations of orthogonal basis vect
 
 from __future__ import annotations
 from typing import Union, Tuple, TYPE_CHECKING
+from warnings import warn
 import numpy as np
 from scipy.sparse import spmatrix
 from scipy.spatial.distance import cdist
@@ -51,11 +52,7 @@ def decompose(
     Raises
     ------
     ValueError
-        If `emodes` does not have shape (n_verts, n_modes), where n_verts ≥ n_modes.
-    ValueError
         If `data` does not have shape (n_verts,) or (n_verts, n_maps).
-    ValueError
-        If `mass` does not have shape (n_verts, n_verts) when provided.
     ValueError
         If `method='project'` and `emodes` columns do not form an orthonormal basis set.
     ValueError
@@ -67,32 +64,25 @@ def decompose(
     if method not in ['project', 'regress']:
         raise ValueError(f"Invalid `method` '{method}'; must be 'project' or 'regress'.")
     if checks:
-        emodes = np.asarray_chkfinite(emodes)
-        if emodes.ndim != 2 or emodes.shape[0] < emodes.shape[1]:
-            raise ValueError("`emodes` must have shape (n_verts, n_modes), with n_verts ≥ n_modes.")
+        emodes = np.asarray(emodes)  # chkfinite in is_orthonormal_basis
+        if method == 'project':
+            if not isinstance(mass, (spmatrix, type(None))):
+                mass = np.asarray(mass)  # chkfinite in is_orthonormal_basis
+            if not is_orthonormal_basis(emodes, mass):
+                err_str = "in Euclidean space" if mass is None else "with the provided mass matrix"
+                raise ValueError(
+                    f"The columns of `emodes` do not form an orthonormal basis set {err_str}. "
+                    "Either provide a suitable `mass` matrix such that `emodes.T @ mass @ emodes = "
+                    "I`, use `method='regress'`, or set `checks=False`."
+                )
+        elif mass is not None:  # method == 'regress'
+            warn("`mass` is ignored when `method='regress'`.")
     n_verts = emodes.shape[0]
     if data.ndim == 1:
         data = data[:, np.newaxis]
     if data.ndim != 2 or data.shape[0] != n_verts:
         raise ValueError("`data` must have shape (n_verts,) or (n_verts, n_maps), where n_verts is "
                          f"the number of rows in `emodes` ({n_verts}).")
-    if checks and method == 'project':
-        if mass is not None:
-            if not isinstance(mass, spmatrix):
-                mass = np.asarray_chkfinite(mass)
-                mass_shape = mass.shape
-            else:
-                mass_shape = mass.get_shape()
-            if mass_shape != (n_verts, n_verts):
-                raise ValueError("`mass` must have shape (n_verts, n_verts), where n_verts is the "
-                                 f"number of rows in `emodes` ({n_verts}).")
-        if not is_orthonormal_basis(emodes, mass):
-            err_str = "in Euclidean space" if mass is None else "with the provided mass matrix"
-            raise ValueError(
-                f"The columns of `emodes` do not form an orthonormal basis set {err_str}. Either "
-                "provide a suitable `mass` matrix such that `emodes.T @ mass @ emodes = I`, use "
-                "`method='regress'`, or set `checks=False`."
-                )
 
     # Decomposition
     if method == 'project':
@@ -170,12 +160,14 @@ def reconstruct(
     if data.ndim == 1:
         data = data[:, np.newaxis]
     emodes = np.asarray(emodes) # chkfinite in decompose
-    mode_counts = (np.arange(emodes.shape[1])+1 if mode_counts is None
-                   else np.asarray_chkfinite(mode_counts))
-    if (mode_counts.ndim != 1 or not np.issubdtype(mode_counts.dtype, np.integer)
-        or mode_counts.min() < 1 or mode_counts.max() > emodes.shape[1]):
-        raise ValueError("`mode_counts` must be a 1D array-like of integers within the range [1, "
-                         f"{emodes.shape[1]}].")
+    if mode_counts is None:
+        mode_counts = np.arange(emodes.shape[1]) + 1
+    else:
+        mode_counts = np.asarray(mode_counts)
+        if (mode_counts.ndim != 1 or not np.issubdtype(mode_counts.dtype, np.integer)
+            or mode_counts.min() < 1 or mode_counts.max() > emodes.shape[1]):
+            raise ValueError("`mode_counts` must be a 1D array-like of integers within the range "
+                             f"[1, {emodes.shape[1]}].")
 
     # Decompose the data to get beta coefficients
     if method == 'project':

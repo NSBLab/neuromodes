@@ -607,12 +607,14 @@ def _simulate_waves_fem(
     mass: spmatrix,
     stiffness: spmatrix,
     nt: int = None,
-    ext_input: ArrayLike = None,
+    input: ArrayLike = None,
     dt: float = 1e-4,
     r: float = 17.4,
     gamma: float = 116.0,
     speed_limits: Union[tuple[float, float], None] = (0, 150),
     scaled_hetero: Union[ArrayLike, None] = None,
+    n_jobs: int = 1,
+    verbose: int = 0,
     seed: int = None,
     cache_input: bool = False
 ) -> NDArray:
@@ -620,6 +622,9 @@ def _simulate_waves_fem(
     Full FEM version of `simulate_waves(..., bold_out=False)`, for validating the eigenmode
     expansion approach.
     """
+    # Lazy import to reduce load time for modal wave model
+    from joblib import Parallel, delayed
+
     # Format / validate arguments
     r = float(r)
     gamma = float(gamma)
@@ -651,18 +656,18 @@ def _simulate_waves_fem(
                  f"{calc_str} m/s). Consider changing these parameters to ensure physiologically "
                  "plausible wave speeds, or adjust `speed_limits`.")
 
-    if ext_input is not None:
-        ext_input = np.asarray_chkfinite(ext_input)
+    if input is not None:
+        input = np.asarray_chkfinite(input)
         if nt is not None:
-            warn("`nt` is ignored when `ext_input` is provided.")
+            warn("`nt` is ignored when `input` is provided.")
         if seed is not None:
-            warn("`seed` is ignored when `ext_input` is provided.")
+            warn("`seed` is ignored when `input` is provided.")
         if cache_input:
-            warn("`cache_input` is ignored when `ext_input` is provided.")
-        nt = ext_input.shape[1]
+            warn("`cache_input` is ignored when `input` is provided.")
+        nt = input.shape[1]
     else:
         if nt is None:
-            raise ValueError("`nt` must be provided when `ext_input` is `None`.")
+            raise ValueError("`nt` must be provided when `input` is `None`.")
         if cache_input:
             if seed is None:
                 warn("`cache_input` is ignored when `seed` is None.")
@@ -674,29 +679,48 @@ def _simulate_waves_fem(
         else:
             gen_input = _gen_noise
         
-        ext_input = gen_input((n_verts, nt), seed)
+        input = gen_input((n_verts, nt), seed)
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
-    ext_input_padded = np.concatenate([np.zeros((n_verts, nt)), ext_input], axis=1)
+    input_padded = np.concatenate([np.zeros((n_verts, nt)), input], axis=1)
 
     # Apply inverse Fourier transform to get frequency-domain representation of the causal signal.
-    ext_input_freqs = np.fft.fftshift(np.fft.ifft(ext_input_padded, axis=1), axes=1)
+    input_padded_freqs = np.fft.fftshift(np.fft.ifft(input_padded, axis=1), axes=1)
     omega = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(2 * nt, dt))
 
     # Treat noise input as a continuous field
-    mass_ext_input_freqs = mass @ ext_input_freqs
+    mass_input_padded_freqs = mass @ input_padded_freqs
 
-    # Compute response at each frequency
-    phi_freqs = np.zeros_like(ext_input_freqs, dtype=complex)
-    for k, w in enumerate(omega):
-        operator = mass * (-w**2 / gamma**2 - 2j * w / gamma + 1) + stiffness * r**2
+    # Compute temporal component of NFT operator for each frequency
+    temporal = -omega**2 / gamma**2 - 2j * omega / gamma + 1
 
-        # Sparse LU decomposition and solve PDE
-        phi_freqs[:, k] = linalg.splu(operator).solve(mass_ext_input_freqs[:, k])
+    # Compute activity at each frequency
+    phi_freqs = np.column_stack(
+
+        # Parallelise over frequencies
+        Parallel(n_jobs=n_jobs, verbose=verbose)(
+            delayed(_solve_fem_freq)(
+
+                # Construct frequency-specific operator for wave equation
+                operator=temporal[k] * mass + r**2 * stiffness,
+
+                # Solve for this frequency's input
+                input=mass_input_padded_freqs[:, k]
+
+                ) for k in range(2 * nt)
+            )
+        )
 
     # Inverse transform to time domain, implemented as forward FFT for causality
     phi = np.real(np.fft.fft(np.fft.ifftshift(phi_freqs, axes=1), axis=1))
 
     # Return only the non-negative time part (t >= 0)
     return phi[:, nt:]
+
+def _solve_fem_freq(
+    operator: spmatrix,
+    input: NDArray
+) -> NDArray:
+    """Helper function for parallel frequency solves."""
+    return linalg.splu(operator).solve(input)

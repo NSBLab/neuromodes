@@ -708,7 +708,7 @@ def is_orthonormal_basis(
     Raises
     ------
     ValueError
-        If `emodes` does not have shape (n_verts, n_modes), where n_verts ≥ n_modes.
+        If `emodes` does not have shape (n_verts, n_modes), where n_verts > n_modes.
     ValueError
         If `mass` is provided but does not have shape (n_verts, n_verts).
 
@@ -727,8 +727,8 @@ def is_orthonormal_basis(
     if not isinstance(mass, (spmatrix, type(None))):
         mass = np.asarray_chkfinite(mass)
 
-    if emodes.ndim != 2 or emodes.shape[0] < emodes.shape[1]:
-        raise ValueError("`emodes` must have shape (n_verts, n_modes), where n_verts ≥ n_modes.")
+    if emodes.ndim != 2 or emodes.shape[0] <= emodes.shape[1]:
+        raise ValueError("`emodes` must have shape (n_verts, n_modes), where n_verts > n_modes.")
     n_verts, n_modes = emodes.shape
     if mass is not None and (mass.shape != (n_verts, n_verts)):
         raise ValueError(f"`mass` must have shape (n_verts, n_verts) = {(n_verts, n_verts)}.")

@@ -264,7 +264,7 @@ def test_check_orthonorm(solver):
 
 def test_check_euclidean_orthonorm():
     # Create orthonormal vectors in Euclidean space
-    vecs = np.eye(5)[[2, 0, 4, 1, 3], :]
+    vecs = np.eye(5)[:, [2, 0, 4, 1]]
 
     assert is_orthonormal_basis(vecs)
     assert is_orthonormal_basis(vecs, mass=np.eye(5))

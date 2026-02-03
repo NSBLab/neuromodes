@@ -42,7 +42,7 @@ def model_connectome(
     Raises
     ------
     ValueError
-        If `emodes` does not have shape (n_verts, n_modes) where n_verts ≥ n_modes.
+        If `emodes` does not have shape (n_verts, n_modes) where n_verts > n_modes.
     ValueError
         If `evals` does not have shape (n_modes,).
     ValueError
@@ -60,8 +60,8 @@ def model_connectome(
         emodes = np.asarray_chkfinite(emodes)
         evals = np.asarray_chkfinite(evals)
 
-        if emodes.ndim != 2 or emodes.shape[0] < emodes.shape[1]:
-            raise ValueError("`emodes` must have shape (n_verts, n_modes), with n_verts ≥ n_modes.")
+        if emodes.ndim != 2 or emodes.shape[0] <= emodes.shape[1]:
+            raise ValueError("`emodes` must have shape (n_verts, n_modes), with n_verts > n_modes.")
     n_modes = emodes.shape[1]
     if checks and evals.shape != (n_modes,):
         raise ValueError(f"`evals` must have shape (n_modes,) = {(n_modes,)}, matching the number "
