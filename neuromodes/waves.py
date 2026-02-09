@@ -35,8 +35,8 @@ def simulate_waves(
 ) -> NDArray:
     """
     Simulate neural activity or BOLD signals on the surface mesh using the eigenmode decomposition.
-    The simulation uses a Neural Field Theory wave model and optionally the Balloon-Windkessel model
-    for BOLD signal generation.
+    The simulation uses a Neural Field Theory wave model [1-3] and optionally the Balloon-Windkessel
+    model [4,5] for BOLD signal generation.
 
     Parameters
     ----------
@@ -122,6 +122,9 @@ def simulate_waves(
     -----
     Since the simulation begins at rest, consider discarding the first ~50 seconds to allow the
     system to reach a steady state.
+    
+    While the wave model can be run using non-cortical modes, users should consider whether this is
+    theoretically sensible and physiologically plausible.
 
     References
     ----------
@@ -308,7 +311,7 @@ def _model_wave_fourier(
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
-    input_coeffs_padded = np.concatenate([np.zeros((n_modes, nt)), input_coeffs], axis=1)
+    input_coeffs_padded = np.concatenate([np.zeros_like(input_coeffs), input_coeffs], axis=1)
 
     # Apply inverse Fourier transform to get frequency-domain representation of the causal signal.
     input_coeffs_f = np.fft.fftshift(np.fft.ifft(input_coeffs_padded, axis=1), axes=1)
@@ -367,7 +370,7 @@ def _model_wave_ode(
     t = np.linspace(0, dt * (nt - 1), nt)
     
     # Simulate wave equation for each mode
-    mode_coeffs = np.zeros((n_modes, nt))
+    mode_coeffs = np.empty_like(input_coeffs)
     for j in range(n_modes):
         def wave_odes_j(t_, y):
             """Returns the wave ODEs for mode j."""
@@ -519,7 +522,8 @@ def _model_balloon_fourier(
     balloon_freq_response = phi_hat_yF * phi_hat_Fz
 
     # Zero-pad input at t < 0 for causality
-    activity_coeffs_padded = np.concatenate([np.zeros((n_modes, nt)), activity_coeffs], axis=1)
+    activity_coeffs_padded = np.concatenate([np.zeros_like(activity_coeffs), activity_coeffs],
+                                            axis=1)
 
     # Apply Fourier transform (implemented as inverse FFT for causality)
     activity_coeffs_f = np.fft.fftshift(np.fft.ifft(activity_coeffs_padded, axis=1), axes=1)
@@ -579,7 +583,7 @@ def _model_balloon_ode(
     t = np.linspace(0, dt * (nt - 1), nt)
 
     # Simulate balloon model for each mode
-    bold_coeffs = np.zeros((n_modes, nt))
+    bold_coeffs = np.empty_like(activity_coeffs)
     for j in range(n_modes):
         def balloon_odes_j(t_, y):
             """Returns the balloon model ODEs for mode j."""
@@ -697,7 +701,7 @@ def _simulate_waves_fem(
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
-    input_padded = np.concatenate([np.zeros((n_verts, nt)), input], axis=1)
+    input_padded = np.concatenate([np.zeros_like(input), input], axis=1)
 
     # Apply inverse Fourier transform to get frequency-domain representation of the causal signal.
     input_padded_freqs = np.fft.fftshift(np.fft.ifft(input_padded, axis=1), axes=1)

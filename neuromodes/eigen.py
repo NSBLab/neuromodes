@@ -5,27 +5,29 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 from typing import Union, Tuple, TYPE_CHECKING
 from warnings import warn
-from lapy import Solver, TriaMesh, TetMesh
+from lapy import Solver, TriaMesh
 from lapy.shapedna import normalize_ev
 import numpy as np
 from scipy.sparse import csc_matrix, spmatrix
 from scipy.sparse.linalg import LinearOperator, eigsh, splu
-from trimesh import Trimesh
 from neuromodes.io import (is_vol, is_surf, read_vol, read_surf, mask_vol, mask_surf, check_vol,
                            check_surf)
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from lapy import TetMesh
+    from nibabel import GiftiImage
     from numpy.typing import NDArray, ArrayLike
+    from trimesh import Trimesh
 
 class EigenSolver(Solver):
     """
-    Class for computing eigenmodes and eigenvalues from a brain structure mesh via the Finite
+    Class for computing eigenmodes and eigenvalues from a brain structure mesh [1] via the Finite
     Element Method, which discretizes the Laplace-Beltrami eigenvalue problem using mass and
-    stiffness matrices. Spatial heterogeneity can be optionally incorporated, modifying the
-    Laplace-Beltrami operator via a symmetric diffusion tensor. After calling the `solve` method, a
-    range of mode-based methods can be called (`decompose`, `reconstruct`, `reconstruct_timeseries`,
-    `simulate_waves`, and `model_connectome`).
+    stiffness matrices [2,3]. Spatial heterogeneity can be optionally incorporated, modifying the
+    Laplace-Beltrami operator via a symmetric diffusion tensor [4]. After calling the `solve`
+    method, a range of mode-based methods can be called (`decompose`, `reconstruct`,
+    `reconstruct_timeseries`, `simulate_waves`, and `model_connectome`).
 
     Parameters
     ----------
@@ -59,46 +61,52 @@ class EigenSolver(Solver):
         If `scaling` is not 'sigmoid' or 'exponential' (raised by `scale_hetero`).
     ValueError
         If `hetero` is constant (raised by `scale_hetero`).
+
+    References
+    ----------
+    ..  [1] Pang, J. C., et al. (2023). Geometric constraints on human brain function. Nature.
+        https://doi.org/10.1038/s41586-023-06098-1
+    ..  [2] Reuter, M., et al. (2006). Laplace-Beltrami spectra as 'Shape-DNA' of surfaces and
+        solids, Computer-Aided Design. https://doi.org/10.1016/j.cad.2005.10.011
+    ..  [3] Wachinger, C., et al. (2015). BrainPrint: a discriminative characterization of brain
+        morphology, Neuroimage. https://doi.org/10.1016/j.neuroimage.2015.01.032
+    ..  [4] Barnes, V., et al. (2026). Regional heterogeneity shapes macroscopic wave dynamics of
+        the human and non-human primate cortex. bioRxiv. https://doi.org/10.64898/2026.01.22.701178
     """
     def __init__(
         self,
-        geometry: Union[str, Path, Trimesh, TriaMesh, TetMesh, dict],
+        geometry: Union[str, Path, GiftiImage, Trimesh, TriaMesh, TetMesh, dict],
         mask: Union[ArrayLike, None] = None,
         hetero: Union[ArrayLike, None] = None,
         alpha: Union[float, None] = None, # default to 1.0 if hetero given (and remains None)
         scaling: Union[str, None] = None  # default to "sigmoid" if hetero given (and remains None)
     ):
-        # Infer surface or volume
-        if is_vol(geometry):
-            # Read and optionally mask volume
-            vol = read_vol(geometry)
-            if mask is not None:
-                vol = mask_vol(vol, mask)
+        # Format arguments
+        if mask is not None:
+            mask = np.asarray(mask, dtype=bool)
 
-            # Validate and store geometry
-            check_vol(vol)
-            self.geometry = vol
-        elif is_surf(geometry):
-            # Read and optionally mask surface
-            surf = read_surf(geometry)
+        # Read and validate geometry, with optional masking
+        if is_vol(geometry):
+            geometry = read_vol(geometry)
             if mask is not None:
-                surf = mask_surf(surf, mask)
+                geometry = mask_vol(geometry, mask)
+            check_vol(geometry)
             
-            # Validate and store geometry
-            check_surf(surf)
-            self.geometry = TriaMesh(surf.vertices, surf.faces)  # Convert from Trimesh
+        elif is_surf(geometry):
+            geometry = read_surf(geometry)
+            if mask is not None:
+                geometry = mask_surf(geometry, mask)
+            check_surf(geometry)
+
+            # Convert from Trimesh to LaPy format for FEM
+            geometry = TriaMesh(geometry.vertices, geometry.faces)
         else:
             raise ValueError(
                 '`geometry` must be a path-like string to a valid surface or volume mesh, a '
-                '`trimesh.Trimesh`, `lapy.TriaMesh`, or `lapy.TetMesh` instance, or a dictionary '
-                'with keys `vertices` and either `faces` (for surfaces) or `tetras` (for volumes).'
+                '`nibabel.GiftiImage`,`trimesh.Trimesh`, `lapy.TriaMesh`, or `lapy.TetMesh` '
+                'instance, or a dictionary with keys `vertices` and either `faces` (for surfaces) '
+                'or `tetras` (for volumes).'
             )
-        
-        # Assign attributes
-        self.n_verts = self.geometry.v.shape[0]
-        if mask is not None:
-            mask = np.asarray(mask, dtype=bool)
-        self.mask = mask
 
         # Hetero inputs
         if hetero is None:
@@ -106,42 +114,52 @@ class EigenSolver(Solver):
                 warn("`scaling` is ignored as `hetero` is None.")
             if alpha is not None:
                 warn("`alpha` is ignored as `hetero` is None.")
-            self.hetero = None
         else:
             hetero = np.asarray(hetero)
             alpha = 1.0 if alpha is None else float(alpha)
             scaling = "sigmoid" if scaling is None else scaling
 
             # Ensure hetero has correct length (masked or unmasked)
-            if self.mask is not None and hetero.shape == (len(self.mask),):
-                hetero = hetero[self.mask]
-            elif hetero.shape != (self.n_verts,):
-                err_str = f"the number of vertices in the provided mesh ({self.n_verts})"
-                if self.mask is not None:
-                    err_str += f" or the masked mesh ({self.mask.sum()})"
+            if mask is not None and hetero.shape == (len(mask),):
+                hetero = hetero[mask]
+            elif hetero.shape != (geometry.v.shape[0],):
+                err_str = f"the number of vertices in the provided mesh ({geometry.v.shape[0]})"
+                if mask is not None:
+                    err_str += f" or the masked mesh ({mask.sum()})"
                 raise ValueError(
                     f"`hetero` must be a 1D array with length matching {err_str}."
                 )
 
-            # Scale and assign the heterogeneity map
-            self._scaling = scaling    
-            self._alpha = alpha
-            self.hetero = scale_hetero(
-                hetero=hetero, 
-                alpha=self._alpha, 
-                scaling=self._scaling
-            )
+            # Scale the heterogeneity map
+            hetero = scale_hetero(hetero, alpha=alpha, scaling=scaling)
+
+        # Assign attributes
+        self.geometry = geometry
+        self.n_verts = geometry.v.shape[0]  # Nicety
+        self.mask = mask
+        self.hetero = hetero
+        self._scaling = scaling    
+        self._alpha = alpha
 
     def __str__(self) -> str:
         """String representation of the EigenSolver object."""
-        is_vol = isinstance(self.geometry, TetMesh)
+        # Prepare mesh info
+        if is_vol(self.geometry):
+            geom_type = "Volume"
+            elem_type = "tetrahedra"
+        else:
+            geom_type = "Surface"
+            elem_type = "triangles"
 
-        str_out = f'EigenSolver\n-----------\n{(
-            "Volume" if is_vol else "Surface"
-            )} mesh: {self.n_verts} vertices'
+        # Construct output
+        str_out = (
+            'EigenSolver\n'
+            '-----------\n'
+            f'{geom_type} mesh: {self.n_verts} vertices'
+            )
         if self.mask is not None:
             str_out += f' ({np.sum(self.mask == 0)} others masked out)'
-        str_out += f', {self.geometry.t.shape[0]} {"tetrahedra" if is_vol else "triangles"}'
+        str_out += f', {self.geometry.t.shape[0]} {elem_type}'
 
         if self.hetero is not None:
             str_out += f'\nHeterogeneity map scaling: {self._scaling} (alpha={self._alpha})'
@@ -169,15 +187,16 @@ class EigenSolver(Solver):
         EigenSolver
             The EigenSolver instance.
         """
-        if isinstance(self.geometry, TetMesh):
-            # Isotropic volumetric FEM (no Solver._fem_tetra_aniso yet)
-            self.stiffness, self.mass = self._fem_tetra_hetero(lump)
-        else:  # TriaMesh
+        if is_vol(self.geometry):
             if self.hetero is None:
-                # Compute mass and stiffness under homogeneous LBO
-                K, M = self._fem_tria(self.geometry, lump)
-                self.stiffness = K.astype(np.float32)  # Match float32 output of _fem_tria_aniso
-                self.mass = M.astype(np.float32)
+                # Compute FEM matrices under homogeneous LBO
+                stiffness, mass = self._fem_tetra(self.geometry, lump)
+            else:
+                # Isotropic volumetric FEM (LaPy has no Solver._fem_tetra_aniso yet)
+                stiffness, mass = self._fem_tetra_hetero(lump)
+        else:  # Surface
+            if self.hetero is None:
+                stiffness, mass = self._fem_tria(self.geometry, lump)
             else:
                 # Get principal curvatures to define direction of anisotropy
                 # Note: change of basis into (u1, u2) is not strictly needed for our isotropic
@@ -190,9 +209,12 @@ class EigenSolver(Solver):
                 # Construct symmetric (isotropic) diffusion tensor
                 hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
 
-                # Compute mass and stiffness under heterogeneous LBO
-                self.stiffness, self.mass = self._fem_tria_aniso(self.geometry, u1, u2, hetero_mat,
-                                                                 lump)
+                # Compute FEM matrices under heterogeneous LBO
+                stiffness, mass = self._fem_tria_aniso(self.geometry, u1, u2, hetero_mat, lump)
+                
+        # Assign attributes and return instance to allow chaining
+        self.stiffness = stiffness
+        self.mass = mass
         return self
 
     def solve(
@@ -312,7 +334,7 @@ class EigenSolver(Solver):
             emodes = standardize_modes(emodes)
 
         # Store results
-        self.n_modes = n_modes
+        self.n_modes = n_modes  # Nicety
         self.evals = evals
         self.emodes = emodes
         return self
@@ -324,11 +346,7 @@ class EigenSolver(Solver):
         """
         This method is a copy of `lapy.solver.Solver._fem_tetra`, modified to incorporate
         heterogeneity. For a `hetero` of ones, output is identical to LaPy's `_fem_tetra` method.
-        """
-        # Use LaPy's method for homogeneous case
-        if self.hetero is None:
-            return self._fem_tetra(self.geometry, lump)
-        
+        """        
         # Compute vertex coordinates and a difference vector for each triangle:
         t1 = self.geometry.t[:, 0]
         t2 = self.geometry.t[:, 1]
@@ -618,6 +636,7 @@ def scale_hetero(
     """
     # Format / validate arguments
     hetero = np.asarray_chkfinite(hetero)
+    alpha = float(alpha)
     if hetero.ndim != 1:
         raise ValueError("`hetero` must be a 1D array.")
     if scaling not in ["exponential", "sigmoid"]:

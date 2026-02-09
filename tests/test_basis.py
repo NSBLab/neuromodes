@@ -1,7 +1,8 @@
 import numpy as np
 import pytest
-from neuromodes.basis import (
-    decompose, reconstruct, reconstruct_timeseries, calc_norm_power, calc_vec_fc)
+from scipy.sparse import vstack, hstack, csc_matrix
+from neuromodes.basis import (decompose, reconstruct, reconstruct_timeseries, calc_norm_power,
+                              calc_vec_fc)
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_surf, fetch_map
 
@@ -62,6 +63,63 @@ def test_decompose_invalid_method(solver):
     with pytest.raises(ValueError,
                        match="Invalid `method` 'fornitonian'; must be 'project' or 'regress'."):
         decompose(np.ones(solver.n_verts), solver.emodes, method='fornitonian')
+
+@pytest.fixture
+def solver_32k():
+    # Get modes of fsLR 32k midthickness (data is in 32k)
+    mesh, medmask = fetch_surf()
+    rng = np.random.default_rng(0)
+    hetero = rng.standard_normal(size=len(medmask))
+    solver = EigenSolver(mesh, mask=medmask, hetero=hetero)
+    solver.solve(n_modes=10)
+    return solver
+
+def test_decompose_nans(solver_32k):
+    # Decompose some maps
+    data = np.stack(
+        (fetch_map('fcgradient1')[solver_32k.mask],
+         fetch_map('myelinmap')[solver_32k.mask]),
+        axis=1
+    )
+    beta = solver_32k.decompose(data)
+
+    # Append data with NaNs and Infs (+100 vertices)
+    extraverts = 100
+    data_naninfs = np.concatenate([
+        data,
+        np.full((extraverts // 2, data.shape[1]), np.nan),
+        np.full((extraverts // 2, data.shape[1]), np.inf)
+    ], axis=0)
+
+    # Add noise to modes and mass to match shapes (+100 vertices)
+    noise = np.random.default_rng(0).standard_normal(
+         extraverts * solver_32k.n_modes
+        ).reshape((extraverts, solver_32k.n_modes))
+    modes_noise = np.concatenate([solver_32k.emodes, noise], axis=0)
+
+    noise = np.random.default_rng(1).standard_normal(
+        extraverts * solver_32k.n_verts
+        ).reshape((extraverts, solver_32k.n_verts))
+    mass_noise = vstack([solver_32k.mass, csc_matrix(noise)])
+    noise = np.random.default_rng(2).standard_normal(
+        extraverts * (solver_32k.n_verts + extraverts)
+        ).reshape((solver_32k.n_verts + extraverts, extraverts))
+    mass_noise = hstack([mass_noise, csc_matrix(noise)])
+
+    # emodes/mass get masked according to the nans/infs in data, leading to original beta values
+    with pytest.warns(UserWarning, match="`data`, `mass`, and `emodes`"):
+        beta_masked = decompose(data_naninfs, modes_noise, mass=mass_noise, checks=False)
+    assert np.allclose(beta, beta_masked, atol=1e-4), \
+        'Beta values for project method are not close when data contains NaNs/Infs'
+    
+    # Check for regress method as well
+    beta_regress = solver_32k.decompose(data, method='regress')
+    with pytest.warns(UserWarning, match="`data` and `emodes`"):
+        beta_regress_masked = decompose(data_naninfs, modes_noise, method='regress', checks=False)
+    assert np.allclose(beta_regress, beta_regress_masked, atol=1e-4), \
+        'Beta values for regress method are not close when data contains NaNs/Infs'
+
+# TODO: more complicated version of above test, where three maps have two unique patterns of NaNs/Infs
 
 @pytest.fixture
 def gen_eigenmap(solver):
@@ -159,18 +217,12 @@ def test_reconstruct_mode_superposition_timeseries(solver, gen_eigenmap):
         'FC reconstruction error is not close to 0 when using all modes.'
     assert mse[-1] < 1e-6, 'MSE is not close to 0 when using all modes.'
 
-def test_reconstruct_real_map_32k():
-    # Get modes of fsLR 32k midthickness (data is in 32k)
-    mesh, medmask = fetch_surf()
-    rng = np.random.default_rng(0)
-    hetero = rng.standard_normal(size=len(medmask))
-    solver = EigenSolver(mesh, mask=medmask, hetero=hetero)
-    solver.solve(n_modes=10)
-    emodes = solver.emodes
+def test_reconstruct_real_map_32k(solver_32k):
+    emodes = solver_32k.emodes
 
     # Load FC gradient from Margulies 2016 PNAS
-    map = fetch_map('fcgradient1')[medmask]
-    _, recon_score, _ = reconstruct(map, emodes, mass=solver.mass)
+    map = fetch_map('fcgradient1')[solver_32k.mask]
+    _, recon_score, _ = reconstruct(map, emodes, mass=solver_32k.mass)
 
     # Correlation error should strictly decrease from 1, but not reach 0
     assert np.all(np.diff(recon_score) < 0), 'Reconstruction error does not strictly decrease.'

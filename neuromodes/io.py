@@ -23,16 +23,16 @@ fs_extensions = ('.white', '.pial', '.inflated', '.orig', '.sphere', '.smoothwm'
 
 def is_vol(geometry) -> bool:
     return True if (
-        (isinstance(geometry, (str, Path)) and str(geometry).endswith(('.tetra.vtk')))
+        isinstance(geometry, TetMesh)
+        or (isinstance(geometry, (str, Path)) and str(geometry).endswith(('.tetra.vtk')))
         or (isinstance(geometry, dict) and 'tetras' in geometry)
-        or isinstance(geometry, TetMesh)
         ) else False
 
 def is_surf(geometry) -> bool:
     return True if (
-        (isinstance(geometry, (str, Path))
+        isinstance(geometry, (TriaMesh, Trimesh, GiftiImage))
+        or (isinstance(geometry, (str, Path))
         and str(geometry).endswith(('.vtk', '.gii') + fs_extensions))
-        or isinstance(geometry, (Trimesh, TriaMesh))
         or (isinstance(geometry, dict) and 'faces' in geometry)
         ) else False
 
@@ -77,17 +77,18 @@ def read_vol(
                     "keys.")
 
 def read_surf(
-    surf: Union[str, Path, Trimesh, TriaMesh, dict]
+    surf: Union[str, Path, GiftiImage, Trimesh, TriaMesh, dict]
 ) -> Trimesh:
     """Load a triangular surface mesh.
 
     Parameters
     ----------
-    surf : str, Path, trimesh.Trimesh, lapy.TriaMesh, or dict
+    surf : str, Path, GiftiImage, trimesh.Trimesh, lapy.TriaMesh, or dict
         Surface mesh specified as a file path (string or Path) to a VTK (.vtk), GIFTI (.gii), or
         FreeSurfer file (.white, .pial, .inflated, .orig, .sphere, .smoothwm, .qsphere, .fsaverage),
-        an instance of `trimesh.Trimesh` or `lapy.TriaMesh`, or a dictionary with `'vertices'` and
-        `'faces'` keys, referencing arrays of shape (n_verts, 3) and (n_faces, 3), respectively.
+        an instance of `nibabel.GiftiImage`, `trimesh.Trimesh`, or `lapy.TriaMesh`, or a dictionary
+        with `'vertices'` and `'faces'` keys, referencing arrays of shapes (n_verts, 3) and
+        (n_faces, 3), respectively.
 
     Returns
     -------
@@ -106,6 +107,9 @@ def read_surf(
     elif isinstance(surf, TriaMesh):
         vertices=surf.v
         faces=surf.t
+    elif isinstance(surf, GiftiImage):
+        vertices=surf.darrays[0].data
+        faces=surf.darrays[1].data
     elif isinstance(surf, dict):
         _check_mesh_dict(surf)
         vertices=surf['vertices']
@@ -162,7 +166,7 @@ def mask_vol(
     ValueError
         If `mask` does not have a length matching the number of vertices in `vol`.
     """
-    mask = np.asarray(mask, dtype=bool)
+    mask = np.asarray_chkfinite(mask, dtype=bool)
 
     if mask.shape != (vol.v.shape[0],):
         raise ValueError(f"`mask` must have shape (n_verts,) = ({(vol.v.shape[0],)},).")
@@ -211,7 +215,7 @@ def mask_surf(
     In `Trimesh.submesh`, `repair=False` is used to avoid an unnecessary dependency on 
     `networkx`. Mesh validation is handled separately in `check_surf` in `EigenSolver`.
     """
-    mask = np.asarray(mask, dtype=bool)
+    mask = np.asarray_chkfinite(mask, dtype=bool)
 
     if mask.shape != (surf.vertices.shape[0],):
         raise ValueError(f"`mask` must have shape (n_verts,) = ({surf.vertices.shape[0]},).")

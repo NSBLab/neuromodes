@@ -17,7 +17,7 @@ def model_connectome(
     checks: bool = True
 ) -> NDArray:
     """
-    Generate a vertex-wise structural connectivity matrix using the Geometric Eigenmode Model.
+    Generate a vertex-wise structural connectivity matrix using the Geometric Eigenmode Model [1].
 
     Parameters
     ----------
@@ -53,6 +53,9 @@ def model_connectome(
     -----
     If comparing this model to empirical connectomes, consider thresholding the returned matrix to
     match the density of the empirical data.
+    
+    While the model can be computed using non-cortical modes, users should consider whether this is
+    theoretically sensible and physiologically plausible.
 
     References
     ----------
@@ -73,7 +76,7 @@ def model_connectome(
     if not isinstance(r, (int, float)) or r <= 0:
         raise ValueError("Parameter `r` must be a positive number.")
     if not isinstance(k, int) or k <= 0 or k > n_modes:
-        raise ValueError(f"Parameter `k` must be an integer in the range [1, {n_modes}].")
+        raise ValueError(f"Parameter `k` must be an integer in the range [1, n_modes = {n_modes}].")
 
     # Compute the Geometric Eigenmode Model
     denom = 1/(1 + evals[:k] * r**2)
