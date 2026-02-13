@@ -288,19 +288,19 @@ def _is_vol_manifold(vol) -> bool:
         True if every triangle face is shared by at most two tetrahedra.
     """
     # Extract all 4 triangles from each tetrahedron
-    faces = np.concatenate([
+    trias = np.concatenate([
         vol.t[:, [0, 1, 2]],
         vol.t[:, [0, 1, 3]],
         vol.t[:, [0, 2, 3]],
         vol.t[:, [1, 2, 3]],
     ])
-    # Sort each face so that the same face has the same representation
-    faces_sorted = np.sort(faces, axis=1)
-    # Count occurrences of each face
-    faces_view = faces_sorted.copy().view([('', faces_sorted.dtype)] * 3)
-    _, counts = np.unique(faces_view, return_counts=True)
-    # Manifold if no face is shared by more than 2 tets
-    return np.all(counts <= 2)
+
+    # Order vertices within each triangle for consistent representation
+    trias.sort(axis=1)
+
+    # Manifold if no triangle occurs more than twice
+    tria_counts = np.unique(trias, axis=0, return_counts=True)[1]
+    return np.all(tria_counts <= 2)
 
 def check_surf(
     surf: TriaMesh

@@ -198,6 +198,28 @@ def test_vol_boundary_not_contiguous():
                 match="Surface mesh is not contiguous: 2 connected"):
         check_vol(vol)
 
+def test_vol_nonmanifold():
+    verts = np.array([
+        [0, 0, 0],
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+        [1, 1, 0],
+        [0, 1, 1]
+    ])
+
+    # Three tetrahedra share the same triangle (0, 1, 2)
+    tets = np.array([
+        [0, 1, 2, 3],
+        [0, 1, 2, 4],
+        [0, 1, 2, 5]
+    ])
+
+    vol = TetMesh(v=verts, t=tets)
+    
+    with raises(ValueError, match="Volume mesh is not manifold"):
+        check_vol(vol)
+
 def test_fetch_vol():
     # Check that we can load and validate everything
     for hemi in ['L', 'R']:
