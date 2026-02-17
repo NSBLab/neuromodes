@@ -230,20 +230,38 @@ def normalize_vol(
     Parameters
     ----------
     geometry : lapy.TetMesh
-        The input volume mesh.
-
-    Returns
-    -------
-    lapy.TetMesh
-        The normalized volume mesh.
+        The input volume mesh, to be modified in-place.
     """
+    # Get edge vectors for each tetrahedron
+    t0 = geometry.t[:, 0]
+    t1 = geometry.t[:, 1]
+    t2 = geometry.t[:, 2]
+    t3 = geometry.t[:, 3]
+
+    v0 = geometry.v[t0, :]
+    v1 = geometry.v[t1, :]
+    v2 = geometry.v[t2, :]
+    v3 = geometry.v[t3, :]
+
+    e1 = v1 - v0
+    e2 = v2 - v0
+    e3 = v3 - v0
+
+    # Compute volume of each tetrahedron using triple product formula: V = |(e1 . (e2 x e3))| / 6
+    tetra_vols = np.abs(np.einsum('ij,ij->i', e1, np.cross(e2, e3))) / 6
+
+    # Compute centroid of each tetrahedron as simple average of its vertices
+    tetra_centroids = (v0 + v1 + v2 + v3) / 4
+
+    # Compute mesh centroid as volume-weighted average of tetrahedron centroids
+    # Note: this is equivalent to LaPy's TriaMesh.centroid()
+    centroid = np.sum(tetra_vols[:, np.newaxis] * tetra_centroids, axis=0) / np.sum(tetra_vols)
+
     # Translate centroid to origin
-    geometry.v -= geometry.v.mean(axis=0)
+    geometry.v -= centroid
 
     # Rescale to unit volume
     geometry.v /= geometry.boundary_tria().volume() ** (1/3)
-
-    return geometry
 
 def check_vol(
     vol: TetMesh

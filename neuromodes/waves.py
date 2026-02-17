@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def simulate_waves(
     emodes: ArrayLike,
     evals: ArrayLike,
-    nt: int = None,
+    nt: Union[int, None] = None,
     ext_input: Union[ArrayLike, None] = None,
     bold_out: bool = False,
     dt: float = 1e-4,

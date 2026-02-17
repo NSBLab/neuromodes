@@ -79,15 +79,15 @@ class EigenSolver(Solver):
 
         # Optionally mask
         if mask is not None:
-            mask = np.asarray(mask, dtype=bool)
+            mask = np.asarray(mask, dtype=bool)  # chkfinite in mask_mesh
             geometry = mask_mesh(geometry, mask)
 
         # Optionally normalize
         if normalize:
             if is_vol(geometry):
-                geometry = normalize_vol(geometry)
+                normalize_vol(geometry)
             else:
-                geometry.normalize_()
+                geometry.normalize_()  # LaPy method
         
         # Validate mesh
         if is_vol(geometry):
@@ -102,7 +102,7 @@ class EigenSolver(Solver):
             if alpha is not None:
                 warn("`alpha` is ignored as `hetero` is None.")
         else:
-            hetero = np.asarray(hetero)
+            hetero = np.asarray(hetero)  # chkfinite in scale_hetero
             alpha = 1.0 if alpha is None else float(alpha)
             scaling = "sigmoid" if scaling is None else scaling
 
@@ -125,6 +125,7 @@ class EigenSolver(Solver):
         self.hetero = hetero
         self._scaling = scaling    
         self._alpha = alpha
+        self.use_cholmod = False  # Permit lapy.eigs()
 
     def __str__(self) -> str:
         """String representation of the EigenSolver object."""
@@ -265,7 +266,8 @@ class EigenSolver(Solver):
                              f" ({self.n_verts}).")
 
         # Compute the Laplace-Beltrami operator / set stiffness and mass matrices
-        self.compute_lbo(lump)
+        if not hasattr(self, 'stiffness'):
+            self.compute_lbo(lump)
         
         # Set intitialization vector (if desired) for reproducibile eigenvectors 
         if seed is None or isinstance(seed, int):

@@ -7,10 +7,8 @@ requires-python = ">=3.9"
 keywords = ["python", "modelling", "neuroimaging", "eigenmodes", "brain-mapping"]
 
 dependencies = [
-    "h5py>=3.14.0",
     "joblib>=1.5.3",
     "lapy @ git+https://github.com/Deep-MI/LaPy.git",
-    "nbformat>=5.10.4",
     "nibabel>=5.2.1",
     "numpy>=1.24.4",
     "scipy>=1.10.1",
@@ -27,8 +25,12 @@ tutorials = [
 ]
 vol = [
     "gmsh>=4.15.0",
+    "h5py>=3.14.0",
+    "nbformat>=5.10.4",
+    "nilearn>=0.12.1",
+    "scikit-image>=0.24.0",
     "tetgen>=0.7.0",
-    "trimesh>=4.11.1",
+    "trimesh>=4.11.2",
 ]
 
 [build-system]

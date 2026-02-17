@@ -254,10 +254,11 @@ def test_normalized_surf(surf_medmask_hetero, solver):
     # Use LaPy to normalize evals
     evals_lapy = normalize_ev(solver.geometry, solver.evals)
 
-    # Normalize mesh and check that downstream evals match
-    evals_norm = EigenSolver(surf, mask=medmask, hetero=hetero, normalize=True).solve(16, seed=0).evals
+    # Normalize mesh within EigenSolver
+    solver = EigenSolver(surf, mask=medmask, hetero=hetero, normalize=True).solve(16, seed=0)
 
-    assert np.allclose(evals_lapy, evals_norm, atol=1e-20), \
+    # Check that evals match between the two normalization approaches
+    assert np.allclose(evals_lapy, solver.evals, atol=1e-20), \
     'Evals from LaPy normalization do not match evals from EigenSolver normalization.'
 
 def test_normalized_vol():
@@ -267,9 +268,9 @@ def test_normalized_vol():
 
     volser = EigenSolver(hippo, hetero=hetero).solve(16, seed=0)
     evals_lapy = normalize_ev(volser.geometry, volser.evals)
-    evals_norm = EigenSolver(hippo, hetero=hetero, normalize=True).solve(16, seed=0).evals
+    volser_norm = EigenSolver(hippo, hetero=hetero, normalize=True).solve(16, seed=0)
 
-    assert np.allclose(evals_lapy, evals_norm, atol=1e-20), \
+    assert np.allclose(evals_lapy, volser_norm.evals, atol=1e-20), \
     'Evals from LaPy normalization do not match evals from EigenSolver normalization.'
 
 def test_constant_mode1(solver):
