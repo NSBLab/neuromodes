@@ -84,8 +84,8 @@ def model_connectome(
         raise ValueError(f"Parameter `k` must be an integer in the range [1, n_modes = {n_modes}].")
 
     # Compute the Geometric Eigenmode Model
-    denom = 1 + evals[:k] * r**2
-    gem = emodes[:, :k] @ np.diag(1/denom) @ np.linalg.pinv(emodes[:, :k])
+    denom =1/(1 + evals[:k] * r**2)
+    gem = emodes[:, :k] @ (denom[:, np.newaxis] * np.linalg.pinv(emodes[:, :k]))
 
     # Replace diagonal and negative values with zero
     np.fill_diagonal(gem, 0)
