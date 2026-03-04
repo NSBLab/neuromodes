@@ -439,6 +439,7 @@ class EigenSolver(Solver):
     def bold_transform(
         self,
         activity: ArrayLike,
+        dt: float,
         **kwargs
     ) -> NDArray[floating]:
         """

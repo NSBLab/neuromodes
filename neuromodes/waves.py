@@ -194,8 +194,8 @@ def simulate_waves(
 
 def bold_transform(
     activity: ArrayLike,
-    emodes: ArrayLike,
     dt: float,
+    emodes: ArrayLike,
     pde_method: str = "fourier",
     decomp_method: str = "project",
     mass: Union[spmatrix, ArrayLike, None] = None,
