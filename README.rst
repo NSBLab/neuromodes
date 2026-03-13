@@ -9,14 +9,14 @@ Features
 --------
 .. image:: https://github.com/NSBLab/neuromodes/raw/main/docs/_static/overview.png
 
-- ``eigen``: Compute geometric eigenmodes from cortical surface meshes, optionally incorporating spatial heterogeneity
-- ``basis``: Decompose and reconstruct cortical maps and timeseries using the geometric eigenmodes, or another basis set
-- ``waves``: Simulate neural activity and BOLD signals using the wave propagation model from `Pang et al. (2023) <https://doi.org/10.1038/s41586-023-06098-1>`_
-- ``connectome``: Generate models of structural connectomes using the Geometric Eigenmode Model from `Normand et al. (2025) <https://doi.org/10.1101/2025.09.17.676944>`_
-- ``io``: Access triangular surface meshes for human, macaque, and marmoset cortices
-- ``nulls`` *(under development)*: Generate null models of cortical maps that preserve spatial autocorrelation, using the Eigenstrapping method from `Koussis et al. (2025) <https://doi.org/10.1162/IMAG.a.71>`_
-- ``morphometry`` *(under development)*: Quantify multiscale anatomical differences using Mode-Based Morphometry from `Cao et al. (2024) <https://doi.org/10.1002/hbm.26640>`_
-- ``parcellation`` *(under development)*: Create parcellations with any number of regions using the hierarchical bipartitioning method from `Pang et al. (2025) <https://doi.org/10.1101/2025.01.30.635820>`_
+- :mod:`~neuromodes.eigen`: Compute geometric eigenmodes from cortical surface meshes, optionally incorporating spatial heterogeneity
+- :mod:`~neuromodes.basis`: Decompose and reconstruct cortical maps and timeseries using the geometric eigenmodes, or another basis set
+- :mod:`~neuromodes.waves`: Simulate neural activity and BOLD signals using the wave propagation model from `Pang et al. (2023) <https://doi.org/10.1038/s41586-023-06098-1>`_
+- :mod:`~neuromodes.connectome``: Generate models of structural connectomes using the Geometric Eigenmode Model from `Normand et al. (2025) <https://doi.org/10.1101/2025.09.17.676944>`_
+- :mod:`~neuromodes.io`: Access triangular surface meshes for human, macaque, and marmoset cortices
+- :mod:`~neuromodes.nulls` *(under development)*: Generate null models of cortical maps that preserve spatial autocorrelation, using the Eigenstrapping method from `Koussis et al. (2025) <https://doi.org/10.1162/IMAG.a.71>`_
+- :mod:`~neuromodes.morphometry` *(under development)*: Quantify multiscale anatomical differences using Mode-Based Morphometry from `Cao et al. (2024) <https://doi.org/10.1002/hbm.26640>`_
+- :mod:`~neuromodes.parcellation` *(under development)*: Create parcellations with any number of regions using the hierarchical bipartitioning method from `Pang et al. (2025) <https://doi.org/10.1101/2025.01.30.635820>`_
 
 Installation
 ------------

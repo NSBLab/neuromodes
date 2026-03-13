@@ -25,9 +25,9 @@ class EigenSolver(Solver):
     Finite Element Method, which discretizes the Laplace-Beltrami eigenvalue problem using mass and
     stiffness matrices [2]_ [3]_. Spatial heterogeneity can be optionally incorporated, modifying
     the Laplace-Beltrami operator via an isotropic diffusion tensor [4]_. After calling
-    :meth:`solve` to compute modes, a range of analysis methods can be called (``decompose``,
-    ``reconstruct``, ``reconstruct_timeseries``, ``simulate_waves``, ``transform_bold``, and
-    ``model_connectome``).
+    :meth:`solve` to compute modes, a range of analysis methods can be called (:meth:`decompose`,
+    :meth:`reconstruct`, :meth:`reconstruct_timeseries`, :meth:`simulate_waves`,
+    :meth:`bold_transform`, :meth:`model_connectome`).
 
     Parameters
     ----------
@@ -265,11 +265,11 @@ class EigenSolver(Solver):
         # Set intitialization vector (if desired) for reproducibile eigenvectors 
         if seed is None or isinstance(seed, int):
             rng = np.random.default_rng(seed)
-            v0 = rng.random(self.n_verts)
+            v0 = rng.uniform(low=-1, high=1, size=self.n_verts)  # Match eigsh() / ARPACK default
         else:
             v0 = np.asarray_chkfinite(seed)
             if v0.shape != (self.n_verts,):
-                raise ValueError("seed must be either an integer or an array of shape (n_verts,) "
+                raise ValueError("seed must be None, an integer, or an array of shape (n_verts,) "
                                  f"= {(self.n_verts,)}.")
 
         # Solve the eigenvalue problem
@@ -290,7 +290,7 @@ class EigenSolver(Solver):
         )
 
         # Validate results
-        assert not ((np.isnan(evals).any() or np.isnan(emodes).any())), (
+        assert not (np.isnan(evals).any() or np.isnan(emodes).any()), (
             "Computed eigenvalues or eigenmodes contain NaNs. This may indicate numerical "
             "instability; consider adjusting sigma or checking mesh quality.")
 
@@ -333,11 +333,8 @@ class EigenSolver(Solver):
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`neuromodes.basis.decompose` (docstring also available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.basis.decompose.html)
-
-        Note that ``emodes``, ``mass``, and ``checks`` are passed automatically by the
-        ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.basis.decompose`. Note that ``emodes``, ``mass``,
+        and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.basis import decompose
 
@@ -357,11 +354,8 @@ class EigenSolver(Solver):
         **kwargs
     ) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
         """
-        This is a wrapper for :func:`neuromodes.basis.reconstruct` (docstring also available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.basis.reconstruct.html)
-
-        Note that ``emodes``, ``mass``, and ``checks`` are passed automatically by the
-        ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.basis.reconstruct`. Note that ``emodes``, ``mass``,
+        and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.basis import reconstruct
         
@@ -382,12 +376,9 @@ class EigenSolver(Solver):
     ) -> Tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
                list[NDArray[floating]]]:
         """
-        This is a wrapper for :func:`neuromodes.basis.reconstruct_timeseries` (docstring also
-        available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.basis.reconstruct_timeseries.html)
-
-        Note that ``emodes``, ``mass``, and ``checks`` are passed automatically by the
-        ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.basis.reconstruct_timeseries`. Note that
+        ``emodes``, ``mass``, and ``checks`` are passed automatically by the ``EigenSolver``
+        instance.
         """
         from neuromodes.basis import reconstruct_timeseries
 
@@ -406,12 +397,8 @@ class EigenSolver(Solver):
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`neuromodes.connectome.model_connectome` (docstring also
-        available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.connectome.model_connectome.html)
-
-        Note that ``emodes``, ``evals``, and ``checks`` are passed automatically by the
-        ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.connectome.model_connectome`. Note that ``emodes``,
+        ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.connectome import model_connectome
 
@@ -429,11 +416,9 @@ class EigenSolver(Solver):
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`neuromodes.waves.simulate_waves` (docstring also available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.waves.simulate_waves.html)
-
-        Note that ``emodes``, ``evals``, ``mass``, ``scaled_hetero``, and ``checks`` are passed
-        automatically by the ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.waves.simulate_waves`. Note that ``emodes``,
+        ``evals``, ``mass``, ``scaled_hetero``, and ``checks`` are passed automatically by the
+        ``EigenSolver`` instance.
         """
         from neuromodes.waves import simulate_waves
 
@@ -455,11 +440,8 @@ class EigenSolver(Solver):
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`neuromodes.waves.bold_transform` (docstring also available at
-        https://neuromodes.readthedocs.io/en/latest/generated/neuromodes.waves.bold_transform.html)
-
-        Note that ``emodes``, ``mass``, and ``checks`` are passed automatically by the
-        ``EigenSolver`` instance.
+        This is a wrapper for :func:`~neuromodes.waves.bold_transform`. Note that ``emodes``,
+        ``mass``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.waves import bold_transform
 

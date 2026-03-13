@@ -34,22 +34,22 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.eigen.EigenSolver.compute_lbo
-   neuromodes.eigen.EigenSolver.solve
-   neuromodes.eigen.EigenSolver.decompose
-   neuromodes.eigen.EigenSolver.reconstruct
-   neuromodes.eigen.EigenSolver.reconstruct_timeseries
-   neuromodes.eigen.EigenSolver.simulate_waves
-   neuromodes.eigen.EigenSolver.bold_transform
-   neuromodes.eigen.EigenSolver.model_connectome
+   compute_lbo
+   solve
+   decompose
+   reconstruct
+   reconstruct_timeseries
+   simulate_waves
+   bold_transform
+   model_connectome
 
 .. autosummary::
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.eigen.scale_hetero
-   neuromodes.eigen.standardize_modes
-   neuromodes.eigen.is_orthonormal_basis
+   scale_hetero
+   standardize_modes
+   is_orthonormal_basis
 
 .. _ref_basis:
 
@@ -66,11 +66,11 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.basis.decompose
-   neuromodes.basis.reconstruct
-   neuromodes.basis.reconstruct_timeseries
-   neuromodes.basis.calc_norm_power
-   neuromodes.basis.calc_vec_fc
+   decompose
+   reconstruct
+   reconstruct_timeseries
+   calc_norm_power
+   calc_vec_fc
 
 .. _ref_waves:
 
@@ -87,10 +87,10 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.waves.simulate_waves
-   neuromodes.waves.bold_transform
-   neuromodes.waves.calc_wave_speed
-   neuromodes.waves.get_balloon_params
+   simulate_waves
+   bold_transform
+   calc_wave_speed
+   get_balloon_params
 
 .. _ref_connectome:
 
@@ -107,7 +107,7 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.connectome.model_connectome
+   model_connectome
 
 .. _ref_mesh:
 
@@ -124,9 +124,9 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.mesh.mask_mesh
-   neuromodes.mesh.unmask_data
-   neuromodes.mesh.check_surf
+   mask_mesh
+   unmask_data
+   check_surf
 
 .. _ref_io:
 
@@ -143,6 +143,6 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   neuromodes.io.read_surf
-   neuromodes.io.fetch_surf
-   neuromodes.io.fetch_map
+   read_surf
+   fetch_surf
+   fetch_map
