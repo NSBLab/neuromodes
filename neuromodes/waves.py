@@ -4,11 +4,11 @@ surfaces.
 """
 
 from __future__ import annotations
-from typing import Union, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from warnings import warn
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.sparse import spmatrix, linalg
+from scipy.sparse import spmatrix, linalg, eye, diags
 from neuromodes.basis import decompose
 
 if TYPE_CHECKING:
@@ -17,18 +17,18 @@ if TYPE_CHECKING:
 def simulate_waves(
     emodes: ArrayLike,
     evals: ArrayLike,
-    nt: Union[int, None] = None,
-    ext_input: Union[ArrayLike, None] = None,
+    nt: int | None = None,
+    ext_input: ArrayLike | None = None,
     dt: float = 1e-4,
     r: float = 17.4,
     gamma: float = 116.0,
     pde_method: str = "fourier",
     decomp_method: str = "project",
-    mass: Union[spmatrix, ArrayLike, None] = None,
-    speed_limits: Union[tuple[float, float], None] = (0, 150),
-    scaled_hetero: Union[ArrayLike, None] = None,
+    mass: spmatrix | ArrayLike | None = None,
+    speed_limits: tuple[float, float] | None = (0, 150),
+    scaled_hetero: ArrayLike | None = None,
     checks: bool = True,
-    seed: Union[int, None] = None,
+    seed: int | None = None,
     cache_input: bool = False,
 ) -> NDArray:
     """
@@ -202,7 +202,7 @@ def bold_transform(
     emodes: ArrayLike,
     pde_method: str = "fourier",
     decomp_method: str = "project",
-    mass: Union[spmatrix, ArrayLike, None] = None,
+    mass: spmatrix | ArrayLike | None = None,
     checks: bool = True,
     **balloon_params
 ) -> NDArray:
@@ -281,8 +281,8 @@ def bold_transform(
 def calc_wave_speed(
     r: float,
     gamma: float,
-    scaled_hetero: Union[ArrayLike, None] = None
-) -> Union[float, NDArray]:
+    scaled_hetero: ArrayLike | None = None
+) -> float | NDArray:
     """
     Calculate wave speed based on the two parameters of the wave model. If a scaled
     heterogeneity map is provided, wave speeds are calculated for each cortical vertex.
@@ -704,16 +704,16 @@ def _model_balloon_ode(
 def _simulate_waves_fem(
     mass: spmatrix,
     stiffness: spmatrix,
-    nt: Union[int, None] = None,
-    input: Union[ArrayLike, None] = None,
+    nt: int | None = None,
+    input: ArrayLike | None = None,
     dt: float = 1e-4,
     r: float = 17.4,
     gamma: float = 116.0,
-    speed_limits: Union[tuple[float, float], None] = (0, 150),
-    scaled_hetero: Union[ArrayLike, None] = None,
+    speed_limits: tuple[float, float] | None = (0, 150),
+    scaled_hetero: ArrayLike | None = None,
     n_jobs: int = 1,
     verbose: int = 0,
-    seed: Union[int, None] = None,
+    seed: int | None = None,
     cache_input: bool = False
 ) -> NDArray:
     """
@@ -732,6 +732,13 @@ def _simulate_waves_fem(
     n_verts = mass.get_shape()[0]
     if mass.get_shape() != (n_verts, n_verts) or stiffness.get_shape() != (n_verts, n_verts):
         raise ValueError("mass and stiffness must have shape (n_verts, n_verts).")
+    mass_diag = mass.diagonal()
+    if np.any(mass_diag <= 0) or np.any(~np.isfinite(mass_diag)):
+        raise ValueError("mass matrix must have positive, finite diagonal entries.")
+    if not np.all(mass - diags(mass_diag, format='csc') == 0):
+        raise ValueError("mass matrix must be diagonal.")
+    if np.any(stiffness.diagonal() < 0) or np.any(~np.isfinite(stiffness.diagonal())):
+        raise ValueError("stiffness matrix must have non-negative, finite diagonal entries.")
     if r <= 0:
         raise ValueError("Parameter r must be positive.")
     if gamma <= 0:
@@ -784,20 +791,19 @@ def _simulate_waves_fem(
     input_padded_freqs = np.fft.fftshift(np.fft.ifft(input_padded, axis=1), axes=1)
     omega = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(2 * nt, dt))
 
-    # Treat noise input as a continuous field
-    mass_input_padded_freqs = mass @ input_padded_freqs
-
-    # Compute temporal component of NFT operator for each frequency
+    # Compute components of NFT operator
+    spatial = (diags(r**2 / mass.diagonal(), format='csc') @ stiffness).tocsc()
+    identity = eye(spatial.shape[0], format='csc', dtype=np.complex128)
     temporal = -omega**2 / gamma**2 - 2j * omega / gamma + 1
 
     # Compute activity at each frequency
     phi_freqs = Parallel(n_jobs=n_jobs, verbose=verbose)(
         delayed(_solve_fem_freq)(
                 # Construct frequency-specific operator for wave equation
-                operator=temporal[k] * mass + r**2 * stiffness,
+            operator=spatial + temporal[k] * identity,
 
                 # Solve for this frequency's input
-                input=mass_input_padded_freqs[:, k]
+                input=input_padded_freqs[:, k]
                 ) for k in range(2 * nt)
                 )
     phi_freqs = np.stack(phi_freqs, axis=1)

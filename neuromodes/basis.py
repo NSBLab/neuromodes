@@ -4,7 +4,7 @@ geometric eigenmodes.
 """
 
 from __future__ import annotations
-from typing import Union, Tuple, TYPE_CHECKING
+from typing import Tuple, TYPE_CHECKING
 from warnings import warn
 import numpy as np
 from scipy.sparse import spmatrix
@@ -20,7 +20,7 @@ def decompose(
     data: ArrayLike,
     emodes: ArrayLike,
     method: str = 'project',
-    mass: Union[spmatrix, ArrayLike, None] = None,
+    mass: spmatrix | ArrayLike | None = None,
     checks: bool = True,
 ) -> NDArray[floating]:
     """
@@ -122,9 +122,9 @@ def reconstruct(
     data: ArrayLike,
     emodes: ArrayLike,
     method: str = 'project',
-    mass: Union[spmatrix, ArrayLike, None] = None,
-    mode_counts: Union[ArrayLike, None] = None,
-    metric: Union[_MetricCallback, _MetricKind, None] = 'correlation',
+    mass: spmatrix | ArrayLike | None = None,
+    mode_counts: ArrayLike | None = None,
+    metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool = True,
     **cdist_kwargs
 ) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
@@ -237,9 +237,9 @@ def reconstruct_timeseries(
     timeseries: ArrayLike,
     emodes: ArrayLike,
     method: str = 'project',
-    mass: Union[spmatrix, ArrayLike, None] = None,
-    mode_counts: Union[ArrayLike, None] = None,
-    metric: Union[_MetricCallback, _MetricKind, None] = 'correlation',
+    mass: spmatrix | ArrayLike | None = None,
+    mode_counts: ArrayLike | None = None,
+    metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool = True,
     **cdist_kwargs
 ) -> Tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
@@ -395,7 +395,7 @@ def _calc_beta(
     data: NDArray[floating],
     emodes: NDArray[floating],
     method: str,
-    mass: Union[spmatrix, NDArray[floating], None],
+    mass: spmatrix | NDArray[floating] | None,
 ) -> NDArray[floating]:
     """Helper function to perform decomposition after validating arguments and masking NaNs/Infs."""
     if method == 'project':

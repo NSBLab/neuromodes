@@ -6,7 +6,7 @@ from __future__ import annotations
 from importlib.resources import files, as_file
 from os import getenv
 from pathlib import Path
-from typing import Union, Tuple, cast, TYPE_CHECKING
+from typing import Tuple, cast, TYPE_CHECKING
 from joblib import Memory
 from lapy import TriaMesh
 from nibabel.gifti.gifti import GiftiImage
@@ -20,7 +20,7 @@ fs_extensions = ('.white', '.pial', '.inflated', '.orig', '.sphere', '.smoothwm'
                  '.fsaverage')
 
 def read_surf(
-    surf: Union[str, Path, GiftiImage, TriaMesh, dict]
+    surf: str | Path | GiftiImage | TriaMesh | dict
 ) -> TriaMesh:
     """Load a triangular surface mesh.
 
@@ -189,7 +189,7 @@ def fetch_map(
 
 def _cache_output(
     function: Callable,
-    cache_dir: Union[str, Path] = None
+    cache_dir: str | Path | None = None
 ) -> Callable:
     """
     Set up :class:`joblib.Memory` caching for a given function. The cache directory can be specified

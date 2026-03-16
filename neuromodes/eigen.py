@@ -3,7 +3,7 @@ Module for computing geometric eigenmodes of brain structures from surface meshe
 """
 
 from __future__ import annotations
-from typing import Union, Tuple, TYPE_CHECKING
+from typing import Tuple, TYPE_CHECKING
 from warnings import warn
 from lapy import Solver
 import numpy as np
@@ -77,12 +77,12 @@ class EigenSolver(Solver):
     """
     def __init__(
         self,
-        geometry: Union[str, Path, GiftiImage, TriaMesh, dict],
-        mask: Union[ArrayLike, None] = None,
+        geometry: str | Path | GiftiImage | TriaMesh | dict,
+        mask: ArrayLike | None = None,
         normalize: bool = False,
-        hetero: Union[ArrayLike, None] = None,
-        alpha: Union[float, None] = None, # default to 1.0 if hetero given (and remains None)
-        scaling: Union[str, None] = None  # default to "sigmoid" if hetero given (and remains None)
+        hetero: ArrayLike | None = None,
+        alpha: float | None = None, # default to 1.0 if hetero given (and remains None)
+        scaling: str | None = None  # default to "sigmoid" if hetero given (and remains None)
     ):
         # Read in surface mesh
         geometry = read_surf(geometry)
@@ -202,8 +202,8 @@ class EigenSolver(Solver):
         fix_mode1: bool = True,
         atol: float = 1e-3,
         rtol: float = 1e-5,
-        sigma: Union[float, None] = -0.01,
-        seed: Union[int, ArrayLike, None] = None, 
+        sigma: float | None = -0.01,
+        seed: int | ArrayLike | None = None, 
         lump: bool = False,
     ) -> EigenSolver:
         """
@@ -538,7 +538,7 @@ def standardize_modes(
 
 def is_orthonormal_basis(
     emodes: ArrayLike,
-    mass: Union[spmatrix, ArrayLike, None] = None,
+    mass: spmatrix | ArrayLike | None = None,
     atol: float = 1e-03,
     rtol: float = 1e-05
 ) -> bool:
