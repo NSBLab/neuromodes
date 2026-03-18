@@ -1,9 +1,12 @@
 .. image:: https://github.com/NSBLab/neuromodes/raw/main/docs/_static/logo.png
   :alt: Design by Gabriella Chan
 
-**NOTE: neuromodes is currently under active development. Breaking changes to function naming and behaviour may occur prior to a stable release.**
+**NOTE: neuromodes is currently under active development. Breaking changes to function naming and
+behaviour may occur prior to a stable release.**
 
-Eigenmode-based brain mapping and modelling toolbox developed by the `Neural Systems and Behaviour Lab <https://www.monash.edu/medicine/psych/alex-fornito-lab>`_. Documentation can be found `here <https://neuromodes.readthedocs.io/en/latest/>`_.
+Eigenmode-based brain mapping and modelling toolbox developed by the `Neural Systems and Behaviour
+Lab <https://www.monash.edu/medicine/psych/alex-fornito-lab>`_. Documentation can be found `here
+<https://neuromodes.readthedocs.io/en/latest/>`_.
 
 Features
 --------
@@ -26,17 +29,15 @@ Installation
 
   pip install git+https://github.com/NSBLab/neuromodes.git
 
-This will clone ``main``, our most stable branch. To try out any newer features under development, clone from our ``dev`` branch instead via:
+This will clone ``main``, our most stable branch. To try out any newer features under development,
+clone from our ``dev`` branch instead by using ``neuromodes.git@dev`` in the command above.
+
+Alternatively, ``neuromodes`` can be added as a dependency to your ``pyproject.toml`` with `UV
+<https://docs.astral.sh/uv/>`_ via:
 
 .. code-block:: bash
 
-  pip install git+https://github.com/NSBLab/neuromodes.git@dev.
-
-Alternatively, ``neuromodes`` can be added as a dependency to your ``pyproject.toml`` with `UV <https://docs.astral.sh/uv/>`_ via:
-
-.. code-block:: bash
-
-  uv add git+https://github.com/NSBLab/neuromodes.git.  # add '@dev' to clone from dev branch
+  uv add git+https://github.com/NSBLab/neuromodes.git  # add '@dev' to clone from dev branch
 |
 If you wish to run the tutorials, please instead install our extra ``tutorials`` dependencies via:
 
@@ -50,7 +51,9 @@ or
 
   uv add "neuromodes[tutorials] @ git+https://github.com/NSBLab/neuromodes.git"
 |
-If you encounter any problems, please consider `opening an issue <https://github.com/NSBLab/neuromodes/issues>`_. Meanwhile, try switching to the exact environment used for development via UV:
+If you encounter any problems, please consider `opening an issue
+<https://github.com/NSBLab/neuromodes/issues>`_. Meanwhile, try switching to the exact environment
+used for development via UV:
 
 .. code-block:: bash
 
@@ -84,6 +87,10 @@ V\. Barnes, J. Cruddas, T. Cao, I.Z. Pope, T. Xu, T. Funck, N. Palomero-Gallaghe
 If you use the ``model_connectome`` function, please also cite:
 
 F\. Normand, M. Gajwani, T. Cao, J. Cruddas, A. Sangchooli, S. Oldham, A. Holmes, P.A. Robinson, J.C. Pang, A. Fornito, Geometric constraints on the architecture of mammalian cortical connectomes, BioRxiv (2025) (DOI: 10.1101/2025.09.17.676944)
+
+If you use the ``eigenstrap`` function, please also cite:
+
+N.C. Koussis, J.C. Pang, R. Phogat, J. Jeganathan, B. Paton, A. Fornito, P.A. Robinson, B. Misic, M. Breakspear,  Generation of surrogate brain maps preserving spatial autocorrelation through random rotation of geometric eigenmodes, Imaging neuroscience (2025) (DOI: 10.1162/IMAG.a.71)
 
 Citations for cortical surface meshes and maps can be found in `neuromodes/data/included_data.csv <https://github.com/NSBLab/neuromodes/blob/main/neuromodes/data/included_data.csv>`_
 

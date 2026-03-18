@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from lapy import TriaMesh
 import numpy as np
 from pytest import raises
@@ -131,3 +132,9 @@ def test_cache_output_caches_result(tmp_path):
     # Second call: should NOT append to calls (uses cache)
     assert cached_func(5) == 10
     assert calls == [5]  # No new call, so still [5]
+
+def test_caching_no_joblib():
+    # Mock the import of joblib to raise ImportError
+    with patch.dict('sys.modules', {'joblib': None}):
+        with raises(ImportError, match="joblib is required for caching"):
+            _cache_output(lambda x: x)

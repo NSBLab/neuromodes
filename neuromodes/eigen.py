@@ -593,7 +593,7 @@ def is_orthonormal_basis(
     return np.allclose(prod, np.eye(n_modes), rtol=rtol, atol=atol, equal_nan=False)
 
 def get_eigengroup_inds(
-        n_modes: int,
+    n_modes: int,
     ) -> list[NDArray]:
     """
     Identify eigengroups based on ordering of spherical harmonics. Each eigengroup 

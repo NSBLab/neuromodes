@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 keywords = ["python", "modelling", "neuroimaging", "eigenmodes", "brain-mapping"]
 
 dependencies = [
-    "joblib>=1.5.3",
     "lapy>=1.6.0",
     "nibabel>=5.2.1",
     "numpy>=1.24.4",
@@ -22,6 +21,9 @@ tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
+]
+cache = [
+    "joblib>=1.5.3",
 ]
 
 [build-system]

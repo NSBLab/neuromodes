@@ -7,7 +7,6 @@ from importlib.resources import files, as_file
 from os import getenv
 from pathlib import Path
 from typing import Tuple, cast, TYPE_CHECKING
-from joblib import Memory
 from lapy import TriaMesh
 from nibabel.gifti.gifti import GiftiImage
 from nibabel.loadsave import load
@@ -209,6 +208,12 @@ def _cache_output(
     callable
         The cached version of the input function.
     """
+    try:
+        from joblib import Memory
+    except ImportError:
+        raise ImportError("joblib is required for caching. Neuromodes can be installed with the "
+                          "'cache' extra to include joblib as a dependency (e.g., pip install "
+                          "neuromodes[cache]).")
     if cache_dir is None:
         cache_dir = getenv("CACHE_DIR")
         if cache_dir is None:
