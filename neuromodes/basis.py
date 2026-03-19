@@ -9,7 +9,7 @@ from warnings import warn
 import numpy as np
 from scipy.sparse import spmatrix
 from scipy.spatial.distance import cdist
-from neuromodes.eigen import is_orthonormal_basis
+from neuromodes.eigen import _validate_eigenvars
 
 if TYPE_CHECKING:
     from numpy import floating
@@ -65,23 +65,17 @@ def decompose(
         If ``data`` contains NaNs or Infs and ``method='project'``.
     """
     # Format / validate inputs
+    if method == 'regress' and mass is not None:
+        mass = None
+        if checks:  # Skip warning for EigenSolver, where mass is always passed in
+            warn("mass is ignored when method='regress'.")
+    if checks:
+        emodes, _, mass = _validate_eigenvars(emodes=emodes, mass=mass,
+                                              check_ortho=(method == 'project'))[:3]
+
     data = np.asarray(data)
-    if not isinstance(mass, (spmatrix, type(None))):
-        mass = np.asarray(mass)
     if method not in ['project', 'regress']:
         raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
-    if checks:
-        emodes = np.asarray(emodes)  # chkfinite in is_orthonormal_basis
-        if method == 'project' and not is_orthonormal_basis(emodes, mass):
-            err_str = "in Euclidean space" if mass is None else "with the provided mass matrix"
-            raise ValueError(
-                f"The columns of emodes do not form an orthonormal basis set {err_str}. Either "
-                "provide a suitable mass matrix such that emodes.T @ mass @ emodes = I, use "
-                "method='regress', or set checks=False."
-            )
-        elif method == 'regress' and mass is not None:
-            warn("mass is ignored when method='regress'.")
-            mass = None
     n_verts, n_modes = emodes.shape
     if data.ndim == 1:
         data = data[:, np.newaxis]
@@ -111,7 +105,7 @@ def decompose(
             emodes_masked = emodes[mask, :]
 
             # Calculate beta coefficients for subset of data
-            beta[:, map_indices] = _calc_beta(data_masked, emodes_masked, method, mass=mass)
+            beta[:, map_indices] = _calc_beta(data_masked, emodes_masked, method, mass)
         
         return beta
 
@@ -190,7 +184,6 @@ def reconstruct(
         data = data[:, np.newaxis]
     n_maps = data.shape[1]
 
-    emodes = np.asarray(emodes)
     n_verts, n_modes = emodes.shape
 
     if mode_counts is None:
@@ -211,8 +204,9 @@ def reconstruct(
         beta = [tmp[:mq, :] for mq in mode_counts]
     else:
         beta = [
-            decompose(data, emodes[:, :mq], mass=None, method=method, checks=checks)
-            for mq in mode_counts
+            decompose(data, emodes[:, :mq], mass=None, method=method,
+                      checks=(checks if i == 0 else False))
+            for i, mq in enumerate(mode_counts)
         ]
 
     # Reconstruct maps from beta coefficients

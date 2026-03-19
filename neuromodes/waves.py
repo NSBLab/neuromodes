@@ -9,6 +9,7 @@ from warnings import warn
 import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.sparse import spmatrix, linalg, eye, diags
+from neuromodes.eigen import _validate_eigenvars
 from neuromodes.basis import decompose
 
 if TYPE_CHECKING:
@@ -132,14 +133,14 @@ def simulate_waves(
         activity in the cerebral cortex. Physical Review E. https://doi.org/10.1103/physreve.56.826
     """
     # Format / validate arguments
+    if checks:
+        emodes, evals, mass, _, scaled_hetero = _validate_eigenvars(
+            emodes=emodes, evals=evals, mass=mass, scaled_hetero=scaled_hetero,
+            check_ortho=(decomp_method=='project')
+            )
+        
     r = float(r)
     gamma = float(gamma)
-    
-    if checks:
-        evals = np.asarray_chkfinite(evals)
-        if evals.shape != (emodes.shape[1],):
-            raise ValueError(f"evals must have shape (n_modes,) = {(emodes.shape[1],)}, matching "
-                             "the number of columns in emodes.")
     if r <= 0:
         raise ValueError("Parameter r must be positive.")
     if gamma <= 0:
@@ -187,7 +188,7 @@ def simulate_waves(
         ext_input = np.asarray(noise_func(emodes.shape[0], nt, seed=seed))
 
     # Eigendecompose external input to get modal coefficients over time
-    input_coeffs = decompose(ext_input, emodes, method=decomp_method, mass=mass, checks=checks)
+    input_coeffs = decompose(ext_input, emodes, method=decomp_method, mass=mass, checks=False)
 
     # Compute activity timeseries for each mode
     _model_wave = _model_wave_fourier if pde_method == 'fourier' else _model_wave_ode
@@ -714,13 +715,14 @@ def _simulate_waves_fem(
     n_jobs: int = 1,
     verbose: int = 0,
     seed: int | None = None,
-    cache_input: bool = False
+    cache_input: bool = False,
+    checks: bool = True
 ) -> NDArray:
     """
     Full FEM version of ``simulate_waves()``, for validating the eigenmode expansion approach.
     """
     # Format / validate arguments
-    if n_jobs > 1:
+    if n_jobs > 1 or n_jobs == -1:
         try:
             from joblib import Parallel, delayed
         except ImportError:
@@ -730,12 +732,10 @@ def _simulate_waves_fem(
 
     r = float(r)
     gamma = float(gamma)
+
+    if checks:
+        mass, stiffness = _validate_eigenvars(mass=mass, stiffness=stiffness)[2:4]
     
-    if not isinstance(mass, spmatrix) or not isinstance(stiffness, spmatrix):
-        raise ValueError("mass and stiffness must be scipy sparse matrices.")
-    n_verts = mass.get_shape()[0]
-    if mass.get_shape() != (n_verts, n_verts) or stiffness.get_shape() != (n_verts, n_verts):
-        raise ValueError("mass and stiffness must have shape (n_verts, n_verts).")
     mass_diag = mass.diagonal()
     mass_off_diag = mass - diags(mass_diag, format='csc')
     if np.any(mass_diag <= 0) or np.any(~np.isfinite(mass_diag)) or mass_off_diag.nnz != 0:
@@ -785,14 +785,14 @@ def _simulate_waves_fem(
                 warn("cache_input is ignored when seed is None.")
             noise_func = _gen_noise
 
-        input = np.asarray(noise_func(n_verts, nt, seed=seed))
+        ext_input = np.asarray(noise_func(mass.shape[0], nt, seed=seed))
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
-    input_padded = np.concatenate([np.zeros_like(input), input], axis=1)
+    ext_input_padded = np.concatenate([np.zeros_like(ext_input), ext_input], axis=1)
 
     # Apply inverse Fourier transform to get frequency-domain representation of the causal signal.
-    input_padded_freqs = np.fft.fftshift(np.fft.ifft(input_padded, axis=1), axes=1)
+    ext_input_padded_freqs = np.fft.fftshift(np.fft.ifft(ext_input_padded, axis=1), axes=1)
     omega = 2 * np.pi * np.fft.fftshift(np.fft.fftfreq(2 * nt, dt))
 
     # Compute components of NFT operator
@@ -802,18 +802,18 @@ def _simulate_waves_fem(
 
     # Compute activity at each frequency
     # Parallelise if joblib is available and n_jobs > 1
-    if n_jobs > 1 and 'Parallel' in globals():
+    if 'Parallel' in globals():
         phi_freqs = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(_solve_fem_freq)(
                     # Construct frequency-specific operator for wave equation
                 operator=spatial + temporal[k] * identity,
 
                     # Solve for this frequency's input
-                    input=input_padded_freqs[:, k]
+                    input=ext_input_padded_freqs[:, k]
                     ) for k in range(2 * nt)
                     )
     else:
-        phi_freqs = [_solve_fem_freq(spatial + temporal[k] * identity, input_padded_freqs[:, k])
+        phi_freqs = [_solve_fem_freq(spatial + temporal[k] * identity, ext_input_padded_freqs[:, k])
                      for k in range(2 * nt)]
     phi_freqs = np.stack(phi_freqs, axis=1)
 
@@ -855,6 +855,7 @@ def _analytical_fc(
     np.ndarray
         Analytical FC matrix of shape ``(n_verts, n_verts)``.
     """
+    emodes, evals = _validate_eigenvars(emodes=emodes, evals=evals, check_ortho=False)[:2]
     mode_vars = 1.0 / (2 * gamma * (1 + r**2 * evals))
     cov = emodes @ (mode_vars[:, np.newaxis] * emodes.T)
     diag = np.sqrt(np.diag(cov))

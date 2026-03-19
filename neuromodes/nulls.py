@@ -10,7 +10,7 @@ from warnings import warn
 import numpy as np
 from scipy.stats import special_ortho_group
 from neuromodes.basis import decompose
-from neuromodes.eigen import get_eigengroup_inds
+from neuromodes.eigen import _validate_eigenvars, get_eigengroup_inds
 
 if TYPE_CHECKING:
     from scipy.sparse import spmatrix
@@ -268,22 +268,17 @@ def eigenstrap(
         Imaging Neuroscience. https://doi.org/10.1162/IMAG.a.71
     """
     # Format / validate arguments
+    if checks:
+        emodes, evals, mass = _validate_eigenvars(emodes=emodes, evals=evals, mass=mass,
+                                                  check_ortho=(decomp_method=='project'))[:3]
+
     data = np.asarray(data)
     if (is_vector_data := data.ndim == 1):
         data = data[:, np.newaxis]
     n_maps = data.shape[1]
 
-    # emodes and evals
-    emodes = np.asarray(emodes)  # chkfinite in decompose
-    evals = np.asarray_chkfinite(evals) 
-    n_cols = emodes.shape[1]
-    if emodes.ndim != 2 or emodes.shape[0] < n_cols:
-        raise ValueError("`emodes` must have shape (n_verts, n_modes), where n_verts ≥ n_modes.")
-    if evals.shape != (n_cols,):
-        raise ValueError(f"`evals` must have shape (n_modes,) = ({n_cols},), matching the number "
-                         "of columns in `emodes`.")
-    
     # n_groups : Determine number of eigengroups, and trim emodes and evals to match
+    n_cols = emodes.shape[1]
     if n_groups is None:
         n_groups = int(np.sqrt(n_cols))  # floor of root
         if n_groups**2 != n_cols:
@@ -360,7 +355,7 @@ def eigenstrap(
     sqrt_evals = sqrt_evals[:, np.newaxis, np.newaxis] # turn it into 3D column vector for below broadcasting
 
     # Eigendecompose maps (coeffs is n_modes x n_maps)
-    coeffs = decompose(data, emodes, method=decomp_method, mass=mass, checks=checks)
+    coeffs = decompose(data, emodes, method=decomp_method, mass=mass, checks=False)
     # Turn coeffs into inv_coeffs, a 3D array of shape (n_modes, n_nulls, n_maps)
     # This is the precomputed inverse-transformed coefficients (spheroid -> ellipsoid for each eigengroup)
     if randomize:
@@ -538,7 +533,7 @@ def _rotate_coeffs_qr(
         Q, R = np.linalg.qr(X) # Q has shape (n_nulls, k, k)
         # Make QR decomp unique and uniform by making R's diagonal positive
         r = np.copysign(1.0, np.diagonal(R, axis1=1, axis2=2)) # copysign avoids chance of 0
-        Q = Q * r[:, np.newaxis, :]
+        Q *= r[:, np.newaxis, :]
         # Ensure det(Q) = 1
         dets = np.linalg.det(Q)
         Q[:, :, 0] *= dets[:, np.newaxis]

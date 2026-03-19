@@ -42,6 +42,7 @@ API Reference
    simulate_waves
    bold_transform
    model_connectome
+   eigenstrap
 
 .. autosummary::
    :template: function.rst

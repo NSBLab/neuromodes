@@ -11,7 +11,8 @@ def emodes():
 
 def test_model_connectome_properties(emodes):
     evals = np.linspace(1.0, 10.0, 5)
-    conn = model_connectome(emodes, evals, r=1.5, k=5)
+    with pytest.warns(UserWarning, match='received 1.0'):
+        conn = model_connectome(emodes, evals, r=1.5, k=5)
 
     # shape
     assert conn.shape == (10, 10)
