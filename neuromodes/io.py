@@ -205,6 +205,14 @@ def _cache_output(
     -------
     callable
         The cached version of the input function.
+
+    Raises
+    ------
+    ImportError
+        If ``joblib`` is not installed.
+
+    Raises
+    ------
     """
     try:
         from joblib import Memory

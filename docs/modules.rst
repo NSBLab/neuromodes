@@ -49,7 +49,7 @@ API Reference
    :toctree: generated/
 
    scale_hetero
-   standardize_modes
+   standardize_emodes
    is_orthonormal_basis
 
 .. _ref_basis:

@@ -44,10 +44,6 @@ def model_connectome(
     Raises
     ------
     ValueError
-        If ``emodes`` does not have shape ``(n_verts, n_modes)`` where ``n_verts > n_modes``.
-    ValueError
-        If ``evals`` does not have shape ``(n_modes,)``.
-    ValueError
         If ``r`` is not a positive number.
     ValueError
         If ``k`` is not a positive integer in the range [1, ``n_modes``].

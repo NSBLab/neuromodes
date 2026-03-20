@@ -253,8 +253,6 @@ class EigenSolver(Solver):
             If ``n_modes`` is not a positive integer less than ``n_verts``.
         ValueError
             If ``v0`` is provided but does not have shape ``(n_verts,)``.
-        AssertionError
-            If computed eigenvalues or eigenmodes contain NaNs.
         """
         # Validate arguments
         if n_modes != int(n_modes) or n_modes <= 0 or n_modes >= self.n_verts:
@@ -274,7 +272,7 @@ class EigenSolver(Solver):
         evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
 
         # Validate results
-        if not is_orthonormal_basis(emodes, self.mass, atol=atol, rtol=rtol):
+        if not is_orthonormal_basis(emodes, self.mass, atol=atol, rtol=rtol, checks=False):
             warn(f"Computed eigenmodes are not mass-orthonormal (atol={atol}, rtol={rtol}).")
 
         ## Post-process
@@ -288,7 +286,7 @@ class EigenSolver(Solver):
                 evals[0] = 0.0
 
         if standardize:
-            emodes = standardize_modes(emodes)
+            emodes = standardize_emodes(emodes, checks=False)
 
         # Store results
         self.n_modes = n_modes  # Nicety
@@ -502,7 +500,7 @@ def scale_hetero(
     
     return hetero_scaled
 
-def standardize_modes(
+def standardize_emodes(
     emodes: ArrayLike,
     checks: bool = True
 ) -> NDArray[floating]:
@@ -526,7 +524,7 @@ def standardize_modes(
         each mode set to be positive.
     """
     if checks:
-        emodes = _validate_eigenvars(emodes=emodes, check_ortho=False)[0]
+        emodes = _validate_eigenvars(emodes=emodes)[0]
 
     # Find the sign of each mode's amplitude at the first vertex
     signs = np.sign(emodes[0, :])
@@ -566,13 +564,6 @@ def is_orthonormal_basis(
     bool
         ``True`` if the set of vectors is orthonormal (Euclidean or mass-orthonormal), ``False``
         otherwise.
-
-    Raises
-    ------
-    ValueError
-        If ``emodes`` does not have shape ``(n_verts, n_modes)``, where ``n_verts > n_modes``.
-    ValueError
-        If ``mass`` is provided but does not have shape ``(n_verts, n_verts)``.
 
     Notes
     -----

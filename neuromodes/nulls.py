@@ -104,10 +104,6 @@ def eigenstrap(
     Raises
     ------
     ValueError
-        If ``emodes`` is not a 2D array or has n_verts ≥ n_modes.
-    ValueError
-        If ``evals`` length doesn't match number of columns in ``emodes``.
-    ValueError
         If ``residual`` is not one of ``None``, ``'add'``, or ``'permute'``.
     ValueError
         If ``resample`` is not one of ``None``, ``'exact'``, ``'affine'``, ``'mean'``, or

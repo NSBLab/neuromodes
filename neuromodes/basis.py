@@ -58,8 +58,6 @@ def decompose(
     ValueError
         If ``data`` does not have shape ``(n_verts,)`` or ``(n_verts, n_maps)``.
     ValueError
-        If ``method='project'`` and ``emodes`` columns do not form an orthonormal basis set.
-    ValueError
         If ``method`` is not ``'project'`` or ``'regress'``.
     ValueError
         If ``data`` contains NaNs or Infs and ``method='project'``.

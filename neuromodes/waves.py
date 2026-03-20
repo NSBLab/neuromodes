@@ -93,10 +93,6 @@ def simulate_waves(
     Raises
     ------
     ValueError
-        If ``emodes`` does not have shape ``(n_verts, n_modes)``, where ``n_verts ≥ n_modes``.
-    ValueError
-        If ``evals`` does not have shape ``(n_modes,)``.
-    ValueError
         If ``r``, ``gamma``, or ``dt`` is not positive.
     ValueError
         If ``nt`` is not a positive integer.
@@ -104,11 +100,9 @@ def simulate_waves(
         If ``speed_limits`` is not a tuple ``(min_speed, max_speed)``, where ``0 ≤ min_speed <
         max_speed``.
     ValueError
-        If ``nt`` is not provided when ``ext_input`` is ``None``.
+        If neither ``nt`` nor ``ext_input`` are provided.
     ValueError
         If ``pde_method`` is not ``'fourier'`` or ``'ode'``.
-    RuntimeError
-        If the ODE solver fails when using ``pde_method='ode'`` and ``bold_out=True``.
 
     Notes
     -----
@@ -509,7 +503,7 @@ def get_balloon_params(**overrides) -> dict:
     ValueError
         If any provided balloon model parameter name is invalid.
     ValueError
-        If any provided balloon model parameter is non-positive or non-finite.
+        If any provided balloon model parameter is not positive.
     """
     
     # Get default values
@@ -529,7 +523,8 @@ def get_balloon_params(**overrides) -> dict:
     # Validate and apply overrides
     for param, value in overrides.items():
         if param not in params:
-            raise ValueError(f"Invalid Balloon model parameter '{param}'.")
+            raise ValueError(f"Invalid Balloon model parameter '{param}'. See get_balloon_params() "
+                             "for valid parameters.")
         if value <= 0 or np.isnan(value) or np.isinf(value):
             raise ValueError("All Balloon model parameters must be positive and finite (received "
                              f"{param}={value}).")
