@@ -5,51 +5,33 @@ from neuromodes.basis import (
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_surf, fetch_map
 
-@pytest.fixture
-def surf_medmask_hetero():
+@pytest.fixture()
+def solver(scope='module'):
     mesh, medmask = fetch_surf(density='4k')
     hetero = fetch_map(data="myelinmap", density="4k")
-    return mesh, medmask, hetero
-
-@pytest.fixture
-def presolver(surf_medmask_hetero):
-    surf, medmask, hetero = surf_medmask_hetero
-    presolver = EigenSolver(surf, mask=medmask, hetero=hetero)
-    return presolver
-
-@pytest.fixture
-def solver(presolver):
-    presolver.solve(n_modes=10, seed=0)
-    return presolver
+    solver = EigenSolver(mesh, mask=medmask, hetero=hetero).solve(n_modes=10)
+    return solver
 
 def test_decompose_eigenmodes(solver):
-    emodes = solver.emodes
-
-    for i in range(solver.n_modes):
-        data = emodes[:, i]  # Use an eigenmode as data
-        beta = decompose(data, emodes, mass=solver.mass)
-
-        # The mode should load onto only itself due to orthogonality
-        beta_expected = np.zeros((solver.n_modes, 1))
-        beta_expected[i, 0] = 1
-        assert np.allclose(beta, beta_expected, atol=1e-4), f'Decomposition of mode {i+1} failed.'
+    beta = decompose(data=solver.emodes, emodes=solver.emodes, mass=solver.mass)
+    np.testing.assert_allclose(beta, np.eye(solver.n_modes), atol=1e-4, \
+        err_msg='Decomposition of eigenmodes onto themselves did not yield identity coefficients.')
 
 def test_decompose_invalid_data_shape(solver):
 
     with pytest.raises(ValueError, match=r"`emodes` \(3619\)."):
         decompose(np.ones(4002), solver.emodes, mass=solver.mass)
 
-def test_decompose_nan_inf_mode(solver):
-    emodes = solver.emodes
+def test_decompose_nan_inf_data(solver):
     data = np.ones(solver.n_verts)
 
-    emodes[0,0] = np.nan
+    data[0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        decompose(data, emodes, mass=solver.mass)
+        decompose(data, solver.emodes, mass=solver.mass)
 
-    emodes[0,0] = np.inf
+    data[0] = np.inf
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        decompose(data, emodes, mass=solver.mass)
+        decompose(data, solver.emodes, mass=solver.mass)
 
 def test_decompose_massless(solver):
 
