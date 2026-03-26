@@ -5,15 +5,15 @@ Module for generating models of cortical structural connectomes.
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import numpy as np
-from neuromodes.eigen import _validate_eigenvars
+from neuromodes.eigen import _validate_eigendata
 
 if TYPE_CHECKING:
     from numpy import floating
     from numpy.typing import NDArray, ArrayLike
 
 def model_connectome(
-    emodes: ArrayLike,
-    evals: ArrayLike,
+    emodes: NDArray,
+    evals: NDArray,
     r: float = 9.53,
     k: int = 108,
     checks: bool = True
@@ -68,7 +68,8 @@ def model_connectome(
     """
     # Format / validate arguments
     if checks:
-        emodes, evals = _validate_eigenvars(emodes=emodes, evals=evals, check_ortho=False)[:2]
+        ved = _validate_eigendata(emodes=emodes, evals=evals, check_ortho=False)
+        emodes, evals = ved.emodes, ved.evals
 
     r = float(r)
     n_modes = emodes.shape[1]

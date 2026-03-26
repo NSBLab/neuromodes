@@ -7,7 +7,7 @@ from typing import Tuple, TYPE_CHECKING
 from warnings import warn
 from lapy import Solver
 import numpy as np
-from scipy.sparse import spmatrix
+from scipy.sparse import csc_matrix
 from neuromodes.io import read_surf
 from neuromodes.mesh import mask_mesh, check_surf
 
@@ -301,7 +301,7 @@ class EigenSolver(Solver):
     
     def decompose(
         self,
-        data: ArrayLike,
+        data: NDArray,
         **kwargs
     ) -> NDArray[floating]:
         """
@@ -322,7 +322,7 @@ class EigenSolver(Solver):
     
     def reconstruct(
         self,
-        data: ArrayLike,
+        data: NDArray,
         **kwargs
     ) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
         """
@@ -343,7 +343,7 @@ class EigenSolver(Solver):
     
     def reconstruct_timeseries(
         self,
-        timeseries: ArrayLike,
+        timeseries: NDArray,
         **kwargs
     ) -> Tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
                list[NDArray[floating]]]:
@@ -430,7 +430,7 @@ class EigenSolver(Solver):
     
     def eigenstrap(
         self,
-        data: ArrayLike,
+        data: NDArray,
         **kwargs
     ) -> NDArray:
         """
@@ -532,7 +532,7 @@ def standardize_emodes(
 
 def is_orthonormal_basis(
     emodes: NDArray,
-    mass: spmatrix | NDArray | None = None,
+    mass: csc_matrix | None = None,
     atol: float = 1e-03,
     rtol: float = 1e-05,
     checks: bool = True
@@ -612,8 +612,8 @@ def get_eigengroup_inds(
 class EigenData:
     emodes: NDArray[np.floating]
     evals: NDArray[np.floating]
-    mass: spmatrix 
-    stiffness: spmatrix
+    mass: csc_matrix 
+    stiffness: csc_matrix
     scaled_hetero: NDArray[np.floating]
 
     def __init__(self, **kwargs):
@@ -623,10 +623,10 @@ class EigenData:
                 setattr(self, key, value)    
 
 def _validate_eigendata(
-    emodes: ArrayLike | None = None,
-    evals: ArrayLike | None = None,
-    mass: spmatrix | ArrayLike | None = None,
-    stiffness: spmatrix | ArrayLike | None = None,
+    emodes: NDArray | None = None,
+    evals: NDArray | None = None,
+    mass: csc_matrix | None = None,
+    stiffness: csc_matrix | None = None,
     scaled_hetero: ArrayLike | None = None,
     data: ArrayLike | None = None,
     check_ortho: bool = True, 
@@ -696,23 +696,15 @@ def _validate_eigendata(
 
     # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
     if mass is not None:
-        if isinstance(mass, spmatrix):
-            mass_shape = mass.get_shape()
-        else:
-            mass = np.asarray_chkfinite(mass)
-            mass_shape = mass.shape
-        if n_verts is None:
+        mass_shape = mass.shape
+        if n_verts is None and mass_shape is not None: # appease pyright
             n_verts = mass_shape[0]
-        if mass.shape != (n_verts, n_verts):
+        if mass_shape != (n_verts, n_verts):
             raise ValueError(f"mass must have shape (n_verts, n_verts) = {(n_verts, n_verts)}.")
 
     if stiffness is not None:
-        if isinstance(stiffness, spmatrix):
-            stiffness_shape = stiffness.get_shape()
-        else:
-            stiffness = np.asarray_chkfinite(stiffness)
-            stiffness_shape = stiffness.shape
-        if n_verts is None:
+        stiffness_shape = stiffness.shape
+        if n_verts is None and stiffness_shape is not None: # appease pyright
             n_verts = stiffness_shape[0]
         if stiffness.shape != (n_verts, n_verts):
             raise ValueError("stiffness must have shape (n_verts, n_verts) = "

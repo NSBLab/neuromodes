@@ -8,16 +8,16 @@ from typing import TYPE_CHECKING
 from warnings import warn
 import numpy as np
 from scipy.integrate import solve_ivp
-from scipy.sparse import spmatrix, linalg, eye, diags
-from neuromodes.eigen import _validate_eigenvars
+from scipy.sparse import csc_matrix, linalg, eye, diags
+from neuromodes.eigen import _validate_eigendata
 from neuromodes.basis import decompose
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray, ArrayLike
 
 def simulate_waves(
-    emodes: ArrayLike,
-    evals: ArrayLike,
+    emodes: NDArray,
+    evals: NDArray,
     nt: int | None = None,
     ext_input: ArrayLike | None = None,
     dt: float = 1e-4,
@@ -25,7 +25,7 @@ def simulate_waves(
     gamma: float = 116.0,
     pde_method: str = "fourier",
     decomp_method: str = "project",
-    mass: spmatrix | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
     speed_limits: tuple[float, float] | None = (0, 150),
     scaled_hetero: ArrayLike | None = None,
     checks: bool = True,
@@ -128,10 +128,12 @@ def simulate_waves(
     """
     # Format / validate arguments
     if checks:
-        emodes, evals, mass, _, scaled_hetero = _validate_eigenvars(
+        ved = _validate_eigendata(
             emodes=emodes, evals=evals, mass=mass, scaled_hetero=scaled_hetero,
             check_ortho=(decomp_method=='project')
             )
+        emodes, evals, mass = ved.emodes, ved.evals, ved.mass
+        scaled_hetero = ved.scaled_hetero if scaled_hetero is not None else scaled_hetero
         
     r = float(r)
     gamma = float(gamma)
@@ -143,8 +145,6 @@ def simulate_waves(
         raise ValueError("dt must be positive.")
     if nt is not None and (not isinstance(nt, int) or nt <= 0):
         raise ValueError("nt must be None or a positive integer.")
-    if nt is None and ext_input is None:
-        raise ValueError("Either nt or ext_input must be provided.")
     if speed_limits is not None:
         if (not isinstance(speed_limits, tuple) or not len(speed_limits) == 2
             or speed_limits[0] < 0 or speed_limits[0] >= speed_limits[1]):
@@ -170,7 +170,7 @@ def simulate_waves(
         if cache_input:
             warn("cache_input is ignored when ext_input is provided.")
         nt = ext_input.shape[1]
-    else:
+    elif nt is not None:
         if cache_input and seed is not None:
             from neuromodes.io import _cache_output
             noise_func = _cache_output(_gen_noise)
@@ -180,6 +180,8 @@ def simulate_waves(
             noise_func = _gen_noise
 
         ext_input = np.asarray(noise_func(emodes.shape[0], nt, seed=seed))
+    else: # not the nicest, but it makes pyright the happiest
+        raise ValueError("Either nt or ext_input must be provided.")
 
     # Eigendecompose external input to get modal coefficients over time
     input_coeffs = decompose(ext_input, emodes, method=decomp_method, mass=mass, checks=False)
@@ -197,7 +199,7 @@ def bold_transform(
     emodes: ArrayLike,
     pde_method: str = "fourier",
     decomp_method: str = "project",
-    mass: spmatrix | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
     checks: bool = True,
     **balloon_params
 ) -> NDArray:
@@ -307,7 +309,7 @@ def calc_wave_speed(
 def _gen_noise(
     n_verts: int,
     nt: int,
-    seed: int
+    seed: int | None
 ) -> NDArray:
     """
     Generate reproducible white noise of shape ``(n_verts, nt)`` for a given ``seed``, derived from
@@ -709,8 +711,8 @@ def _model_balloon_ode(
     return bold_coeffs
 
 def _simulate_waves_fem(
-    mass: spmatrix,
-    stiffness: spmatrix,
+    mass: csc_matrix,
+    stiffness: csc_matrix,
     nt: int | None = None,
     ext_input: ArrayLike | None = None,
     dt: float = 1e-4,
@@ -740,7 +742,12 @@ def _simulate_waves_fem(
     gamma = float(gamma)
 
     if checks:
-        mass, stiffness = _validate_eigenvars(mass=mass, stiffness=stiffness)[2:4]
+        ved = _validate_eigendata(mass=mass, stiffness=stiffness)
+        mass, stiffness = ved.mass, ved.stiffness
+    else: 
+        mass = csc_matrix(mass)
+        stiffness = csc_matrix(stiffness)
+    assert mass is not None
     
     mass_diag = mass.diagonal()
     mass_off_diag = mass - diags(mass_diag, format='csc')
@@ -757,8 +764,6 @@ def _simulate_waves_fem(
         raise ValueError("dt must be positive.")
     if nt is not None and (not isinstance(nt, int) or nt <= 0):
         raise ValueError("nt must be None or a positive integer.")
-    if nt is None and ext_input is None:
-        raise ValueError("Either nt or ext_input must be provided.")
     if speed_limits is not None:
         if (not isinstance(speed_limits, tuple) or not len(speed_limits) == 2
             or speed_limits[0] < 0 or speed_limits[0] >= speed_limits[1]):
@@ -782,7 +787,7 @@ def _simulate_waves_fem(
         if cache_input:
             warn("cache_input is ignored when ext_input is provided.")
         nt = ext_input.shape[1]
-    else:
+    elif nt is not None:
         if cache_input and seed is not None:
             from neuromodes.io import _cache_output
             noise_func = _cache_output(_gen_noise)
@@ -792,6 +797,8 @@ def _simulate_waves_fem(
             noise_func = _gen_noise
 
         ext_input = np.asarray(noise_func(mass.shape[0], nt, seed=seed))
+    else:
+        raise ValueError("Either nt or ext_input must be provided.")
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
@@ -830,7 +837,7 @@ def _simulate_waves_fem(
     return phi[:, nt:]
 
 def _solve_fem_freq(
-    operator: spmatrix,
+    operator: csc_matrix,
     input: NDArray
 ) -> NDArray:
     """Helper function for parallel frequency solves."""
@@ -861,7 +868,8 @@ def _analytical_fc(
     np.ndarray
         Analytical FC matrix of shape ``(n_verts, n_verts)``.
     """
-    emodes, evals = _validate_eigenvars(emodes=emodes, evals=evals, check_ortho=False)[:2]
+    ved = _validate_eigendata(emodes=emodes, evals=evals, check_ortho=False)
+    emodes, evals = ved.emodes, ved.evals
     mode_vars = 1.0 / (2 * gamma * (1 + r**2 * evals))
     cov = emodes @ (mode_vars[:, np.newaxis] * emodes.T)
     diag = np.sqrt(np.diag(cov))

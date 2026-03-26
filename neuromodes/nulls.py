@@ -10,17 +10,17 @@ from warnings import warn
 import numpy as np
 from scipy.stats import special_ortho_group
 from neuromodes.basis import decompose
-from neuromodes.eigen import _validate_eigenvars, get_eigengroup_inds
+from neuromodes.eigen import _validate_eigendata, get_eigengroup_inds
 
 if TYPE_CHECKING:
-    from scipy.sparse import spmatrix
+    from scipy.sparse import csc_matrix
     from numpy import floating, integer
-    from numpy.typing import ArrayLike, NDArray
+    from numpy.typing import NDArray
 
 def eigenstrap(
-    data: ArrayLike,
-    emodes: ArrayLike,
-    evals: ArrayLike, 
+    data: NDArray,
+    emodes: NDArray,
+    evals: NDArray, 
     n_nulls: int = 1000,
     resample: str | None = None,
     residual: str | None = None,
@@ -28,8 +28,8 @@ def eigenstrap(
     n_groups: int | None = None,
     rotation_method: str = 'qr',
     decomp_method: str = 'project',
-    mass: spmatrix | ArrayLike | None = None,
-    seed: int | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
+    seed: int | NDArray | None = None,
     checks: bool = True,
 ) -> NDArray[floating]:
     """
@@ -265,8 +265,8 @@ def eigenstrap(
     """
     # Format / validate arguments
     if checks:
-        emodes, evals, mass = _validate_eigenvars(emodes=emodes, evals=evals, mass=mass,
-                                                  check_ortho=(decomp_method=='project'))[:3]
+        ved = _validate_eigendata(emodes=emodes, evals=evals, mass=mass, check_ortho=(decomp_method=='project'))
+        emodes, evals, mass = ved.emodes, ved.evals, ved.mass
 
     data = np.asarray(data)
     if (is_vector_data := data.ndim == 1):

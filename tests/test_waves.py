@@ -199,7 +199,7 @@ def test_calc_wave_speed(solver):
     # Heterogeneous case
     speed = calc_wave_speed(r=18.0, gamma=116, scaled_hetero=solver.hetero)
     assert np.all(speed > 0), "Output contains non-positive wave speeds when using scaled_hetero."
-    assert speed.shape == (solver.n_verts,), "Output shape is incorrect when using scaled_hetero."
+    assert speed.shape == (solver.n_verts,), "Output shape is incorrect when using scaled_hetero." # type: ignore
 
 def test_analytical_fc(solver):
     sim_ts = solver.simulate_waves(nt=1000, dt=0.1, seed=0)

@@ -7,23 +7,24 @@ from __future__ import annotations
 from typing import Tuple, TYPE_CHECKING
 from warnings import warn
 import numpy as np
-from scipy.sparse import spmatrix
 from scipy.spatial.distance import cdist
-from neuromodes.eigen import _validate_eigenvars
+from neuromodes.eigen import _validate_eigendata
+from neuromodes.mesh import mask_laplacian
 
-if TYPE_CHECKING:
+if TYPE_CHECKING:   
     from numpy import floating
     from numpy.typing import NDArray, ArrayLike
     from scipy.spatial.distance import _MetricCallback, _MetricKind 
+    from scipy.sparse import csc_matrix
 
 nan_warning = ("data contains NaNs and/or Infs; these will be disregarded during decomposition by "
                "masking corresponding vertices from data and emodes.")
 
 def decompose(
-    data: ArrayLike,
-    emodes: ArrayLike,
+    data: NDArray,
+    emodes: NDArray[floating],
     method: str = 'project',
-    mass: spmatrix | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
     checks: bool = True,
 ) -> NDArray[floating]:
     """
@@ -71,16 +72,16 @@ def decompose(
     extreme beta values. This appears particularly prevalent when using the ``'regress'`` method. 
     """
     # Format / validate inputs
+    if method not in ['project', 'regress']:
+        raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
+    
     if method == 'regress' and mass is not None:
         if checks:  # Skip warning for EigenSolver, where mass is always passed in
             warn("mass is ignored when method='regress'.")
     
     if checks:
-        check_ortho = (method == 'project')
-        emodes, _, mass = _validate_eigenvars(emodes=emodes, mass=mass, check_ortho=check_ortho)[:3]
-
-    if method not in ['project', 'regress']:
-        raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
+        ved = _validate_eigendata(emodes=emodes, mass=mass, check_ortho=(method == 'project'))
+        emodes, mass = ved.emodes, ved.mass 
 
     n_verts, n_modes = emodes.shape
     data = np.asarray(data)
@@ -109,7 +110,8 @@ def decompose(
         # Remove verts with NaNs/Inf in this group from data and emodes
         data_masked = data[mask, :][:, map_indices]
         emodes_masked = emodes[mask, :]
-        mass_masked = mass[mask, :][:, mask] if mass is not None else None # TODO: recalculate diagonal?
+        mass_masked = mask_laplacian(stiffness=None, mass=mass, mask=mask)[1]
+        # mass_masked = mass[mask, :][:, mask] if mass is not None else None # TODO: recalculate diagonal?
 
         # Calculate beta coefficients for subset of data
         beta[:, map_indices] = _calc_beta(data_masked, emodes_masked, method, mass_masked)
@@ -117,10 +119,10 @@ def decompose(
     return beta
 
 def reconstruct(
-    data: ArrayLike,
-    emodes: ArrayLike,
+    data: NDArray,
+    emodes: NDArray,
     method: str = 'project',
-    mass: spmatrix | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
     mode_counts: ArrayLike | None = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool = True,
@@ -191,8 +193,8 @@ def reconstruct(
     """
     # Format / validate arguments
     if checks:
-        check_ortho = (method == 'project')
-        emodes, _, mass = _validate_eigenvars(emodes=emodes, mass=mass, check_ortho=check_ortho)[:3]
+        ved = _validate_eigendata(emodes=emodes, mass=mass, check_ortho=(method == 'project'))
+        emodes, mass = ved.emodes, ved.mass
 
     n_verts, n_modes = emodes.shape
     data = np.asarray(data) # chkfinite in decompose
@@ -266,10 +268,10 @@ def reconstruct(
     return recon, recon_error, beta
 
 def reconstruct_timeseries(
-    timeseries: ArrayLike,
-    emodes: ArrayLike,
+    timeseries: NDArray,
+    emodes: NDArray,
     method: str = 'project',
-    mass: spmatrix | ArrayLike | None = None,
+    mass: csc_matrix | None = None,
     mode_counts: ArrayLike | None = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool = True,
@@ -405,7 +407,7 @@ def calc_norm_power(
     return beta_sq / total_power
 
 def calc_vec_fc(
-    timeseries: ArrayLike
+    timeseries: NDArray
 ) -> NDArray[floating]:
     """
     Compute Fisher-z-transformed vectorized functional connectivity from timeseries data.
@@ -429,7 +431,7 @@ def _calc_beta(
     data: NDArray[floating],
     emodes: NDArray[floating],
     method: str,
-    mass: spmatrix | NDArray[floating] | None,
+    mass: csc_matrix | NDArray[floating] | None,
 ) -> NDArray[floating]:
     """Helper function to perform decomposition after validating arguments and masking NaNs/Infs."""
     if method == 'project':

@@ -3,11 +3,12 @@ Module for reading, validating, manipulating, and creating meshes of brain struc
 """
 
 from __future__ import annotations
-from typing import TYPE_CHECKING
-from lapy import TriaMesh
+from typing import Tuple, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
+    from lapy import TriaMesh
+    from scipy.sparse import csc_matrix
     from numpy.typing import ArrayLike, NDArray
 
 def mask_mesh(
@@ -55,6 +56,32 @@ def mask_mesh(
 
     # Create a new TriaMesh or TetMesh with the masked vertices and elements
     return geometry.__class__(v=v_masked, t=t_masked)
+
+# TODO : add support for dense matrices
+def mask_laplacian(stiffness: csc_matrix | None, 
+                   mass: csc_matrix | None,
+                   mask: ArrayLike, 
+                   lump = None
+) -> Tuple[csc_matrix | None, csc_matrix | None]:        
+
+    if stiffness is not None: 
+        S = stiffness[mask, :][:, mask] # type: ignore
+        S.setdiag(0)
+        S.setdiag(-np.asarray(S.sum(axis=1)).ravel())
+    else: 
+        S = None
+
+    if mass is not None:
+        M = mass[mask, :][:, mask] # type: ignore      
+        if lump is None: 
+            lump = np.isclose(mass.sum(), mass.diagonal().sum()) # type: ignore
+        if not lump: 
+            M.setdiag(0)
+            M.setdiag(np.asarray(M.sum(axis=1)).ravel())
+    else:
+        M = None
+
+    return S, M
 
 def unmask_data(
     data: ArrayLike,
