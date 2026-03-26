@@ -7,7 +7,6 @@ from typing import Tuple, TYPE_CHECKING
 from warnings import warn
 from lapy import Solver
 import numpy as np
-from scipy.sparse import csc_matrix
 from neuromodes.io import read_surf
 from neuromodes.mesh import mask_mesh, check_surf
 
@@ -18,6 +17,7 @@ if TYPE_CHECKING:
     from numpy import floating
     from numpy.random import Generator
     from numpy.typing import NDArray, ArrayLike
+    from scipy.sparse import csc_matrix
 
 class EigenSolver(Solver):
     """
@@ -615,6 +615,7 @@ class EigenData:
     mass: csc_matrix 
     stiffness: csc_matrix
     scaled_hetero: NDArray[np.floating]
+    data: NDArray[np.floating]
 
     def __init__(self, **kwargs):
         # Only set attributes that are not None
@@ -623,12 +624,12 @@ class EigenData:
                 setattr(self, key, value)    
 
 def _validate_eigendata(
-    emodes: NDArray | None = None,
-    evals: NDArray | None = None,
+    emodes: NDArray[np.floating] | None = None,
+    evals: NDArray[np.floating] | None = None,
     mass: csc_matrix | None = None,
     stiffness: csc_matrix | None = None,
     scaled_hetero: ArrayLike | None = None,
-    data: ArrayLike | None = None,
+    data: NDArray[np.floating] | None = None,
     check_ortho: bool = True, 
     verbose: bool = False # TODO : output sizes/data as they are checked
 ) -> EigenData:
@@ -728,7 +729,7 @@ def _validate_eigendata(
         if data.shape != (n_verts,):
             raise ValueError(f"data must have shape (n_verts,) = {(n_verts,)}.")
         if n_maps is None: 
-            n_maps = data.shape[1:] if data.ndim > 1 else 1
+            n_maps = data.shape[1:]
 
     # Check mass-orthonormality
     if check_ortho and emodes is not None:
@@ -746,5 +747,6 @@ def _validate_eigendata(
         evals=evals, 
         mass=mass, 
         stiffness=stiffness, 
-        scaled_hetero=scaled_hetero
+        scaled_hetero=scaled_hetero, 
+        data=data
     )
