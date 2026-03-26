@@ -182,7 +182,7 @@ class EigenSolver(Solver):
             u1, u2, _, _ = self.geometry.curvature_tria()
 
             # Map hetero from vertices to triangles by averaging
-            hetero_tria = self.geometry.map_vfunc_to_tfunc(self.hetero)
+            hetero_tria = self.geometry.map_data_to_tfunc(self.hetero)
 
             # Construct isotropic diffusion tensor by using hetero for both u1 and u2 directions
             hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
@@ -577,7 +577,7 @@ def is_orthonormal_basis(
     """
     # Format / validate arguments
     if checks:
-        emodes, _, mass = _validate_eigenvars(emodes=emodes, mass=mass, check_ortho=False)[:3]
+        emodes, _, mass = _validate_eigenvars(emodes=emodes, mass=mass, check_ortho=False)[:3] # type: np.ndarray, np.ndarray, spmatrix
 
     # Check Euclidean or mass-orthonormality
     prod = emodes.T @ emodes if mass is None else emodes.T @ mass @ emodes
@@ -616,9 +616,11 @@ def _validate_eigenvars(
     mass: spmatrix | ArrayLike | None = None,
     stiffness: spmatrix | ArrayLike | None = None,
     scaled_hetero: ArrayLike | None = None,
-    check_ortho: bool = True
+    data: ArrayLike | None = None,
+    check_ortho: bool = True, 
+    verbose: bool = False
 ) -> Tuple[NDArray[floating] | None, NDArray[floating] | None, spmatrix | NDArray[floating] | None,
-           spmatrix | NDArray[floating] | None, NDArray[floating] | None]:
+           spmatrix | NDArray[floating] | None, NDArray[floating] | None, NDArray[floating] | None]:
     """
     Ensure correct shapes and types for common eigenmode-related variables, and check orthonormality
     (Euclidean or mass-orthonormality) of the provided modes if specified.
@@ -635,7 +637,8 @@ def _validate_eigenvars(
         The stiffness matrix of shape ``(n_verts, n_verts)``. Default is ``None``.
     scaled_hetero : array-like or None
         The scaled heterogeneity map of shape ``(n_verts,)``. Default is ``None``.
-
+    data : array-like or None
+        A vertex function of shape ``(n_verts, ...)``. Default is ``None``.
     Raises
     ------
     ValueError
@@ -650,21 +653,28 @@ def _validate_eigenvars(
     ValueError
         If ``scaled_hetero`` is provided but does not have shape ``(n_verts,)``.
     ValueError
+        If ``data`` is provided but does not have shape ``(n_verts, ...)``.
+    ValueError
         If ``check_ortho`` is ``True`` and the columns of ``emodes`` do not form an orthonormal
         basis set with respect to the provided mass matrix (or in Euclidean space if no mass matrix
         is provided).
     """
     n_verts = None
+    n_modes = None
+    n_maps = None
 
     # Cast types and check shapes
     if emodes is not None:
         emodes = np.asarray_chkfinite(emodes)
-        if emodes.ndim != 2 or (n_verts := emodes.shape[0]) <= (n_modes := emodes.shape[1]):
+        if emodes.ndim != 2: 
+            raise ValueError("emodes must be a 2D array.")
+        n_verts, n_modes = emodes.shape
+        if n_verts <= n_modes:
             raise ValueError("emodes must have shape (n_verts, n_modes), where n_verts > n_modes.")
 
     if evals is not None:
         evals = np.asarray_chkfinite(evals)
-        if emodes is not None and evals.shape != (n_modes,):
+        if n_modes is not None and evals.shape != (n_modes,):
             raise ValueError(f"evals must have shape (n_modes,) = {(n_modes,)}.")
         if (evals[1:] <= 0).any():
             warn("Non-positive eigenvalues detected (beyond first eigenvalue). This may indicate "
@@ -702,6 +712,19 @@ def _validate_eigenvars(
             n_verts = scaled_hetero.shape[0]
         if scaled_hetero.shape != (n_verts,):
             raise ValueError(f"scaled_hetero must have shape (n_verts,) = {(n_verts,)}.")
+        
+    if data is not None:
+        data = np.asarray(data)
+        if np.isnan(data).any(): 
+            warn("NaN values detected in data, which may cause issues with computations.")
+        if np.isinf(data).any():
+            warn("Inf values detected in data, which may cause issues with computations.")
+        if n_verts is None:
+            n_verts = data.shape[0]
+        if data.shape != (n_verts,):
+            raise ValueError(f"data must have shape (n_verts,) = {(n_verts,)}.")
+        if n_maps is None: 
+            n_maps = data.shape[1:] if data.ndim > 1 else 1
 
     # Check mass-orthonormality
     if check_ortho and emodes is not None:
@@ -713,4 +736,4 @@ def _validate_eigenvars(
                 "the 'regress' method for decomposition, or set checks=False."
             )
 
-    return emodes, evals, mass, stiffness, scaled_hetero
+    return emodes, evals, mass, stiffness, scaled_hetero, data
