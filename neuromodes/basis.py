@@ -125,8 +125,8 @@ def reconstruct(
     mass: csc_matrix | None = None,
     mode_counts: List | Tuple | None = None,
     mode_ids: List | Tuple | None = None,
-    metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool | str | None = None,
+    metric: _MetricCallback | _MetricKind | None = 'correlation',
     **cdist_kwargs
 ) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
     """
@@ -192,76 +192,51 @@ def reconstruct(
     unexpected behaviour, such as extreme values in affected areas of the reconstructed data, or
     extreme beta values. This appears particularly prevalent when using the ``'regress'`` method.
     """
-    # Format / validate arguments
+    # Format / validate inputs
     if checks is None:
         if method == 'regress':
-            checks = 'shape'
+            checks = 'maps'
         else:
             checks = True
     if checks is not False:
         ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
         emodes, mass, data = ved.emodes, ved.mass, ved.data
-
-    # mode_counts is just shorthand for mode_ids
-    # If mode_counts is provided, reformat into mode_ids
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
 
+    # Prepare inputs and outputs in right shapes
+    data_2d = data.reshape(data.shape[0], -1)
+    
+    n_verts, n_maps = data_2d.shape
     n_recons = len(mode_ids)
 
+    recon_flat_shape = (n_verts, n_maps, n_recons)
+    error_flat_shape = (n_maps, n_recons)
+    recon_output_shape = data.shape + (n_recons,) #(n_recons,)*(1-squeeze_output)
+    error_output_shape = data.shape[1:] + (n_recons,) #(n_recons,)*(1-squeeze_output)
+
+    recon_flat = np.empty(recon_flat_shape)
+    recon_error_flat = np.full(error_flat_shape, np.nan)
+
+    # Main computation
     beta = decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids, checks=False)
-    
-    # 4. Standardize shapes for math
-    # data_2d: (n_verts, n_maps)
-    data_2d = data.reshape(data.shape[0], -1)
-    n_maps = data_2d.shape[1]
-    
-    # Prepare outputs
-    # recon: (n_verts, n_maps, n_recons)
-    recon_flat = np.empty((data_2d.shape[0], n_maps, n_recons))
-    recon_error_flat = np.full((n_maps, n_recons), np.nan)
+    # Reconstructions first
+    # Need to loop over recons as betas are different sizes
+    for j in range(n_recons):
+        b_j = beta[j]
+        if b_j.ndim == 1:
+            b_j = b_j[:, np.newaxis]
+        recon_flat[:, :, j] = emodes[:, mode_ids[j]] @ b_j
 
-    for i in range(n_maps):
-        # target_map: (1, n_verts)
-        target_map = data_2d[:, [i]].T
-        
-        # Calculate all reconstructions for this map index 'i' across all mode_ids
-        current_recons = []
-        for j in range(n_recons):
-            # 1. Force beta[j] to be 2D: (n_modes, n_maps)
-            # 2. Slice the i-th column: (n_modes, 1)
-            # 3. Multiply by emodes: (n_verts, n_modes) @ (n_modes, 1) -> (n_verts, 1)
-            # b_j = np.atleast_2d(beta[j])
+    # Then errors
+    # Need to loop over maps for cdist
+    if metric is not None:
+        for i in range(n_maps):
+            recon_error_flat[i, :] = cdist(data_2d[:, [i]].T, recon_flat[:, i, :].T, 
+                                           metric=metric, **cdist_kwargs)
 
-            
-            # If beta was originally (n_modes,), atleast_2d makes it (1, n_modes)
-            # We need it to be (n_modes, n_maps). 
-            # Logic: If beta is (n_modes, n_maps), index [:, [i]] works.
-            # If beta is (1, n_modes), we transpose and index [:, [0]].
-            # if b_j.shape[0] == 1 and b_j.shape[1] == len(mode_ids[j]):
-            #     b_j = b_j.T
-                
-            b_j = beta[j]
-            b_j = b_j[:,np.newaxis] if b_j.ndim == 1 else b_j
-            recon_j = emodes[:, mode_ids[j]] @ b_j[:, [i]]
-            current_recons.append(recon_j.ravel()) # flatten to 1D for column_stack
-
-        # map_recons: (n_verts, n_recons)
-        map_recons = np.column_stack(current_recons)
-        
-        # Store for output
-        recon_flat[:, i, :] = map_recons
-        
-        # cdist compare (1, n_verts) vs (n_recons, n_verts)
-        recon_error_flat[i, :] = cdist(target_map, map_recons.T, metric=metric, **cdist_kwargs)
-
-    # 6. Re-inflate shapes to original dimensions
-    # recon: (n_verts, x, y, ..., n_recons)
-    final_recon_shape = data.shape + (n_recons,)
-    recon = recon_flat.reshape(final_recon_shape)
-    
-    # recon_error: (x, y, ..., n_recons)
-    final_error_shape = data.shape[1:] + (n_recons,)
-    recon_error = recon_error_flat.reshape(final_error_shape)
+    # Reshape outputs
+    recon = recon_flat.reshape(recon_output_shape)
+    recon_error = recon_error_flat.reshape(error_output_shape)
 
     if squeeze_output:
         recon = np.squeeze(recon, axis=-1)
