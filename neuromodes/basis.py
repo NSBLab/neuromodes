@@ -4,7 +4,7 @@ geometric eigenmodes.
 """
 
 from __future__ import annotations
-from typing import Tuple, TYPE_CHECKING
+from typing import List, Tuple, TYPE_CHECKING
 from warnings import warn
 import numpy as np
 from scipy.spatial.distance import cdist
@@ -25,7 +25,8 @@ def decompose(
     emodes: NDArray[floating],
     method: str = 'project',
     mass: csc_matrix | None = None,
-    mode_counts: ArrayLike | None = None,
+    mode_counts: int | List | Tuple | NDArray | None = None,
+    mode_ids: int | List | Tuple | None = None,
     checks: bool | str = True,
 ) -> NDArray[floating]:
     """
@@ -72,6 +73,12 @@ def decompose(
     unexpected behaviour, such as extreme values in affected areas of the reconstructed data, or
     extreme beta values. This appears particularly prevalent when using the ``'regress'`` method. 
     """
+    # mode_counts is just shorthand for mode_ids
+    # If mode_counts is provided, reformat into mode_ids and run that
+    if mode_counts is not None: 
+        mode_ids = mode_counts if isinstance(mode_counts, int) else [np.arange(mc) for mc in mode_counts]
+        return decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids, checks=checks)
+
     # Format / validate inputs
     if method not in ['project', 'regress']:
         raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
@@ -83,6 +90,10 @@ def decompose(
     if checks is not False: 
         ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
         emodes, mass, data = ved.emodes, ved.mass, ved.data
+
+    if isinstance(mode_ids, int):
+        squeeze_end = True
+        mode_ids = [mode_ids]
 
     # Manipulate input/output shapes
     n_verts, n_modes = emodes.shape
@@ -101,10 +112,11 @@ def decompose(
         # Calculate beta coefficients for subset of data
         map_indices = np.where(mask_indices == i)[0]
         output_reshaped[:, map_indices] = _calc_beta(
-            data = data_reshaped[mask, :][:, map_indices], 
-            emodes = emodes[mask, :], 
+            data = data_reshaped[:, map_indices], 
+            emodes = emodes, 
             method = method,
-            mass = mask_laplacian(stiffness=None, mass=mass, mask=mask)[1]
+            mass = mass, 
+            mask = mask
         )
     
     output = np.reshape(output_reshaped, output_shape)
@@ -424,13 +436,17 @@ def _calc_beta(
     emodes: NDArray[floating],
     method: str,
     mass: csc_matrix | None,
+    mask: NDArray
 ) -> NDArray[floating]:
     """Helper function to perform decomposition after validating arguments and masking NaNs/Infs."""
+    d = data[mask, :]
+    e = emodes[mask, :]
     if method == 'project' and mass is not None:
-        return emodes.T @ mass @ data
+        m = mask_laplacian(stiffness=None, mass=mass, mask=mask)[1]
+        return e.T @ m @ d
     elif method == 'project' and mass is None:
-        return emodes.T @ data
+        return e.T @ d
     elif method == 'regress':
-        return np.linalg.lstsq(emodes, data, rcond=None)[0]
+        return np.linalg.lstsq(e, d, rcond=None)[0]
     else:
         raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")

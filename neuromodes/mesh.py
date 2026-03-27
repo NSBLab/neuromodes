@@ -3,7 +3,7 @@ Module for reading, validating, manipulating, and creating meshes of brain struc
 """
 
 from __future__ import annotations
-from typing import Tuple, TYPE_CHECKING
+from typing import overload, Tuple, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -57,11 +57,36 @@ def mask_mesh(
     # Create a new TriaMesh or TetMesh with the masked vertices and elements
     return geometry.__class__(v=v_masked, t=t_masked)
 
+@overload
+def mask_laplacian(
+    stiffness: csc_matrix, 
+    mass: csc_matrix, 
+    mask: ArrayLike, 
+    lump: bool | None = None
+) -> Tuple[csc_matrix, csc_matrix]: ...
+
+@overload
+def mask_laplacian(
+    stiffness: None, 
+    mass: csc_matrix, 
+    mask: ArrayLike, 
+    lump: bool | None = None
+) -> Tuple[None, csc_matrix]: ...
+
+@overload
+def mask_laplacian(
+    stiffness: csc_matrix, 
+    mass: None, 
+    mask: ArrayLike, 
+    lump: bool | None = None
+) -> Tuple[csc_matrix, None]: ...
+
 # TODO : add support for dense matrices
-def mask_laplacian(stiffness: csc_matrix | None, 
-                   mass: csc_matrix | None,
-                   mask: ArrayLike, 
-                   lump = None
+def mask_laplacian(
+    stiffness: csc_matrix | None, 
+    mass: csc_matrix | None,
+    mask: ArrayLike, 
+    lump: bool | None = None
 ) -> Tuple[csc_matrix | None, csc_matrix | None]:        
 
     if stiffness is not None: 
