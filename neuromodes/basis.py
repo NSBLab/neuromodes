@@ -91,32 +91,36 @@ def decompose(
         ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
         emodes, mass, data = ved.emodes, ved.mass, ved.data
 
+    if mode_ids is None: 
+        mode_ids = emodes.shape[1]
     if isinstance(mode_ids, int):
         squeeze_end = True
         mode_ids = [mode_ids]
+    n_counts = len(mode_ids)
 
     # Manipulate input/output shapes
     n_verts, n_modes = emodes.shape
     input_shape = data.shape                                        # (n_verts, ...)
-    output_shape = (n_modes,) + input_shape[1:]                     # (n_modes, ...)
+    output_shape = (n_modes,) + input_shape[1:] + (n_counts,)       # (n_modes, ..., n_counts)
     data_reshaped = data.reshape(n_verts, -1)                       # (n_verts, n_maps_all)
     if data_reshaped.ndim == 1: data_reshaped = data_reshaped[:,np.newaxis]
-    output_reshaped = np.empty((n_modes, data_reshaped.shape[1]))   # (n_modes, n_maps_all)
+    output_reshaped = np.empty((n_modes, data_reshaped.shape[1], n_counts))   # (n_modes, n_maps_all, n_counts)
     
     # Handle NaNs and Infs by masking out afflicted vertices (separately for each NaN/Inf pattern)
     data_finite = np.isfinite(data_reshaped)
     masks, mask_indices = np.unique(data_finite, axis=1, return_inverse=True)
-    for i, mask in enumerate(masks.T):
-        # Get indices of maps with this NaN/Inf pattern
-        # Remove verts with NaNs/Inf in this group from data and emodes
-        # Calculate beta coefficients for subset of data
-        map_indices = np.where(mask_indices == i)[0]
-        output_reshaped[:, map_indices] = _calc_beta(
-            data = data_reshaped[:, map_indices], 
-            emodes = emodes, 
-            method = method,
-            mass = mass, 
-            mask = mask
+    for j in range(n_counts):
+        for i, mask in enumerate(masks.T):
+            # Get indices of maps with this NaN/Inf pattern
+            # Remove verts with NaNs/Inf in this group from data and emodes
+            # Calculate beta coefficients for subset of data
+            map_indices = np.where(mask_indices == i)[0]
+            output_reshaped[:, map_indices, j] = _calc_beta(
+                data = data_reshaped[:, map_indices], 
+                emodes = emodes[:, mode_ids[j]], 
+                method = method,
+                mass = mass, 
+                mask = mask
         )
     
     output = np.reshape(output_reshaped, output_shape)
