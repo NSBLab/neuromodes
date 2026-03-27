@@ -26,7 +26,7 @@ def decompose(
     method: str = 'project',
     mass: csc_matrix | None = None,
     mode_counts: int | List | Tuple | NDArray | None = None,
-    mode_ids: int | List | Tuple | None = None,
+    mode_ids: List | Tuple | None = None,
     checks: bool | str = True,
 ) -> NDArray[floating]:
     """
@@ -57,7 +57,7 @@ def decompose(
     Returns
     -------
     numpy.ndarray
-        The beta coefficients array of shape ``(n_modes, n_maps)``, obtained from the decomposition.
+        The beta coefficients array of shape ``(n_modes, n_maps, nq)``, obtained from the decomposition.
     
     Raises
     ------
@@ -73,11 +73,7 @@ def decompose(
     unexpected behaviour, such as extreme values in affected areas of the reconstructed data, or
     extreme beta values. This appears particularly prevalent when using the ``'regress'`` method. 
     """
-    # mode_counts is just shorthand for mode_ids
-    # If mode_counts is provided, reformat into mode_ids and run that
-    if mode_counts is not None: 
-        mode_ids = mode_counts if isinstance(mode_counts, int) else [np.arange(mc) for mc in mode_counts]
-        return decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids, checks=checks)
+
 
     # Format / validate inputs
     if method not in ['project', 'regress']:
@@ -91,11 +87,19 @@ def decompose(
         ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
         emodes, mass, data = ved.emodes, ved.mass, ved.data
 
-    if mode_ids is None: 
-        mode_ids = emodes.shape[1]
-    if isinstance(mode_ids, int):
-        squeeze_end = True
-        mode_ids = [mode_ids]
+    # mode_counts is just shorthand for mode_ids
+    # If mode_counts is provided, reformat into mode_ids
+    squeeze_output = False
+    if mode_ids is None and mode_counts is None:
+        mode_ids = (np.arange(emodes.shape[1]),)
+        squeeze_output = True
+    elif mode_counts is not None: 
+        if isinstance(mode_counts, int):
+            mode_counts = [mode_counts]
+            squeeze_output = True
+        mode_ids = [np.arange(mc) for mc in mode_counts]
+    if not isinstance(mode_ids, (list, tuple)):
+        raise ValueError("mode_ids must be a list or tuple of arrays of mode indices.")
     n_counts = len(mode_ids)
 
     # Manipulate input/output shapes
@@ -106,6 +110,7 @@ def decompose(
     if data_reshaped.ndim == 1: data_reshaped = data_reshaped[:,np.newaxis]
     output_reshaped = np.empty((n_modes, data_reshaped.shape[1], n_counts))   # (n_modes, n_maps_all, n_counts)
     
+    # TODO : only need to decompose once (with n=max modes) if using orthogonal method
     # Handle NaNs and Infs by masking out afflicted vertices (separately for each NaN/Inf pattern)
     data_finite = np.isfinite(data_reshaped)
     masks, mask_indices = np.unique(data_finite, axis=1, return_inverse=True)
@@ -121,9 +126,11 @@ def decompose(
                 method = method,
                 mass = mass, 
                 mask = mask
-        )
+            )
     
     output = np.reshape(output_reshaped, output_shape)
+    if squeeze_output:
+        output = np.squeeze(output, axis=-1)
     return output
 
 def reconstruct(
