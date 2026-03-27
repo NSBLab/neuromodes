@@ -91,7 +91,7 @@ def decompose(
 
     # Manipulate input/output shapes
     output_shapes = [(i,) + data.shape[1:] for i in n_modes]
-    output = [np.empty(shape) for shape in output_shapes]
+    beta = [np.empty(shape) for shape in output_shapes]
 
     # TODO : only need to decompose once (with n=max modes) if using orthogonal method
     # Handle NaNs and Infs by masking out afflicted vertices (separately for each NaN/Inf pattern)
@@ -112,11 +112,11 @@ def decompose(
                 mass = mass, 
                 mask = mask
             )
-        output[j] = tmp.reshape(output_shapes[j])
+        beta[j] = tmp.reshape(output_shapes[j])
 
     if squeeze_output:
-        output = output[0]
-    return output
+        beta = beta[0]
+    return beta
 
 def reconstruct(
     data: NDArray,
@@ -128,7 +128,7 @@ def reconstruct(
     checks: bool | str | None = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
     **cdist_kwargs
-) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
+) -> Tuple[NDArray[floating], NDArray[floating], List | NDArray]:
     """
     Calculate and score the reconstruction of the given independent data using the provided
     orthogonal vectors (e.g., geometric eigenmodes).
@@ -204,44 +204,34 @@ def reconstruct(
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
 
     # Prepare inputs and outputs in right shapes
-    data_2d = data.reshape(data.shape[0], -1)
-    
-    n_verts, n_maps = data_2d.shape
     n_recons = len(mode_ids)
+    recon_output_shape = data.shape + (n_recons,) * (1-squeeze_output)
+    error_output_shape = data.shape[1:] + (n_recons,) * (1-squeeze_output)
 
-    recon_flat_shape = (n_verts, n_maps, n_recons)
-    error_flat_shape = (n_maps, n_recons)
-    recon_output_shape = data.shape + (n_recons,) #(n_recons,)*(1-squeeze_output)
-    error_output_shape = data.shape[1:] + (n_recons,) #(n_recons,)*(1-squeeze_output)
-
-    recon_flat = np.empty(recon_flat_shape)
-    recon_error_flat = np.full(error_flat_shape, np.nan)
+    data_2d = data.reshape(data.shape[0], -1)
+    recon_flat_shape = data_2d.shape + (n_recons,) # the flat data will just be np.reshaped into the size above
+    error_flat_shape = (data_2d.shape[1],) + (n_recons,)
 
     # Main computation
+    # a. Decomposition
     beta = decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids, checks=False)
-    # Reconstructions first
-    # Need to loop over recons as betas are different sizes
-    for j in range(n_recons):
-        b_j = beta[j]
-        if b_j.ndim == 1:
-            b_j = b_j[:, np.newaxis]
-        recon_flat[:, :, j] = emodes[:, mode_ids[j]] @ b_j
 
-    # Then errors
-    # Need to loop over maps for cdist
+    # b. Reconstructions: Need to loop over recons as betas are different sizes
+    recon_flat = np.empty(recon_flat_shape)
+    for j, mids in enumerate(mode_ids):
+        recon_flat[:, :, j] = emodes[:, mids] @ beta[j].reshape(len(mids), -1) # convert to col vec if 1D
+
+    # c. Errors: Need to loop over maps for cdist
+    recon_error_flat = np.full(error_flat_shape, np.nan)
     if metric is not None:
-        for i in range(n_maps):
+        for i in range(data_2d.shape[1]):
             recon_error_flat[i, :] = cdist(data_2d[:, [i]].T, recon_flat[:, i, :].T, 
                                            metric=metric, **cdist_kwargs)
 
     # Reshape outputs
     recon = recon_flat.reshape(recon_output_shape)
     recon_error = recon_error_flat.reshape(error_output_shape)
-
-    if squeeze_output:
-        recon = np.squeeze(recon, axis=-1)
-        recon_error = np.squeeze(recon_error, axis=-1)
-        beta = beta[0]
+    beta = beta[0] if squeeze_output else beta
 
     return recon, recon_error, beta
 
@@ -250,13 +240,13 @@ def reconstruct_timeseries(
     emodes: NDArray,
     method: str = 'project',
     mass: csc_matrix | None = None,
-    mode_counts: ArrayLike | None = None,
-    mode_ids: ArrayLike | None = None,
+    mode_counts: List | Tuple | None = None,
+    mode_ids: List | Tuple | None = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
     checks: bool | str = True,
     **cdist_kwargs
 ) -> Tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
-           list[NDArray[floating]]]:
+           List | NDArray]:
     """
     Calculate and score the reconstruction of the given timeseries data using the provided
     orthogonal vectors (e.g., geometric eigenmodes).
@@ -349,7 +339,6 @@ def reconstruct_timeseries(
     if squeeze_output:
         recon = recon[:,:,np.newaxis]
 
-
     # Calculate FC of original timeseries
     fc = calc_vec_fc(timeseries)
     n_edges = len(fc)
@@ -367,6 +356,9 @@ def reconstruct_timeseries(
         metric=metric,
         **cdist_kwargs
         )[:, 0] if metric is not None else np.empty(n_recons)
+    
+    if squeeze_output:
+        recon = np.squeeze(recon, axis=-1)
 
     return fc_recon, fc_recon_error, recon, recon_error, beta
 
@@ -435,7 +427,7 @@ def _calc_beta(
     else:
         raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
 
-def _process_mode_ids(mode_counts, mode_ids, n_modes): 
+def _process_mode_ids(mode_counts, mode_ids, n_modes) -> Tuple[List|Tuple, bool]: 
     # mode_counts is just shorthand for mode_ids
     # If mode_counts is provided, reformat into mode_ids
     squeeze_output = False
