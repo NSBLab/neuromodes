@@ -64,8 +64,8 @@ def test_decompose_massless(solver):
 def test_decompose_invalid_method(solver):
 
     with pytest.raises(ValueError,
-                       match="Invalid method 'fornitonian'; must be 'project' or 'regress'."):
-        decompose(np.ones(solver.n_verts), solver.emodes, method='fornitonian')
+                       match="Invalid method 'foo'; must be 'project' or 'regress'."):
+        decompose(np.ones(solver.n_verts), solver.emodes, method='foo') # type: ignore
 
 @pytest.fixture(scope='module')
 def solver_32k():

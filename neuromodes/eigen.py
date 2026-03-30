@@ -612,21 +612,21 @@ def get_eigengroup_inds(
 _MISSING = object()  
 @dataclass(frozen=True, init=False)
 class EigenData:
-    emodes: NDArray[np.floating]
-    evals: NDArray[np.floating] 
+    emodes: _FloatArray
+    evals: _FloatArray 
     mass: csc_matrix
     stiffness: csc_matrix
-    scaled_hetero: NDArray[np.floating]
-    data: NDArray[np.floating]
+    scaled_hetero: _FloatArray
+    data: _FloatArray
 
     def __init__(
         self,
-        emodes: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
-        evals: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment] 
+        emodes: _FloatArray | None = _MISSING, # type: ignore[assignment]
+        evals: _FloatArray | None = _MISSING, # type: ignore[assignment] 
         mass: csc_matrix | None = _MISSING, # type: ignore[assignment]
         stiffness: csc_matrix | None = _MISSING, # type: ignore[assignment]
-        scaled_hetero: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
-        data: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
+        scaled_hetero: _FloatArray | None = _MISSING, # type: ignore[assignment]
+        data: _FloatArray | None = _MISSING, # type: ignore[assignment]
         checks: bool | str = True
     ):
 

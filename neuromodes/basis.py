@@ -9,13 +9,14 @@ from warnings import warn
 import numpy as np
 from scipy.spatial.distance import cdist
 from neuromodes.eigen import EigenData
-from neuromodes.mesh import mask_laplacian
+from neuromodes.mesh import mask_mass
 
 if TYPE_CHECKING:   
     from numpy import floating
     from numpy.typing import NDArray
     from scipy.spatial.distance import _MetricCallback, _MetricKind 
     from scipy.sparse import csc_matrix
+    from neuromodes.eigen import _CheckKind
 
 nan_warning = ("data contains NaNs and/or Infs; these will be disregarded during decomposition by "
                "masking corresponding vertices from data and emodes.")
@@ -27,7 +28,7 @@ def decompose(
     mass: csc_matrix | None = None,
     mode_counts: list | tuple | NDArray | None = None,
     mode_ids: list | tuple | NDArray | None = None,
-    checks: bool | str | None = None,  
+    checks: _CheckKind = None,  
 ) -> NDArray[floating] | list[NDArray]:
     """
     Calculate the decomposition of the given data onto a basis set.
@@ -157,7 +158,7 @@ def reconstruct(
     mass: csc_matrix | None = None,
     mode_counts: list | tuple | NDArray | None = None,
     mode_ids: list | tuple | NDArray | None = None,
-    checks: bool | str | None = None,
+    checks: _CheckKind = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
     **cdist_kwargs
 ) -> tuple[NDArray[floating], NDArray[floating], list | NDArray]:
@@ -279,7 +280,7 @@ def reconstruct_timeseries(
     mode_counts: list | tuple | NDArray | None = None,
     mode_ids: list | tuple | NDArray | None = None,
     metric: _MetricCallback | _MetricKind | None = 'correlation',
-    checks: bool | str | None = None,
+    checks: _CheckKind = None,
     **cdist_kwargs
 ) -> tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
            list | NDArray]:
@@ -461,7 +462,7 @@ def _calc_beta(
     d = data[mask, :]
     e = emodes[mask, :]
     if method == 'project' and mass is not None:
-        m = mask_laplacian(stiffness=None, mass=mass, mask=mask)[1]
+        m = mask_mass(mass=mass, mask=mask)
         return e.T @ m @ d
     elif method == 'project' and mass is None:
         return e.T @ d
