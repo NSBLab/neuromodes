@@ -3,9 +3,9 @@ Module for computing geometric eigenmodes of brain structures from surface meshe
 """
 
 from __future__ import annotations
-from typing import Tuple, Any, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from warnings import warn
-from dataclasses import dataclass, InitVar
+from dataclasses import dataclass
 from lapy import Solver
 import numpy as np
 from neuromodes.io import read_surf
@@ -325,7 +325,7 @@ class EigenSolver(Solver):
         self,
         data: NDArray,
         **kwargs
-    ) -> Tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
+    ) -> tuple[NDArray[floating], NDArray[floating], list[NDArray[floating]]]:
         """
         This is a wrapper for :func:`~neuromodes.basis.reconstruct`. Note that ``emodes``, ``mass``,
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
@@ -346,7 +346,7 @@ class EigenSolver(Solver):
         self,
         timeseries: NDArray,
         **kwargs
-    ) -> Tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
+    ) -> tuple[NDArray[floating], NDArray[floating], NDArray[floating], NDArray[floating],
                list[NDArray[floating]]]:
         """
         This is a wrapper for :func:`~neuromodes.basis.reconstruct_timeseries`. Note that
