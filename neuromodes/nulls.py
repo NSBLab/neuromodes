@@ -5,34 +5,32 @@ This module provides functions for generating null brain maps that preserve spat
 autocorrelation structure through random rotation of geometric eigenmodes.
 """
 from __future__ import annotations
-from typing import TYPE_CHECKING, TypeAlias
+from typing import Literal, TYPE_CHECKING
 from warnings import warn
 import numpy as np
 from scipy.stats import special_ortho_group
 from neuromodes.basis import decompose
-from neuromodes.eigen import EigenData, get_eigengroup_inds
+from neuromodes.eigen import _validate_eigenvars, get_eigengroup_inds
 
 if TYPE_CHECKING:
-    from scipy.sparse import csc_matrix
+    from scipy.sparse import spmatrix
     from numpy import floating, integer
-    from numpy.typing import NDArray
-    from neuromodes.basis import _DecompositionKind
-    from neuromodes.eigen import _CheckKind
+    from numpy.typing import ArrayLike, NDArray
 
 def eigenstrap(
-    data: NDArray[floating],
-    emodes: NDArray[floating],
-    evals: NDArray[floating], 
+    data: ArrayLike,
+    emodes: ArrayLike,
+    evals: ArrayLike, 
     n_nulls: int = 1000,
     resample: Literal['exact', 'affine', 'mean', 'range'] | None = None,
     residual: Literal['add', 'permute'] | None = None,
     randomize: bool = False,
     n_groups: int | None = None,
-    rotation_method: str = 'qr',
-    decomp_method: _DecompositionKind = 'project',
-    mass: csc_matrix | None = None,
-    seed: int | NDArray | None = None,
-    checks: _CheckKind = True,
+    rotation_method: Literal['qr', 'scipy'] = 'qr',
+    decomp_method: Literal['project', 'regress'] = 'project',
+    mass: spmatrix | ArrayLike | None = None,
+    seed: int | ArrayLike | None = None,
+    checks: bool = True,
 ) -> NDArray[floating]:
     """
     Generate spatial null maps via eigenstrapping [1]_.
@@ -266,9 +264,9 @@ def eigenstrap(
         Imaging Neuroscience. https://doi.org/10.1162/IMAG.a.71
     """
     # Format / validate arguments
-    if checks is not False:
-        ved = EigenData(emodes=emodes, evals=evals, mass=mass, checks=checks)
-        emodes, evals, mass = ved.emodes, ved.evals, ved.mass
+    if checks:
+        emodes, evals, mass = _validate_eigenvars(emodes=emodes, evals=evals, mass=mass,
+                                                  check_ortho=(decomp_method=='project'))[:3]
 
     data = np.asarray(data)
     if (is_vector_data := data.ndim == 1):

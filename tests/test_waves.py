@@ -129,7 +129,7 @@ def test_simulate_waves_reproducibility_fourier(solver):
 
 def test_simulate_waves_invalid_input_shape(solver):
 
-    with pytest.raises(ValueError, match=r"data.*first dimension.*3619"):
+    with pytest.raises(ValueError, match=r"n_verts is the number of rows in emodes \(3619\)."):
         solver.simulate_waves(ext_input=np.ones((4002, 1000)))
 
 def test_simulate_waves_invalid_pde_method(solver):
@@ -199,7 +199,7 @@ def test_calc_wave_speed(solver):
     # Heterogeneous case
     speed = calc_wave_speed(r=18.0, gamma=116, scaled_hetero=solver.hetero)
     assert np.all(speed > 0), "Output contains non-positive wave speeds when using scaled_hetero."
-    assert speed.shape == (solver.n_verts,), "Output shape is incorrect when using scaled_hetero." # type: ignore
+    assert speed.shape == (solver.n_verts,), "Output shape is incorrect when using scaled_hetero."
 
 def test_analytical_fc(solver):
     sim_ts = solver.simulate_waves(nt=1000, dt=0.1, seed=0)

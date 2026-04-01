@@ -320,8 +320,8 @@ def test_check_euclidean_orthonorm():
     vecs = np.eye(5)[:, [2, 0, 4, 1]]
 
     assert is_orthonormal_basis(vecs)
-    assert is_orthonormal_basis(vecs, mass=np.eye(5)) # type: ignore
-    assert not is_orthonormal_basis(vecs, mass=np.ones((5, 5))) # type: ignore
+    assert is_orthonormal_basis(vecs, mass=np.eye(5))
+    assert not is_orthonormal_basis(vecs, mass=np.ones((5, 5)))
 
 def test_scale_hetero(surf_medmask_hetero):
     _, _, hetero = surf_medmask_hetero

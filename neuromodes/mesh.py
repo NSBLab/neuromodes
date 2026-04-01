@@ -3,19 +3,17 @@ Module for reading, validating, manipulating, and creating meshes of brain struc
 """
 
 from __future__ import annotations
-from typing import overload, Tuple, TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING
+from lapy import TriaMesh
 import numpy as np
 
 if TYPE_CHECKING:
-    from lapy import TriaMesh, TetMesh
-    from scipy.sparse import csc_matrix
     from numpy.typing import ArrayLike, NDArray
-    MeshType = TypeVar('MeshType', TriaMesh, TetMesh)
 
 def mask_mesh(
-    geometry: MeshType,
+    geometry: TriaMesh,
     mask: ArrayLike
-) -> MeshType:
+) -> TriaMesh:
     """
     Remove specified vertices and corresponding elements from a triangular surface mesh. Returns a
     ``lapy.TriaMesh`` object.
@@ -44,47 +42,19 @@ def mask_mesh(
                          "vertices in geometry.")
 
     # Remove vertices not in mask
-    v_masked = geometry.v[mask] # inherit original type
+    v_masked = geometry.v[mask].astype(np.float64)
 
-    # Update vertex indices of elements
-    v_map = unmask_data(np.arange(np.sum(mask)), mask, fill_val=0).astype(geometry.t.dtype) 
+    # Update vertex indices of elements (-1 represents removed vertices)
+    v_map = np.full(len(mask), -1, dtype=int)
+    v_map[mask] = np.arange(np.sum(mask))
     t_remapped = v_map[geometry.t]
     
     # Keep only elements where all vertices are in the mask
-    elem_mask = np.all(mask[geometry.t], axis=1)
+    elem_mask = np.all(t_remapped != -1, axis=1)
     t_masked = t_remapped[elem_mask]
 
     # Create a new TriaMesh or TetMesh with the masked vertices and elements
     return geometry.__class__(v=v_masked, t=t_masked)
-
-# TODO : add support for dense matrices
-def mask_stiffness(
-    stiffness: csc_matrix,
-    mask: ArrayLike
-) -> csc_matrix:
-    # Main masking
-    S = stiffness[mask, :][:, mask]
-    # Fix diagonal so that row sums are zero
-    S.setdiag(0)
-    S.setdiag(-np.asarray(S.sum(axis=0)).ravel())
-    return S
-
-def mask_mass(
-    mass: csc_matrix,
-    mask: ArrayLike,
-    lump: bool | None = None
-) -> csc_matrix:
-    # Set lump
-    if lump is None: 
-        lump = np.isclose(mass.sum(), mass.diagonal().sum()).item()
-    # Main masking
-    M = mass[mask, :][:, mask]
-    # Fix diagonal so that row sums are preserved if not lumped
-    if not lump: 
-        M.setdiag(0)
-        M.setdiag(np.asarray(M.sum(axis=0)).ravel())
-    
-    return M
 
 def unmask_data(
     data: ArrayLike,
@@ -118,26 +88,21 @@ def unmask_data(
         If ``data`` does not have shape ``(n_verts,)`` or ``(n_verts, n_maps)``.
     """
     # Format / validate arguments
+    data = np.asarray(data)
     mask = np.asarray_chkfinite(mask, dtype=bool)
     if mask.ndim != 1:
         raise ValueError("`mask` must be a 1D boolean array.")
-    
-    data = np.asarray(data)
-    if data.shape[0] != np.sum(mask):
-        raise ValueError("`data` must have shape (n_verts,...), where n_verts "
+    if data.ndim not in [1, 2] or data.shape[0] != np.sum(mask):
+        raise ValueError("`data` must have shape (n_verts,) or (n_verts, n_maps), where n_verts "
                          f"matches the number of True values in `mask` ({np.sum(mask)}).")
-    
-    # out_size
-    out_size = (len(mask),) + data.shape[1:]
+    n_verts = len(mask)
+    out_shape = (n_verts, data.shape[1]) if data.ndim == 2 else (n_verts,)
 
-    # out_dtype: the safest dtype that can hold BOTH the data and the fill_val
-    out_dtype = np.result_type(data.dtype, np.array(fill_val).dtype)
-    
     # Initialise array of fill values
-    data_unmasked = np.full(out_size, fill_val, dtype=out_dtype)
+    data_unmasked = np.full(out_shape, fill_val)
 
     # Overwrite rows with data where mask is True
-    data_unmasked[mask, ...] = data
+    data_unmasked[mask] = data
 
     return data_unmasked
 
