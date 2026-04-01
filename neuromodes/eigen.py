@@ -293,6 +293,67 @@ class EigenSolver(Solver):
         self.evals = evals
         self.emodes = emodes
         return self
+
+    def inpaint(
+        self,
+        data: NDArray[floating]
+    ) -> NDArray[floating]:
+        """
+        Inpaints missing values (NaNs) in the provided brain map(s) by solving the Laplace equation
+        under Dirichlet boundary conditions defined by the known values. This approach minimizes the
+        Dirichlet energy of the output map(s), leading to smooth interpolations.
+
+        Parameters
+        ----------
+        data : array-like
+            The brain map(s) to be inpainted, with shape ``(n_verts,)`` or ``(n_verts, n_maps)``,
+            where n_verts is the number of vertices in the mesh (after masking, if applicable) and
+            n_maps is the number of brain maps. Missing values should be represented as NaNs.
+
+        Returns
+        -------
+        numpy.ndarray
+            The inpainted brain map(s) with the same shape as the input ``data``, with NaNs replaced
+            by values obtained from solving the Laplace equation.
+        
+        """
+        # Format / validate arguments
+        data = np.asarray(data)
+        if self.mask is not None and data.shape[0] == len(self.mask):
+            data = data[self.mask]
+        elif data.shape[0] != self.n_verts:
+            err_str = f"the number of vertices in the provided geometry ({self.n_verts})"
+            if self.mask is not None:
+                err_str += f" or the masked geometry ({self.mask.sum()})"
+            raise ValueError(f"First dimension of data must have length matching {err_str}.")
+
+        if np.isinf(data).any():
+            raise ValueError("data contains infinite values.")
+        
+        if data.ndim > 2:  # TODO
+            raise NotImplementedError("No thank you!!")
+        
+        if is_data_vector := (data.ndim == 1):
+            data = data[:, np.newaxis]
+
+        if not (hasattr(self, 'mass') and hasattr(self, 'stiffness')):
+            self.compute_lbo()
+        
+        masks = ~np.isnan(data)
+
+        # TODO: vectorize if possible, or manually convert boundary conditions to Poisson RHS
+        data_out = np.empty_like(data)
+        for i in range(data.shape[1]):
+            # Define Dirichlet boundary condition using known values
+            inds = np.where(masks[:, i])[0]
+            dtup = (inds, data[inds, i])
+
+            # Solve Laplace equation
+            data_out[:, i] = self.poisson(dtup=dtup)
+        
+        if is_data_vector:
+            data_out = data_out[:, 0]
+        return data_out
     
     def _check_for_emodes(self) -> None:
         if not hasattr(self, 'emodes'):
