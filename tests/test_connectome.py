@@ -10,9 +10,8 @@ def emodes():
     return np.random.default_rng(0).standard_normal(size=(n_verts, n_modes))
 
 def test_model_connectome_properties(emodes):
-    evals = np.linspace(1.0, 10.0, 5)
-    with pytest.warns(UserWarning, match='received 1.0'):
-        conn = model_connectome(emodes, evals, r=1.5, k=5)
+    evals = np.linspace(0.0, 10.0, emodes.shape[1])
+    conn = model_connectome(emodes, evals, r=1.5, k=emodes.shape[1])
 
     # shape
     assert conn.shape == (10, 10)
@@ -88,4 +87,4 @@ def test_numpy_types(emodes):
     evals = np.arange(5).astype(float)
 
     # Test that different types for r and k work without error
-    _ = model_connectome(emodes, evals, r=np.float64(1.5), k=np.int32(3))
+    _ = model_connectome(emodes, evals, r=np.float64(1.5), k=np.int32(3)) # type: ignore

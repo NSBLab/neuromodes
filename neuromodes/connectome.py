@@ -5,18 +5,19 @@ Module for generating models of cortical structural connectomes.
 from __future__ import annotations
 from typing import TYPE_CHECKING
 import numpy as np
-from neuromodes.eigen import _validate_eigenvars
+from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
     from numpy import floating
-    from numpy.typing import NDArray, ArrayLike
+    from numpy.typing import NDArray
+    from neuromodes.eigen import _CheckKind
 
 def model_connectome(
-    emodes: ArrayLike,
-    evals: ArrayLike,
+    emodes: NDArray[floating],
+    evals: NDArray[floating],
     r: float = 9.53,
     k: int = 108,
-    checks: bool = True
+    checks: _CheckKind = 'shape'
 ) -> NDArray[floating]:
     """
     Generate a vertex-wise structural connectivity matrix using the Geometric Eigenmode Model [1]_.
@@ -67,8 +68,9 @@ def model_connectome(
         cortical connectomes. BioRxiv. https://doi.org/10.1101/2025.09.17.676944
     """
     # Format / validate arguments
-    if checks:
-        emodes, evals = _validate_eigenvars(emodes=emodes, evals=evals, check_ortho=False)[:2]
+    if checks is not False:
+        ved = EigenData(emodes=emodes, evals=evals, checks=checks)
+        emodes, evals = ved.emodes, ved.evals
 
     r = float(r)
     n_modes = emodes.shape[1]
