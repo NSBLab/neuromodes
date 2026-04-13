@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
     from neuromodes.eigen import _CheckKind
 
-def model_connectome(
+def compute_gem(
     emodes: NDArray[floating],
     evals: NDArray[floating],
     r: float = 9.53,

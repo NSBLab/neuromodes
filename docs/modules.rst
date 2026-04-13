@@ -39,9 +39,9 @@ API Reference
    decompose
    reconstruct
    reconstruct_timeseries
-   simulate_waves
+   sim_nft_waves
    bold_transform
-   model_connectome
+   compute_gem
    eigenstrap
 
 .. autosummary::
@@ -88,27 +88,27 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   simulate_waves
+   sim_nft_waves
    bold_transform
    calc_wave_speed
    get_balloon_params
 
-.. _ref_connectome:
+.. _ref_network:
 
-:mod:`neuromodes.connectome` - Generative modelling of the structural connectome
+:mod:`neuromodes.network` - Generative modelling of the structural connectome
 ---------------------------------------------------------------
 
-.. automodule:: neuromodes.connectome
+.. automodule:: neuromodes.network
    :no-members:
    :no-inherited-members:
 
-.. currentmodule:: neuromodes.connectome
+.. currentmodule:: neuromodes.network
 
 .. autosummary::
    :template: function.rst
    :toctree: generated/
 
-   model_connectome
+   compute_gem
 
 .. _ref_mesh:
 

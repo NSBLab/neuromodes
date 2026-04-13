@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from neuromodes.basis import _DecompositionKind
     _PDEKind = Literal["fourier", "ode"]
 
-def simulate_waves(
+def sim_nft_waves(
     emodes: NDArray,
     evals: NDArray,
     nt: int | None = None,
@@ -714,7 +714,7 @@ def _model_balloon_ode(
 
     return bold_coeffs
 
-def _simulate_waves_fem(
+def _sim_nft_waves_fem(
     mass: csc_matrix,
     stiffness: csc_matrix,
     nt: int | None = None,
@@ -731,7 +731,7 @@ def _simulate_waves_fem(
     checks: bool = True
 ) -> NDArray:
     """
-    Full FEM version of ``simulate_waves()``, for validating the eigenmode expansion approach.
+    Full FEM version of ``sim_nft_waves()``, for validating the eigenmode expansion approach.
     """
     # Format / validate arguments
     parallel = False

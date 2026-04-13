@@ -27,8 +27,8 @@ class EigenSolver(Solver):
     stiffness matrices [2]_ [3]_. Spatial heterogeneity can be optionally incorporated, modifying
     the Laplace-Beltrami operator via an isotropic diffusion tensor [4]_. After calling
     :meth:`solve` to compute modes, a range of analysis methods can be called (:meth:`decompose`,
-    :meth:`reconstruct`, :meth:`reconstruct_timeseries`, :meth:`simulate_waves`,
-    :meth:`bold_transform`, :meth:`model_connectome`).
+    :meth:`reconstruct`, :meth:`reconstruct_timeseries`, :meth:`sim_nft_waves`,
+    :meth:`bold_transform`, :meth:`compute_gem`).
 
     Parameters
     ----------
@@ -560,39 +560,39 @@ class EigenSolver(Solver):
             **kwargs
         )
     
-    def model_connectome(
+    def compute_gem(
         self,
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`~neuromodes.connectome.model_connectome`. Note that ``emodes``,
+        This is a wrapper for :func:`~neuromodes.network.compute_gem`. Note that ``emodes``,
         ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.connectome import model_connectome
+        from neuromodes.network import compute_gem
 
         self._check_for_emodes()
 
-        return model_connectome(
+        return compute_gem(
             emodes=self.emodes,
             evals=self.evals,
             checks=False,
             **kwargs
         )
     
-    def simulate_waves(
+    def sim_nft_waves(
         self,
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`~neuromodes.waves.simulate_waves`. Note that ``emodes``,
+        This is a wrapper for :func:`~neuromodes.waves.sim_nft_waves`. Note that ``emodes``,
         ``evals``, ``mass``, ``scaled_hetero``, and ``checks`` are passed automatically by the
         ``EigenSolver`` instance.
         """
-        from neuromodes.waves import simulate_waves
+        from neuromodes.waves import sim_nft_waves
 
         self._check_for_emodes()
 
-        return simulate_waves(
+        return sim_nft_waves(
             emodes=self.emodes,
             evals=self.evals,
             mass=self.mass,

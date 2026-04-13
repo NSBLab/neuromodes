@@ -15,7 +15,7 @@ Features
 - :mod:`~neuromodes.eigen`: Compute geometric eigenmodes from cortical surface meshes, optionally incorporating spatial heterogeneity
 - :mod:`~neuromodes.basis`: Decompose and reconstruct cortical maps and timeseries using the geometric eigenmodes, or another basis set
 - :mod:`~neuromodes.waves`: Simulate neural activity and BOLD signals using the wave propagation model from `Pang et al. (2023) <https://doi.org/10.1038/s41586-023-06098-1>`_
-- :mod:`~neuromodes.connectome``: Generate models of structural connectomes using the Geometric Eigenmode Model from `Normand et al. (2025) <https://doi.org/10.1101/2025.09.17.676944>`_
+- :mod:`~neuromodes.network``: Generate models of structural connectomes using the Geometric Eigenmode Model from `Normand et al. (2025) <https://doi.org/10.1101/2025.09.17.676944>`_
 - :mod:`~neuromodes.io`: Access triangular surface meshes for human, macaque, and marmoset cortices
 - :mod:`~neuromodes.nulls` *(under development)*: Generate null models of cortical maps that preserve spatial autocorrelation, using the Eigenstrapping method from `Koussis et al. (2025) <https://doi.org/10.1162/IMAG.a.71>`_
 - :mod:`~neuromodes.morphometry` *(under development)*: Quantify multiscale anatomical differences using Mode-Based Morphometry from `Cao et al. (2024) <https://doi.org/10.1002/hbm.26640>`_
@@ -84,7 +84,7 @@ If you use the ``hetero`` parameter in ``EigenSolver``, please also cite:
 
 V\. Barnes, J. Cruddas, T. Cao, I.Z. Pope, T. Xu, T. Funck, N. Palomero-Gallagher, J.C. Pang, A. Fornito, Regional heterogeneity shapes macroscopic wave dynamics of the human and non-human primate cortex, BioRxiv (2026) (DOI: 10.64898/2026.01.22.701178)
 
-If you use the ``model_connectome`` function, please also cite:
+If you use the ``compute_gem`` function, please also cite:
 
 F\. Normand, M. Gajwani, T. Cao, J. Cruddas, A. Sangchooli, S. Oldham, A. Holmes, P.A. Robinson, J.C. Pang, A. Fornito, Geometric constraints on the architecture of mammalian cortical connectomes, BioRxiv (2025) (DOI: 10.1101/2025.09.17.676944)
 
