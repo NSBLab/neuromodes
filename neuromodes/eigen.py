@@ -28,7 +28,7 @@ class EigenSolver(Solver):
     the Laplace-Beltrami operator via an isotropic diffusion tensor [4]_. After calling
     :meth:`solve` to compute modes, a range of analysis methods can be called (:meth:`decompose`,
     :meth:`reconstruct`, :meth:`reconstruct_timeseries`, :meth:`sim_nft_waves`,
-    :meth:`bold_transform`, :meth:`compute_gem`).
+    :meth:`balloon_model`, :meth:`compute_gem`).
 
     Parameters
     ----------
@@ -406,26 +406,46 @@ class EigenSolver(Solver):
             **kwargs
         )
     
-    def bold_transform(
+    def balloon_model(
         self,
         activity: ArrayLike,
         dt: float,
         **kwargs
     ) -> NDArray[floating]:
         """
-        This is a wrapper for :func:`~neuromodes.waves.bold_transform`. Note that ``emodes``,
+        This is a wrapper for :func:`~neuromodes.waves.balloon_model`. Note that ``emodes``,
         ``mass``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.waves import bold_transform
+        from neuromodes.waves import balloon_model
 
         self._check_for_emodes()
 
-        return bold_transform(
+        return balloon_model(
             activity=activity,
             dt=dt,
             emodes=self.emodes,
             mass=self.mass,
             checks='maps',
+            **kwargs
+        )
+    
+    def unmask_data(
+        self,
+        data: ArrayLike,
+        **kwargs
+    ) -> NDArray[floating]:
+        """
+        This is a wrapper for :func:`~neuromodes.mesh.unmask_data`. Note that ``mask`` is passed
+        automatically by the ``EigenSolver`` instance.
+        """
+        from neuromodes.mesh import unmask_data
+
+        if self.mask is None:
+            raise ValueError("No mask found. This method is only applicable for masked meshes.")
+
+        return unmask_data(
+            data=data,
+            mask=self.mask,
             **kwargs
         )
     
@@ -628,7 +648,7 @@ class EigenData:
         scaled_hetero: NDArray[floating] | None = _MISSING, # type: ignore[assignment]
         data: NDArray[floating] | None = _MISSING, # type: ignore[assignment]
         checks: bool | str = True
-    ):
+    ):  # TODO: add mask?
 
         # Local helper to bypass 'frozen' restriction during initialization
         def _set(name, val):

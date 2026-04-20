@@ -9,7 +9,6 @@ from warnings import warn
 import numpy as np
 from scipy.spatial.distance import cdist
 from neuromodes.eigen import EigenData
-from neuromodes.mesh import mask_mass
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -437,17 +436,12 @@ def _calc_beta(
     mask: NDArray
 ) -> NDArray[np.floating]:
     """Helper function to perform decomposition after validating arguments and masking NaNs/Infs."""
-    d = data[mask, :]
-    e = emodes[mask, :]
-    if method == 'project' and mass is not None:
-        m = mask_mass(mass=mass, mask=mask)
-        return e.T @ m @ d
-    elif method == 'project' and mass is None:
-        return e.T @ d
+    if method == 'project':
+        return emodes.T @ data if mass is None else emodes.T @ (mass @ data)
     elif method == 'regress':
-        return np.linalg.lstsq(e, d, rcond=None)[0]
-    else:
-        raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
+        return np.linalg.lstsq(emodes[mask, :], data[mask, :], rcond=None)[0]
+    
+    raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
 
 def _process_mode_ids(
     mode_counts: _IntSequenceKind | int | None,

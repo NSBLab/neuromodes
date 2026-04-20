@@ -71,8 +71,8 @@ def sim_nft_waves(
         The mass matrix of shape ``(n_verts, n_verts)`` used for the decomposition when method is
         ``'project'``. Default is ``None``.
     speed_limits : tuple, optional
-        If any wave speeds are outside this range (in m/s), a warning is raised. If ``None``, no
-        warning is raised. Default is ``(0, 150)``.
+        If any wave speeds are outside this range (in meters per second), a warning is raised. If
+        ``None``, no warning is raised. Default is ``(0, 150)``.
     scaled_hetero : array-like, optional
         Scaled heterogeneity map of shape ``(n_verts,)``, used only to check wave speeds (see
         ``speed_limits`` above). If not provided, wave speed is assumed to be spatially uniform. To
@@ -197,7 +197,7 @@ def sim_nft_waves(
     # Transform timeseries from modal coefficients back to vertex space
     return emodes @ activity_coeffs
 
-def bold_transform(
+def balloon_model(
     activity: ArrayLike,
     dt: float,
     emodes: ArrayLike,
@@ -219,7 +219,7 @@ def bold_transform(
         The eigenmodes array of shape ``(n_verts, n_modes)``, where ``n_verts`` is the number of
         vertices and ``n_modes`` is the number of eigenmodes.
     dt : float, optional
-        Time step for simulation in seconds.
+        Time step of simulated activity in seconds.
     pde_method : str, optional
         Method for solving the balloon PDEs. Either ``'fourier'`` or ``'ode'``. Default is
         ``'fourier'``.
@@ -285,7 +285,7 @@ def calc_wave_speed(
     scaled_hetero: ArrayLike | None = None
 ) -> float | NDArray:
     """
-    Calculate wave speed based on the two parameters of the wave model. If a scaled
+    Calculate wave speed (m/s) based on the two parameters of the wave model. If a scaled
     heterogeneity map is provided, wave speeds are calculated for each cortical vertex.
     
     Parameters
@@ -302,7 +302,8 @@ def calc_wave_speed(
     Returns
     -------
     float or np.ndarray
-        Wave speed across the whole cortex, or at each vertex if ``scaled_hetero`` is provided.
+        Wave speed across the whole cortex in meters per second, or at each vertex if
+        ``scaled_hetero`` is provided.
     """
     speed = (r / 1000) * gamma # Convert r to meters
     if scaled_hetero is not None:

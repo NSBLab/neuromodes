@@ -8,7 +8,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from lapy import TriaMesh, TetMesh
-    from scipy.sparse import csc_matrix
+    from numpy import floating
     from numpy.typing import ArrayLike, NDArray
     MeshType = TypeVar('MeshType', TriaMesh, TetMesh)
 
@@ -57,40 +57,11 @@ def mask_mesh(
     # Create a new TriaMesh or TetMesh with the masked vertices and elements
     return geometry.__class__(v=v_masked, t=t_masked)
 
-# TODO : add support for dense matrices
-def mask_stiffness(
-    stiffness: csc_matrix,
-    mask: ArrayLike
-) -> csc_matrix:
-    # Main masking
-    S = stiffness[mask, :][:, mask]
-    # Fix diagonal so that row sums are zero
-    S.setdiag(0)
-    S.setdiag(-np.asarray(S.sum(axis=0)).ravel())
-    return S
-
-def mask_mass(
-    mass: csc_matrix,
-    mask: ArrayLike,
-    lump: bool | None = None
-) -> csc_matrix:
-    # Set lump
-    if lump is None: 
-        lump = np.isclose(mass.sum(), mass.diagonal().sum()).item()
-    # Main masking
-    M = mass[mask, :][:, mask]
-    # Fix diagonal so that row sums are preserved if not lumped
-    if not lump: 
-        M.setdiag(0)
-        M.setdiag(np.asarray(M.sum(axis=0)).ravel())
-    
-    return M
-
 def unmask_data(
     data: ArrayLike,
     mask: ArrayLike,
     fill_val: float = np.nan
-) -> NDArray:
+) -> NDArray[floating]:
     """
     Unmasks data by inserting it into a full array with the same length as the medial wall mask.
 
@@ -117,7 +88,7 @@ def unmask_data(
     ValueError
         If ``data`` does not have shape ``(n_verts,)`` or ``(n_verts, n_maps)``.
     """
-    # Format / validate arguments
+    # Format / validate arguments (TODO: use EigenData)
     mask = np.asarray_chkfinite(mask, dtype=bool)
     if mask.ndim != 1:
         raise ValueError("`mask` must be a 1D boolean array.")

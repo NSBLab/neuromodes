@@ -40,7 +40,7 @@ API Reference
    reconstruct
    reconstruct_timeseries
    sim_nft_waves
-   bold_transform
+   balloon_model
    compute_gem
    eigenstrap
 
@@ -88,7 +88,7 @@ API Reference
    :toctree: generated/
 
    sim_nft_waves
-   bold_transform
+   balloon_model
    calc_wave_speed
    get_balloon_params
 
