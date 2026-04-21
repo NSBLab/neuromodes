@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast, overload
 from warnings import warn
 import numpy as np
 from scipy.sparse import eye, issparse, csc_matrix
-from scipy.spatial.distance import cdist
+from scipy.spatial.distance import cdist, pdist
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
@@ -164,13 +164,14 @@ def decompose(
         inv = np.split(inv, np.cumsum([len(m) for m in mode_ids[:-1]])) # back in the same list pattern as mode_ids
         
         # For each nan/inf pattern, get the beta values for all the unique modes
-        beta_all = _calc_beta(
-            data = data_reshaped, 
-            emodes = emodes[:, unique_mids],
-            method = method,
-            mass = mass,
-            mask = masks[:, 0]
-            )
+        beta_all = emodes[:, unique_mids].T @ (mass @ data_reshaped) 
+        # beta_all = _calc_beta(
+        #     data = data_reshaped, 
+        #     emodes = emodes[:, unique_mids],
+        #     method = method,
+        #     mass = mass,
+        #     mask = masks[:, 0]
+        #     )
         
         # Map the unique results back to the specific mode_ids requested
         for j, idxs in enumerate(inv):
@@ -186,13 +187,19 @@ def decompose(
                 # Remove verts with NaNs/Inf in this group from data and emodes
                 # Calculate beta coefficients for subset of data
                 map_indices = np.where(mask_indices == i)[0]
-                beta_current[:, map_indices] = _calc_beta(
-                    data = data_reshaped[:, map_indices], 
-                    emodes = emodes[:, mode_ids[j]], 
-                    method = method,
-                    mass = mass, 
-                    mask = mask
-                )
+                beta_current[:, map_indices] = spatial_lstsq(
+                    emodes[:, mode_ids[j]],
+                    data_reshaped[:, map_indices],
+                    w=mass,
+                    mask=mask
+                )[0]
+                # beta_current[:, map_indices] = _calc_beta(
+                #     data = data_reshaped[:, map_indices], 
+                #     emodes = emodes[:, mode_ids[j]], 
+                #     method = method,
+                #     mass = mass, 
+                #     mask = mask
+                # )
             beta[j] = beta_current.reshape(output_shapes[j])
 
     return beta[0] if squeeze_output else beta # convert back to array if mode_counts was None/scalar
@@ -338,7 +345,8 @@ def reconstruction_error(
             raise ValueError(f"data and recon must have the same shape except for the last dimension; got {data_shape} and {recon_shape}.")
         n_recons = recon_shape[-1]
 
-    w = mass.diagonal() if mass is not None else np.ones(data.shape[0])
+    w = _process_vertex_areas(mass, data.shape[0]) 
+    # w = mass.diagonal() if mass is not None else np.ones(data.shape[0])
 
     # Main computation
     data_2d = data.reshape(data.shape[0], -1)
@@ -347,48 +355,50 @@ def reconstruction_error(
     error_flat_shape = (data_2d.shape[1],) + (n_recons,)
     recon_error_flat = np.empty(error_flat_shape, dtype=data.dtype)
     for i in range(data_2d.shape[1]):
-        recon_error_flat[i, :] = cdist(data_2d[:, [i]].T, recon_3d[:, i, :].T, 
+        recon_error_flat[i, :] = spatial_cdist(data_2d[:, [i]], recon_3d[:, i, :],
                                         w=w, metric=metric, **cdist_kwargs)
     
     recon_error = recon_error_flat.reshape(recon.shape[1:])
     return recon_error
 
-def calc_vec_fc(
-    timeseries: NDArray
-) -> NDArray[np.floating]:
-    """
-    Compute Fisher-z-transformed vectorized functional connectivity from timeseries data.
-    
-    Parameters
-    ----------
-    timeseries : array-like
-        The input timeseries data of shape ``(n_verts, n_timepoints)``.
+def spatial_lstsq(a, b, w, mask=None, rcond=None):
+    if mask is None: 
+        mask = np.ones(a.shape[0], dtype=bool) 
+    w = _process_vertex_areas(w, a.shape[0])
+    w = np.sqrt(w[mask, np.newaxis])
+    return np.linalg.lstsq(w * a[mask], w * b[mask], rcond=rcond)
 
-    Returns
-    -------
-    numpy.ndarray
-        The Fisher-z-transformed vectorized functional connectivity array of shape ``(n_edges,)``,
-        where ``n_edges = n_verts*(n_verts-1)/2``.
-    """
-    fc = np.corrcoef(timeseries)
-    vec_fc = fc[np.triu_indices_from(fc, k=1)]
-    return np.arctanh(vec_fc)
+def spatial_pdist(X, w, mask=None, **kwargs):
+    if mask is None: 
+        mask = np.ones(X.shape[0], dtype=bool) 
+    return pdist(X[mask].T, w=_process_vertex_areas(w, X.shape[0], mask=mask), **kwargs)
 
-def _calc_beta(
-    data: NDArray[np.floating],
-    emodes: NDArray[np.floating],
-    method: str,
-    mass: csc_matrix,
-    mask: NDArray
-) -> NDArray[np.floating]:
-    """Helper function to perform decomposition after validating arguments and masking NaNs/Infs."""
-    if method == 'project':
-        return emodes.T @ (mass @ data)
-    elif method == 'regress':
-        w = np.sqrt(mass.diagonal())[mask, np.newaxis]
-        return np.linalg.lstsq(w * emodes[mask, :], w * data[mask, :], rcond=None)[0]
+def spatial_cdist(XA, XB, w, mask=None, **kwargs): 
+    if mask is None: 
+        mask = np.ones(XA.shape[0], dtype=bool) 
+    return cdist(XA[mask].T, XB[mask].T, w=_process_vertex_areas(w, XA.shape[0], mask=mask), **kwargs)
+
+def _process_vertex_areas(w, n_verts, mask=None):
+    if w is None: 
+        warn("Mass matrix not provided; assuming that area at each vertex is 1")
+        output = np.ones(n_verts)
+    elif issparse(w):
+        output = w.diagonal()
+    elif isinstance(w, np.ndarray):
+        output = np.squeeze(w)
+        if w.ndim == 2:
+            output = np.diag(w)
+    else: 
+        raise ValueError("Mass matrix must be a sparse matrix or a numpy array.")
     
-    raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
+    # TODO : consider adding support for using mask to do unmasking! 
+    # if nnz(mask) = n_verts: (output_unmasked[mask] = output)
+    output = np.asanyarray(output).reshape((n_verts,))
+    if mask is not None:
+        assert (len(mask) == n_verts) and (mask.ndim == 1) and (mask.dtype == bool)
+        output = output[mask]
+    
+    return output
 
 def _process_mode_ids(
     mode_counts: _IntSequenceKind | int | None,
