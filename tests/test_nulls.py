@@ -117,7 +117,7 @@ def test_internull_corrs(nulls):
 def test_residual_none(solver, test_data):
     """Nulls should not have any residual added when residual=None"""
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, residual=None)
-    recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes], metric=None)[0])
+    recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes]))
     residuals = nulls - recons
     
     assert np.allclose(residuals, 0, atol=1e-10), \
@@ -125,17 +125,17 @@ def test_residual_none(solver, test_data):
 
 def test_residual_add(solver, test_data):
     """Nulls should have residual added when residual='add'"""
-    data_recons = np.squeeze(solver.reconstruct(test_data, mode_counts=[solver.n_modes], metric=None)[0])
+    data_recons = np.squeeze(solver.reconstruct(test_data, mode_counts=[solver.n_modes]))
     data_residuals = test_data - data_recons
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, residual='add')
-    null_recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes], metric=None)[0])
+    null_recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes]))
     null_residuals = nulls - null_recons
     assert np.allclose(null_residuals, data_residuals[:,np.newaxis]), \
         "Nulls should have residual added when residual='add'"
     
 def test_residual_permute(solver, test_data):
     """Nulls should have permuted residual added when residual='permute'"""
-    data_recons = solver.reconstruct(test_data, mode_counts=solver.n_modes, metric=None)[0]
+    data_recons = solver.reconstruct(test_data, mode_counts=solver.n_modes)
     data_residuals = test_data - data_recons
     # Have to do it this way as permute residuals will not be orthogonal to modes (ie an approach
     # like the `residual='add'`` approach will not work)
