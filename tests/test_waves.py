@@ -91,8 +91,8 @@ def test_sim_nft_waves_methods_bold(solver):
     # Check that Fourier and ODE methods produce similar BOLD signal at selected timepoints
     activity_fourier = solver.sim_nft_waves(nt=nt, dt=dt, seed=seed)
     activity_ode = solver.sim_nft_waves(nt=nt, dt=dt, seed=seed, pde_method='ode')
-    bold_fourier = solver.bold_transform(activity_fourier, dt=dt)
-    bold_ode = solver.bold_transform(activity_ode, dt=dt, pde_method='ode')
+    bold_fourier = solver.balloon_model(activity_fourier, dt=dt)
+    bold_ode = solver.balloon_model(activity_ode, dt=dt, pde_method='ode')
 
     # Methods converge to r=.98 by t=500, but this takes too long to run, so just anchor the test
     # to a lower value to catch if the alignment ever drops (TODO: add to validation?)
@@ -148,7 +148,7 @@ def test_sim_nft_waves_ode_balloon_overflow(solver):
 
     with pytest.raises(RuntimeError, match="message: Required step size is less than spacing"):
         activity = solver.sim_nft_waves(dt=dt, nt=10, pde_method='ode')
-        solver.bold_transform(activity, pde_method='ode', dt=dt)
+        solver.balloon_model(activity, pde_method='ode', dt=dt)
 
 def test_sim_nft_waves_cached(solver):
     # Get CACHE_DIR
@@ -179,8 +179,8 @@ def test_sim_nft_waves_balloon_param(solver):
     dt = 1e-2
 
     activity = solver.sim_nft_waves(nt=nt, dt=dt)
-    bold_default = solver.bold_transform(activity, dt=dt)
-    bold_custom = solver.bold_transform(activity, dt=dt, rho=0.5)
+    bold_default = solver.balloon_model(activity, dt=dt)
+    bold_custom = solver.balloon_model(activity, dt=dt, rho=0.5)
 
     assert not np.allclose(bold_default, bold_custom), \
         "BOLD signals with different balloon model parameters match unexpectedly."
