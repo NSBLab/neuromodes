@@ -105,7 +105,7 @@ def decompose(
         mask_indices = np.zeros(data_reshaped.shape[1], dtype=int)
     elif method == 'regress':
         if checks is True or checks == 'maps':
-            warn("data contains NaNs and/or Infs; these will be disregarded during decomposition by"
+            warn("NaN/Inf values detected in data; these will be disregarded during decomposition by"
                 " masking corresponding vertices from data and emodes. This may lead to extreme "
                 "values in affected areas of the reconstructed data. Consider instead interpolating"
                 " missing data prior to decomposition via EigenSolver.inpaint().")

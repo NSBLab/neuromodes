@@ -44,7 +44,7 @@ def test_decompose_invalid_data_shape(solver):
 def test_decompose_nan_inf_data(solver):
     data = np.ones(solver.n_verts)
 
-    bad_emodes = emodes.copy()
+    bad_emodes = (solver.emodes).copy()
 
     bad_emodes[0,0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
@@ -97,7 +97,7 @@ def test_decompose_nans(solver_32k):
     modes_noise = np.concatenate([solver_32k.emodes, noise], axis=0)
 
     # emodes/mass get masked according to the nans/infs in data, leading to original beta values
-    with pytest.warns(UserWarning, match="data contains NaNs and/or Infs"):
+    with pytest.warns(UserWarning, match="values detected in data"):
         beta_masked = decompose(data_naninfs, modes_noise, method='regress', checks='maps')
     assert np.allclose(beta, beta_masked, atol=1e-4), \
         'Beta values for project method are not close when data contains NaNs/Infs'
