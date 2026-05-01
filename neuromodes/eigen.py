@@ -83,8 +83,8 @@ class EigenSolver(Solver):
         mask: NDArray[bool_] | None = None,
         normalize: bool = False,
         hetero: NDArray[floating] | None = None,
-        alpha: float | None = None, # default to 1.0 if hetero given (and remains None)
-        scaling: Literal['sigmoid', 'exponential'] | None = None  # default to "sigmoid" if hetero given (and remains None)
+        # alpha: float | None = None, # default to 1.0 if hetero given (and remains None)
+        # scaling: Literal['sigmoid', 'exponential'] | None = None  # default to "sigmoid" if hetero given (and remains None)
     ):
         # Read in surface mesh
         geometry = read_surf(geometry)
@@ -102,35 +102,20 @@ class EigenSolver(Solver):
         check_surf(geometry)
 
         # Hetero inputs
-        if hetero is None:
-            if scaling is not None:
-                warn("scaling is ignored as hetero is None.")
-            if alpha is not None:
-                warn("alpha is ignored as hetero is None.")
+        if hetero is None or hetero.shape == (geometry.v.shape[0],):
+            self.hetero = hetero
+        elif mask is not None and hetero.shape == (mask.shape[0],):
+            self.hetero = hetero[mask]
         else:
-            hetero = np.asarray(hetero)  # chkfinite in scale_hetero
-            alpha = 1.0 if alpha is None else float(alpha)
-            scaling = "sigmoid" if scaling is None else scaling
-
-            # Ensure hetero has correct length (masked or unmasked)
-            if mask is not None and hetero.shape == (len(mask),):
-                hetero = hetero[mask]
-            elif hetero.shape != (geometry.v.shape[0],):
-                err_str = f"the number of vertices in the provided mesh ({geometry.v.shape[0]})"
-                if mask is not None:
-                    err_str += f" or the masked mesh ({mask.sum()})"
-                raise ValueError(f"hetero must be a 1D array with length matching {err_str}.")
-
-            # Scale the heterogeneity map
-            hetero = scale_hetero(hetero, alpha=alpha, scaling=scaling)
+            err_str = f"the number of vertices in the provided mesh ({geometry.v.shape[0]})"
+            if mask is not None:
+                err_str += f" or the masked mesh ({mask.sum()})"
+            raise ValueError(f"hetero must be a 1D array with length matching {err_str}.")
 
         # Assign attributes
         self.geometry = geometry
         self.n_verts = geometry.v.shape[0]  # Nicety
         self.mask = mask
-        self.hetero = hetero
-        self._scaling = scaling    
-        self._alpha = alpha
         self.use_cholmod = False  # Permit lapy.eigs()
 
     def __str__(self) -> str:
