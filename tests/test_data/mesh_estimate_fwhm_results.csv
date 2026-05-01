@@ -1,0 +1,11 @@
+species,template,density,hemi,surf_type,data,wbcommand_fwhm
+human,fsLR,32k,L,midthickness,fcgradient1,23.943
+human,fsLR,32k,L,midthickness,myelinmap,10.41
+human,fsLR,32k,L,midthickness,ndi,10.1594
+human,fsLR,32k,L,midthickness,odi,13.6682
+human,fsLR,32k,L,midthickness,thickness,11.2762
+human,fsLR,32k,L,sphere,fcgradient1,30.7776
+human,fsLR,32k,L,sphere,myelinmap,13.3815
+human,fsLR,32k,L,sphere,ndi,13.0594
+human,fsLR,32k,L,sphere,odi,17.5698
+human,fsLR,32k,L,sphere,thickness,14.495

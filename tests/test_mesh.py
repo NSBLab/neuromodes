@@ -1,6 +1,7 @@
-from lapy import TriaMesh
+import pytest
 import numpy as np
-from pytest import raises
+from lapy import TriaMesh
+
 from neuromodes.mesh import mask_mesh, check_surf
 
 def test_mask_surf():
@@ -39,7 +40,7 @@ def test_surf_unreferenced_verts():
     invalid_mesh = TriaMesh(v=vertices, t=faces)
    
     # check_surf should raise ValueError due to unreferenced vertex
-    with raises(ValueError, match="Surface mesh contains .* unreferenced vertices"):
+    with pytest.raises(ValueError, match="Surface mesh contains .* unreferenced vertices"):
         check_surf(invalid_mesh)
 
 def test_surf_not_contiguous():
@@ -49,5 +50,5 @@ def test_surf_not_contiguous():
     disconnected_mesh = TriaMesh(v=vertices, t=faces)
     
     # check_surf should raise ValueError due to multiple components
-    with raises(ValueError, match="Surface mesh is not contiguous.*connected components"):
+    with pytest.raises(ValueError, match="Surface mesh is not contiguous.*connected components"):
         check_surf(disconnected_mesh)

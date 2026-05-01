@@ -44,7 +44,7 @@ def test_decompose_invalid_data_shape(solver):
 def test_decompose_nan_inf_data(solver):
     data = np.ones(solver.n_verts)
 
-    bad_emodes = emodes.copy()
+    bad_emodes = (solver.emodes).copy()
 
     bad_emodes[0,0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
