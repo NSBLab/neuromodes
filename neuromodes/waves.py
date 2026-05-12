@@ -30,7 +30,6 @@ def sim_nft_waves(
     r: float = 17.4,
     gamma: float = 116.0,
     pde_method: _PDEKind = "fourier",
-    decomp_method: _DecompositionKind = "project",
     mass: csc_matrix | None = None,
     stiffness: csc_matrix | None = None, # only used for FEM
     speed_limits: tuple[float, float] | None = (0, 150),
@@ -66,11 +65,6 @@ def sim_nft_waves(
     pde_method : str, optional
         Method for solving the wave PDEs. Either ``'fourier'`` or ``'ode'``. Default is
         ``'fourier'``.
-    decomp_method : str, optional
-        The method used to eigendecompose ``ext_input``, either ``'project'`` to project data into a
-        mass-orthonormal space or ``'regress'`` for least-squares fitting. Note that the beta values
-        from ``'regress'`` tend towards those from ``'project'`` when more modes are provided.
-        Default is ``'project'``.
     mass : array-like, optional
         The mass matrix of shape ``(n_verts, n_verts)`` used for the decomposition when method is
         ``'project'``. Default is ``None``.
@@ -186,6 +180,8 @@ def sim_nft_waves(
             warn("seed is ignored when ext_input is provided.")
         if cache_input:
             warn("cache_input is ignored when ext_input is provided.")
+        if np.isnan(ext_input).any():
+            raise ValueError("ext_input contains NaN values, which are not allowed.")
         nt = ext_input.shape[1]
     elif nt is not None:
         if cache_input and seed is not None:
@@ -199,30 +195,25 @@ def sim_nft_waves(
     else: # not the nicest, but it makes pyright the happiest
         raise ValueError("Either nt or ext_input must be provided.")
 
-    # Main computation
-    if pde_method == 'fourier': 
-        input_coeffs = decompose(ext_input, emodes, method=decomp_method, mass=mass, checks=False)
-        activity_coeffs = _model_wave_fourier(input_coeffs, dt, r, gamma, evals)
-        return emodes @ activity_coeffs
-    elif pde_method == 'ode':
-        input_coeffs = decompose(ext_input, emodes, method=decomp_method, mass=mass, checks=False)
-        activity_coeffs = _model_wave_ode(input_coeffs, dt, r, gamma, evals)
-        return emodes @ activity_coeffs
-    elif pde_method == 'fem':
+    # Non-modal FEM implementation
+    if pde_method == 'fem':
         if mass is None or stiffness is None:
             raise ValueError("Mass and stiffness matrices must be provided for FEM method.")
-        output = _model_wave_fem(ext_input, dt=dt, r=r, gamma=gamma, 
-                                 mass=mass, stiffness=stiffness, n_jobs=n_jobs, verbose=verbose)
-        return output
-    else:
-        raise ValueError(f"Invalid PDE method '{pde_method}'; must be 'fourier', 'ode', or 'fem'.")
+        return _model_wave_fem(ext_input, dt=dt, r=r, gamma=gamma, mass=mass, stiffness=stiffness,
+                               n_jobs=n_jobs, verbose=verbose)
+    
+    # Standard modal implementation: decompose input and reconstruct output
+    input_coeffs = decompose(ext_input, emodes, mass=mass, checks=False)
+    _model_wave = _model_wave_fourier if pde_method == 'fourier' else _model_wave_ode
+    activity_coeffs = _model_wave(input_coeffs, dt, r, gamma, evals)
+
+    return emodes @ activity_coeffs
 
 def balloon_model(
     activity: NDArray[floating],
     dt: float,
     emodes: NDArray[floating],
     pde_method: _PDEKind = "fourier",
-    decomp_method: _DecompositionKind = "project",
     mass: csc_matrix | None = None,
     checks: _CheckKind = True,
     **params
@@ -243,11 +234,6 @@ def balloon_model(
     pde_method : str, optional
         Method for solving the balloon PDEs. Either ``'fourier'`` or ``'ode'``. Default is
         ``'fourier'``.
-    decomp_method : str, optional
-        The method used to eigendecompose ``activity``, either ``'project'`` to project data into a
-        mass-orthonormal space or ``'regress'`` for least-squares fitting. Note that the beta values
-        from ``'regress'`` tend towards those from ``'project'`` when more modes are provided.
-        Default is ``'project'``.
     mass : array-like, optional
         The mass matrix of shape (n_verts, n_verts) used for the decomposition when method is
         ``'project'``. Default is ``None``.
@@ -278,19 +264,22 @@ def balloon_model(
         https://doi.org/10.1016/j.neuroimage.2007.07.040
     """
     # Format / validate arguments
-    activity = np.asarray(activity)  # chkfinite in decompose
-    emodes = np.asarray(emodes)  # chkfinite in decompose
+    if checks is not False:
+        ved = EigenData(emodes=emodes, mass=mass, data=activity, checks=checks)
+        emodes, mass, activity = ved.emodes, ved.mass, ved.data
 
+    if np.isnan(activity).any():
+        raise ValueError("activity contains NaN values, which are not allowed.")
     if dt <= 0:
         raise ValueError("dt must be positive.")
     if pde_method not in ['fourier', 'ode']:
         raise ValueError(f"Invalid PDE method '{pde_method}'; must be 'fourier' or 'ode'.")
     for param_name, param_value in params.items():
         if not isinstance(param_value, (int, float)) or param_value <= 0:
-            raise ValueError(f"Balloon model parameter '{param_name}' must be a positive number.")
+            raise ValueError(f"Parameter '{param_name}' must be a positive number.")
 
     # Eigendecompose activity to get modal coefficients over time
-    activity_coeffs = decompose(activity, emodes, method=decomp_method, mass=mass, checks=checks)
+    activity_coeffs = decompose(activity, emodes, mass=mass, checks=False)
 
     # Apply model to each mode's activity timeseries
     _model_balloon = _model_balloon_fourier if pde_method == 'fourier' else _model_balloon_ode

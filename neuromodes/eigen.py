@@ -740,7 +740,7 @@ class EigenData:
                 if np.isnan(data).any(): 
                     warn("NaN values detected in data, which may cause issues with computations.")
                 if np.isinf(data).any():
-                    warn("Inf values detected in data, which may cause issues with computations.")
+                    raise ValueError("Inf values detected in data, which are not allowed.")
                 if n_verts is not None and data.shape[0] != n_verts:
                     raise ValueError(f"data must have first dimension {n_verts} to match the other "
                                      "variables.")
