@@ -20,14 +20,13 @@ testing = [
 tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
-    "nsbutils[plotting]",
+    "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
 ]
 cache = [
     "joblib>=1.5.3",
 ]
 
 [tool.uv.sources]
-nsbutils = { path = "../nsbutils", editable = true }
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

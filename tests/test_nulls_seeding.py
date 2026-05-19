@@ -3,7 +3,7 @@ import pytest
 import numpy as np
 from packaging import version
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf, fetch_map
+from neuromodes.io import fetch_example_surf, fetch_example_map
 
 # Params
 density = '4k'
@@ -20,7 +20,7 @@ residual_options = [None, 'permute'] # skip add for convenience as it has no ran
 
 @pytest.fixture(scope='module')
 def solver(seed=None):
-    mesh, medmask = fetch_surf(density=density)
+    mesh, medmask = fetch_example_surf(density=density)
     return EigenSolver(mesh, mask=medmask).solve(n_modes=n_modes, seed=seed)
 
 @pytest.fixture(scope='module')
@@ -268,8 +268,8 @@ def test_compared_to_original_seed_outside(nulls_orig):
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_surf(density=density, hemi=hemi, surf_type=surf_type)
-    map = fetch_map(data, density=density)[medmask]
+    mesh, medmask = fetch_example_surf(density=density, hemi=hemi, surf_type=surf_type)
+    map = fetch_example_map(data, density=density)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls
@@ -310,8 +310,8 @@ def test_compared_to_original_seed_inside(nulls_orig):
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_surf(density=density, hemi=hemi, surf_type=surf_type)
-    map = fetch_map(data, density=density)[medmask]
+    mesh, medmask = fetch_example_surf(density=density, hemi=hemi, surf_type=surf_type)
+    map = fetch_example_map(data, density=density)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls
