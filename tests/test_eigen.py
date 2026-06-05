@@ -2,6 +2,7 @@ from pathlib import Path
 from lapy.shapedna import normalize_ev
 import numpy as np
 import pytest
+from scipy.stats import zscore  # TODO: replace with stats.zscorew
 from neuromodes.eigen import EigenSolver, is_orthonormal_basis, sigmoid_rescale, get_eigengroup_inds
 from neuromodes.io import fetch_surf, fetch_map
 from neuromodes.mesh import mask_mesh
@@ -10,7 +11,7 @@ from neuromodes.mesh import mask_mesh
 def surf_medmask_hetero():
     mesh, medmask = fetch_surf(density='4k')
     hetero = fetch_map(data="myelinmap", density="4k")
-    hetero = sigmoid_rescale(hetero, alpha=0.5)
+    hetero = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
     return mesh, medmask, hetero
 
 def test_init_params(surf_medmask_hetero):
@@ -316,11 +317,11 @@ def test_check_euclidean_orthonorm():
     assert is_orthonormal_basis(vecs, mass=np.eye(5)) # type: ignore
     assert not is_orthonormal_basis(vecs, mass=np.ones((5, 5))) # type: ignore
 
-def test_sigmoid_rescale(surf_medmask_hetero):
-    _, _, hetero = surf_medmask_hetero
+def test_sigmoid_rescale():
+    hetero = np.random.default_rng().normal(loc=100, scale=10, size=1000)
 
-    # Check that sigmoid-scaled hetero is within (0, 2) by default
-    hetero_sig = sigmoid_rescale(hetero, alpha=0.5)
+    # Check that sigmoid-scaled hetero is within (0, 2)
+    hetero_sig = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
     assert np.all((hetero_sig > 0) & (hetero_sig < 2))
 
 def test_get_eigengroup_inds(solver):

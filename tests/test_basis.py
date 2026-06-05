@@ -1,13 +1,15 @@
 import numpy as np
 import pytest
-from neuromodes.basis import decompose, reconstruct, reconstruct_timeseries, calc_vec_fc
-from neuromodes.eigen import EigenSolver
+from scipy.stats import zscore  # TODO: replace with stats.zscorew
+from neuromodes.basis import decompose, reconstruct
+from neuromodes.eigen import EigenSolver, sigmoid_rescale
 from neuromodes.io import fetch_surf, fetch_map
 
 @pytest.fixture(scope='module')
 def solver():
     surf, medmask = fetch_surf(density='4k')
     hetero = np.random.default_rng(0).standard_normal(size=len(medmask))
+    hetero = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
     return EigenSolver(surf, mask=medmask, hetero=hetero).solve(n_modes=10, seed=0)
 
 def test_decompose_eigenmodes_1d(solver):
@@ -162,57 +164,10 @@ def test_reconstruct_regress_method(solver, gen_eigenmap):
     _, euclidean_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', checks=False, metric='euclidean', mode_counts=np.arange(solver.n_modes)+1)
 
     # Errors should strictly decrease when adding modes
-    assert np.all(np.diff(correlation_error, axis=1) < 0), \
-        'Correlation error does not strictly decrease when adding modes.'
+    assert np.all(np.diff(correlation_error[:, 1:], axis=1) < 0), \
+        'Correlation error does not strictly decrease when adding modes.'  # nan error for constant mode (col 0), so ignore
     assert np.all(np.diff(euclidean_error, axis=1) < 0), \
         'Euclidean error does not strictly decrease when adding modes.'
-
-# When mode_counts contains 1, the timeseries is reconstructed using only the first (constant) mode.
-# This leads to a simulated timeseries which is the same at each vertex (at any timepoint), creating
-# an FC matrix which is 1 everywhere. When z-transforming the matrix, this results in a
-# RuntimeWarning (due to division by 0) and an output which has inf values. This also creates
-# another warning when using the 'correlation' metric due to the prescence of inf values. These
-# behaviours are reasonable, and should be flagged for the user, but we can filter these warnings
-# for this test. Due to precision errors, some reconstructed FC matrices may have a correlation of 1
-# which leads to NaN values in the correlation_error output. This is also reasonable. This can be
-# mitigated by using more timepoints in gen_eigenmap, but for computaional efficiency we only use 3
-# timepoints.
-@pytest.mark.filterwarnings("ignore:divide by zero encountered in arctanh:RuntimeWarning")
-@pytest.mark.filterwarnings("ignore:invalid value encountered in subtract:RuntimeWarning")
-def test_reconstruct_mode_superposition_timeseries(solver, gen_eigenmap):
-    eigenmaps, _ = gen_eigenmap
-
-    eigen_ts = eigenmaps.astype(np.float64) # Prevent memory allocation error
-    fc = calc_vec_fc(eigen_ts)
-
-    # Treat eigenmaps as timepoints of activity
-    fc_recon, correlation_error, recon, recon_error, beta = reconstruct_timeseries(
-        eigen_ts, solver.emodes, method='regress', checks=False, metric='correlation', mode_counts=np.arange(solver.n_modes)+1)
-    
-    # check shapes
-    assert fc_recon.shape == (solver.n_verts*(solver.n_verts-1)/2, solver.n_modes), \
-        'fc_recon has incorrect shape.'
-    assert correlation_error.shape == (solver.n_modes,), \
-        'fc_recon_error has incorrect shape.'
-    assert recon.shape == (solver.n_verts, eigen_ts.shape[1], solver.n_modes), \
-        'recon has incorrect shape.'
-    assert recon_error.shape == (eigen_ts.shape[1], solver.n_modes), \
-        'recon_error has incorrect shape.'
-    assert beta[0].shape == (1, eigen_ts.shape[1]), \
-        'beta[0] has incorrect shape.'
-    assert beta[-1].shape == (solver.n_modes, eigen_ts.shape[1]), \
-        'beta[-1] has incorrect shape.'
-
-    # Use another metric for fc recon error
-    _, euclidean_error, _, _, _ = reconstruct_timeseries(
-        eigen_ts, solver.emodes, method='regress', checks=False, metric='euclidean', mode_counts=np.arange(solver.n_modes)+1)
-    mse = euclidean_error / fc.size  # Convert to MSE
-    
-    assert np.allclose(np.tanh(fc_recon[:,-1]), np.tanh(fc), atol=1e-5), \
-        'Reconstructed FC does not match original.'
-    assert correlation_error[-1] < 1e-6, \
-        'FC reconstruction error is not close to 0 when using all modes.'
-    assert mse[-1] < 1e-6, 'MSE is not close to 0 when using all modes.'
 
 def test_reconstruct_real_map_32k(solver_32k):
     emodes = solver_32k.emodes
