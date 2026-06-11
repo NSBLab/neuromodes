@@ -2,12 +2,12 @@ import numpy as np
 import pytest
 from neuromodes.basis import decompose, reconstruct, recon_error
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf, fetch_map
 from scipy.sparse import csc_matrix, eye
+from neuromodes.io import fetch_example_surf, fetch_example_map
 
 @pytest.fixture(scope='module')
 def solver():
-    surf, medmask = fetch_surf(density='4k')
+    surf, medmask = fetch_example_surf(density='4k')
     hetero = np.random.default_rng(0).standard_normal(size=len(medmask))
     return EigenSolver(surf, mask=medmask, hetero=hetero).solve(n_modes=10, seed=0)
 
@@ -70,7 +70,7 @@ def test_decompose_invalid_method(solver):
 @pytest.fixture(scope='module')
 def solver_32k():
     # Get modes of fsLR 32k midthickness (data is in 32k)
-    mesh, medmask = fetch_surf()
+    mesh, medmask = fetch_example_surf()
     rng = np.random.default_rng(0)
     hetero = rng.standard_normal(size=len(medmask))
     solver = EigenSolver(mesh, mask=medmask, hetero=hetero)
@@ -80,8 +80,8 @@ def solver_32k():
 def test_decompose_nans(solver_32k):
     # Decompose some maps
     data = np.stack(
-        (fetch_map('fcgradient1')[solver_32k.mask],
-         fetch_map('myelinmap')[solver_32k.mask]),
+        (fetch_example_map('fcgradient1')[solver_32k.mask],
+         fetch_example_map('myelinmap')[solver_32k.mask]),
         axis=1
     )
     coeffs = decompose(data, solver_32k.emodes, method='regress', mass=csc_matrix(eye(solver_32k.n_verts)))
@@ -186,7 +186,7 @@ def test_reconstruct_real_map_32k(solver_32k):
     emodes = solver_32k.emodes
 
     # Load FC gradient from Margulies 2016 PNAS
-    map = fetch_map('fcgradient1')[solver_32k.mask]
+    map = fetch_example_map('fcgradient1')[solver_32k.mask]
     recon = reconstruct(emodes, data=map, mass=solver_32k.mass, mode_counts=np.arange(solver_32k.n_modes)+1)
     recon_score = recon_error(map, recon, mass=solver_32k.mass)
 

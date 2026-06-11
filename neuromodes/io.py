@@ -75,7 +75,7 @@ def read_surf(
         
     return TriaMesh(v=vertices, t=faces)
 
-def fetch_surf(
+def fetch_example_surf(
     species: str = 'human',
     density: str = '32k',
     hemi: str = 'L',
@@ -134,7 +134,7 @@ def fetch_surf(
             " list of available surfaces."
             )
 
-def fetch_map(
+def fetch_example_map(
     data: str,
     species: str = 'human',
     density: str = '32k',

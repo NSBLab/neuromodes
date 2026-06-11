@@ -2,7 +2,7 @@ import pytest
 import time
 import numpy as np
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf
+from neuromodes.io import fetch_example_surf
 
 # This test should be run with the `-s` flag to print timing results, e.g. `pytest -s tests/test_nulls_speed.py`
 
@@ -17,7 +17,7 @@ n_nulls = (1,10,100)
 @pytest.fixture(scope='module')
 def solver():
     """Initialise solver and solve for eigenmodes, which will be used for all tests."""
-    mesh, medmask = fetch_surf(density=density)
+    mesh, medmask = fetch_example_surf(density=density)
     print(f"\nInitilising mesh with {density} vertices and {max(n_groups)**2} modes.")
     tic = time.time()
     s = EigenSolver(mesh, mask=medmask).solve(n_modes=max(n_groups)**2)
@@ -91,7 +91,7 @@ def test_32k():
 
     print(f"\nInitialising mesh with {density} vertices and {n_modes} modes.")
     tic = time.time()
-    solver = EigenSolver(fetch_surf(density=density)[0]).solve(n_modes=n_modes)
+    solver = EigenSolver(fetch_example_surf(density=density)[0]).solve(n_modes=n_modes)
     print(f"Time to solve eigenmodes: {time.time() - tic:.5f} seconds.")
 
     test_data = np.random.default_rng().normal(size=(solver.n_verts, n_maps))
