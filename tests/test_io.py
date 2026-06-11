@@ -5,19 +5,19 @@ from unittest.mock import patch
 from lapy import TriaMesh
 import numpy as np
 from pytest import raises
-from neuromodes.io import read_surf, fetch_surf, fetch_map, _cache_output
+from neuromodes.io import read_surf, fetch_example_surf, fetch_example_map, _cache_output
 from neuromodes.mesh import check_surf
 
-def test_fetch_surf():
+def test_fetch_example_surf():
     for hemi in ['L', 'R']:
         for species in ['human', 'macaque', 'marmoset']:
             for density in ['4k', '32k']:
                 if species != 'human' and density == '4k':
                     with raises(FileNotFoundError, match="Surface data .* not found"):
-                        fetch_surf(species=species, hemi=hemi, density=density)
+                        fetch_example_surf(species=species, hemi=hemi, density=density)
                     continue
 
-                surf, medmask = fetch_surf(species=species, hemi=hemi, density=density)
+                surf, medmask = fetch_example_surf(species=species, hemi=hemi, density=density)
                 assert surf.v.shape[0] > 0
                 assert surf.v.shape[1] == 3
                 assert surf.t.shape[0] > 0
@@ -29,16 +29,16 @@ def test_fetch_surf():
 
 def test_fetch_invalid_surf():
     with raises(FileNotFoundError, match="Surface data .* not found"):
-        fetch_surf(surf_type='makessense')
+        fetch_example_surf(surf_type='makessense')
 
 def test_fetch_gradient():
-    grad = fetch_map('fcgradient1')
+    grad = fetch_example_map('fcgradient1')
     assert isinstance(grad, np.ndarray)
     assert grad.shape == (32492,)
 
 def test_fetch_invalid_map():
     with raises(FileNotFoundError, match="Map 'sp-human_tpl-fsLR_den-32k_hemi-L_panshifu.func.gii'.*"):
-        fetch_map('panshifu')
+        fetch_example_map('panshifu')
 
 def test_read_surf_dict():
     surf_data = {

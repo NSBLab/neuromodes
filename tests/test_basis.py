@@ -2,11 +2,11 @@ import numpy as np
 import pytest
 from neuromodes.basis import decompose, reconstruct, reconstruct_timeseries, calc_vec_fc
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf, fetch_map
+from neuromodes.io import fetch_example_surf, fetch_example_map
 
 @pytest.fixture(scope='module')
 def solver():
-    surf, medmask = fetch_surf(density='4k')
+    surf, medmask = fetch_example_surf(density='4k')
     hetero = np.random.default_rng(0).standard_normal(size=len(medmask))
     return EigenSolver(surf, mask=medmask, hetero=hetero).solve(n_modes=10, seed=0)
 
@@ -44,7 +44,7 @@ def test_decompose_invalid_data_shape(solver):
 def test_decompose_nan_inf_data(solver):
     data = np.ones(solver.n_verts)
 
-    bad_emodes = emodes.copy()
+    bad_emodes = (solver.emodes).copy()
 
     bad_emodes[0,0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
@@ -68,7 +68,7 @@ def test_decompose_invalid_method(solver):
 @pytest.fixture(scope='module')
 def solver_32k():
     # Get modes of fsLR 32k midthickness (data is in 32k)
-    mesh, medmask = fetch_surf()
+    mesh, medmask = fetch_example_surf()
     rng = np.random.default_rng(0)
     hetero = rng.standard_normal(size=len(medmask))
     solver = EigenSolver(mesh, mask=medmask, hetero=hetero)
@@ -78,8 +78,8 @@ def solver_32k():
 def test_decompose_nans(solver_32k):
     # Decompose some maps
     data = np.stack(
-        (fetch_map('fcgradient1')[solver_32k.mask],
-         fetch_map('myelinmap')[solver_32k.mask]),
+        (fetch_example_map('fcgradient1')[solver_32k.mask],
+         fetch_example_map('myelinmap')[solver_32k.mask]),
         axis=1
     )
     beta = solver_32k.decompose(data, method='regress')
@@ -218,7 +218,7 @@ def test_reconstruct_real_map_32k(solver_32k):
     emodes = solver_32k.emodes
 
     # Load FC gradient from Margulies 2016 PNAS
-    map = fetch_map('fcgradient1')[solver_32k.mask]
+    map = fetch_example_map('fcgradient1')[solver_32k.mask]
     _, recon_score, _ = reconstruct(map, emodes, mass=solver_32k.mass, mode_counts=np.arange(solver_32k.n_modes)+1)
 
     # Correlation error should strictly decrease from 1, but not reach 0

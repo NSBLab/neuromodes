@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf
+from neuromodes.io import fetch_example_surf
 
 # Params
 density = '4k'
@@ -13,7 +13,7 @@ n_nulls = 20
 @pytest.fixture(scope='module')
 def solver():
     """Initialise solver and solve for eigenmodes, which will be used for all tests."""
-    mesh, _ = fetch_surf(density=density, hemi=hemi, surf_type='sphere')
+    mesh, _ = fetch_example_surf(density=density, hemi=hemi, surf_type='sphere')
     return EigenSolver(mesh).solve(n_modes=n_modes)
 
 # These are the main parameters which will exactly preserve PSD. For example, `resample='exact'`
