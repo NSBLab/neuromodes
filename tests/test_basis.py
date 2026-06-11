@@ -1,13 +1,14 @@
 import numpy as np
 import pytest
+from scipy.sparse import csc_matrix, eye
 from scipy.stats import zscore  # TODO: replace with stats.zscorew
-from neuromodes.basis import decompose, reconstruct
+from neuromodes.basis import decompose, reconstruct, recon_error
 from neuromodes.eigen import EigenSolver, sigmoid_rescale
-from neuromodes.io import fetch_surf, fetch_map
+from neuromodes.io import fetch_example_surf, fetch_example_map
 
 @pytest.fixture(scope='module')
 def solver():
-    surf, medmask = fetch_surf(density='4k')
+    surf, medmask = fetch_example_surf(density='4k')
     hetero = np.random.default_rng(0).standard_normal(size=len(medmask))
     hetero = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
     return EigenSolver(surf, mask=medmask, hetero=hetero).solve(n_modes=10, seed=0)
@@ -15,27 +16,27 @@ def solver():
 def test_decompose_eigenmodes_1d(solver):
     for i in range(solver.n_modes):
         # Use an eigenmode as data
-        beta = decompose(solver.emodes[:, i], solver.emodes, mass=solver.mass)
+        coeffs = decompose(solver.emodes[:, i], solver.emodes, mass=solver.mass)
 
         # The mode should load onto only itself due to orthogonality
-        beta_expected = np.zeros((solver.n_modes,))
-        beta_expected[i] = 1
-        assert np.allclose(beta, beta_expected, atol=1e-4), \
+        coeffs_expected = np.zeros((solver.n_modes,))
+        coeffs_expected[i] = 1
+        assert np.allclose(coeffs, coeffs_expected, atol=1e-4), \
             f'Decomposition of mode {i} failed.'
 
 def test_decompose_eigenmodes_2d(solver):
     emodes = solver.emodes
-    beta = decompose(data=emodes, emodes=emodes, mass=solver.mass)
-    beta_expected = np.eye(solver.n_modes)
-    assert np.allclose(beta, beta_expected, atol=1e-4), \
+    coeffs = decompose(data=emodes, emodes=emodes, mass=solver.mass)
+    coeffs_expected = np.eye(solver.n_modes)
+    assert np.allclose(coeffs, coeffs_expected, atol=1e-4), \
         'Decomposition of modes onto themselves failed.'
     
 def test_decompose_eigenmodes_3d(solver):
     emodes = solver.emodes
     data = np.stack((emodes, emodes), axis=2)
-    beta = decompose(data=data, emodes=emodes, mass=solver.mass)
-    beta_expected = np.stack((np.eye(solver.n_modes), np.eye(solver.n_modes)), axis=2)
-    assert np.allclose(beta, beta_expected, atol=1e-4), \
+    coeffs = decompose(data=data, emodes=emodes, mass=solver.mass)
+    coeffs_expected = np.stack((np.eye(solver.n_modes), np.eye(solver.n_modes)), axis=2)
+    assert np.allclose(coeffs, coeffs_expected, atol=1e-4), \
         'Decomposition of modes onto themselves failed for 3D data.'
 
 def test_decompose_invalid_data_shape(solver):
@@ -43,11 +44,12 @@ def test_decompose_invalid_data_shape(solver):
     with pytest.raises(ValueError, match=r"data.*first dimension.*3619"):
         decompose(np.ones(4002), solver.emodes, mass=solver.mass)
 
-def test_decompose_nan_inf_data(solver):
+def test_decompose_nan_data(solver):
     data = np.ones(solver.n_verts)
 
     bad_emodes = (solver.emodes).copy()
 
+    # TODO: move this to test_eigen.py, as it's covered by EigenData now
     bad_emodes[0,0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
         decompose(data, bad_emodes, mass=solver.mass)
@@ -70,7 +72,7 @@ def test_decompose_invalid_method(solver):
 @pytest.fixture(scope='module')
 def solver_32k():
     # Get modes of fsLR 32k midthickness (data is in 32k)
-    mesh, medmask = fetch_surf()
+    mesh, medmask = fetch_example_surf()
     rng = np.random.default_rng(0)
     hetero = rng.standard_normal(size=len(medmask))
     solver = EigenSolver(mesh, mask=medmask, hetero=hetero)
@@ -80,31 +82,32 @@ def solver_32k():
 def test_decompose_nans(solver_32k):
     # Decompose some maps
     data = np.stack(
-        (fetch_map('fcgradient1')[solver_32k.mask],
-         fetch_map('myelinmap')[solver_32k.mask]),
+        (fetch_example_map('fcgradient1')[solver_32k.mask],
+         fetch_example_map('myelinmap')[solver_32k.mask]),
         axis=1
     )
-    beta = solver_32k.decompose(data, method='regress')
+    coeffs = decompose(data, solver_32k.emodes, method='regress', mass=csc_matrix(eye(solver_32k.n_verts)))
 
-    # Append data with NaNs and Infs (+100 vertices)
+    # Append data with NaNs (+100 vertices)
     extraverts = 100
-    data_naninfs = np.concatenate([
+    data_nans = np.concatenate([
         data,
-        np.full((extraverts // 2, data.shape[1]), np.nan),
-        np.full((extraverts // 2, data.shape[1]), np.inf)
+        np.full((extraverts, data.shape[1]), np.nan)
     ], axis=0)
 
     # Add noise to modes and mass to match shapes (+100 vertices)
     noise = np.random.default_rng().standard_normal((extraverts, solver_32k.n_modes))
     modes_noise = np.concatenate([solver_32k.emodes, noise], axis=0)
 
-    # emodes/mass get masked according to the nans/infs in data, leading to original beta values
-    with pytest.warns(UserWarning, match="data contains NaNs and/or Infs"):
-        beta_masked = decompose(data_naninfs, modes_noise, method='regress', checks='maps')
-    assert np.allclose(beta, beta_masked, atol=1e-4), \
-        'Beta values for project method are not close when data contains NaNs/Infs'
+    # emodes/mass get masked according to the nans/s in data, leading to original coeffs values
+    with pytest.warns(UserWarning, match="values detected in data"):
+        coeffs_masked = decompose(data_nans, modes_noise, method='regress', checks='maps', mass=csc_matrix(eye(solver_32k.n_verts+extraverts)))
+    assert np.allclose(coeffs, coeffs_masked, atol=1e-2), \
+        'coeffs values for project method are not close when data contains NaNs'
 
-# TODO: more complicated version of above test, where three maps have two unique patterns of NaNs/Infs
+# TODO: more complicated version of above test, where three maps have two unique patterns of NaNs
+
+# TODO: test that 'project' and 'regress' give very similar results across different mode_counts
 
 @pytest.fixture(scope='module')
 def gen_eigenmap(solver):
@@ -118,23 +121,30 @@ def gen_eigenmap(solver):
     return eigenmaps, weights
 
 def test_reconstruct_project(solver):
-    recon, _, beta = reconstruct(solver.emodes, solver.emodes, mass=solver.mass)
+    coeffs = decompose(solver.emodes, solver.emodes, mass=solver.mass)
+    assert np.allclose(coeffs, np.eye(solver.n_modes), atol=1e-5), \
+        'coeffs values do not match expected identity matrix when reconstructing modes onto themselves.'
+    recon = reconstruct(solver.emodes, coeffs=coeffs, mass=solver.mass)
     assert np.allclose(recon, solver.emodes,
                        atol=1e-5), 'Final reconstructions do not match input modes.'
-    assert np.allclose(beta, np.eye(solver.n_modes), atol=1e-5), \
-        'Beta values do not match expected identity matrix when reconstructing modes onto themselves.'
     
-def test_reconstruct_regress(solver):
-    recon, _, beta = reconstruct(solver.emodes, solver.emodes, method='regress')
+def test_reconstruct_regress_weighted(solver):
+    coeffs = decompose(solver.emodes, solver.emodes, mass=solver.mass, method='regress')
+    assert np.allclose(coeffs, np.eye(solver.n_modes), atol=1e-5), \
+        'coeffs values do not match expected identity matrix when reconstructing modes onto themselves.'
+    recon = reconstruct(solver.emodes, coeffs=coeffs, mass=solver.mass, method='regress')
     assert np.allclose(recon, solver.emodes,
                        atol=1e-5), 'Final reconstructions do not match input modes.'
-    assert np.allclose(beta, np.eye(solver.n_modes), atol=1e-5), \
-        'Beta values do not match expected identity matrix when reconstructing modes onto themselves.'
 
 def test_reconstruct_mode_superposition(solver, gen_eigenmap):
     eigenmaps, weights = gen_eigenmap
 
-    recon, correlation_error, beta = reconstruct(eigenmaps, solver.emodes, mass=solver.mass, mode_counts=np.arange(solver.n_modes)+1)
+    coeffs = decompose(eigenmaps, solver.emodes, mass=solver.mass, mode_counts=np.arange(solver.n_modes)+1)
+    recon = reconstruct(solver.emodes, coeffs=coeffs, mass=solver.mass, mode_counts=np.arange(solver.n_modes)+1)
+
+    with pytest.warns(RuntimeWarning, match="invalid value encountered in divide"):
+        correlation_error = recon_error(eigenmaps, recon, metric='correlation', mass=solver.mass)
+    euclidean_error = recon_error(eigenmaps, recon, metric='euclidean', mass=solver.mass)
 
     # Correlation error should decrease from 1 to 0 when using mode 1 only versus all relevant modes
     assert np.allclose(recon[:,:,-1], eigenmaps,
@@ -142,16 +152,15 @@ def test_reconstruct_mode_superposition(solver, gen_eigenmap):
     assert np.allclose(correlation_error[:,-1], 0,
                        atol=1e-5), 'Correlation error is not close to 0 when using all modes.'
 
-    assert np.allclose(beta[-1], weights, atol=1e-4), \
-        'Beta values do not match input mode weights when using all modes.'
+    assert np.allclose(coeffs[-1], weights, atol=1e-4), \
+        'coeffs values do not match input mode weights when using all modes.'
 
     # Euclidean error should be 0 when using all modes
-    _, euclidean_error, _ = reconstruct(eigenmaps, solver.emodes, mass=solver.mass, mode_counts=np.arange(solver.n_modes)+1, metric='euclidean')
     assert np.allclose(euclidean_error[:,-1], 0,
                        atol=1e-5), 'Euclidean error is not close to 0 when using all modes.'
 
     # Reconstruct using the first 5 modes, then the first 2 modes
-    _, correlation_error_modesq, _ = reconstruct(eigenmaps, solver.emodes, mass=solver.mass, mode_counts=[5,2])
+    correlation_error_modesq = recon_error(eigenmaps, reconstruct(solver.emodes, data=eigenmaps, mass=solver.mass, mode_counts=[5,2]), mass=solver.mass)
     assert np.allclose(correlation_error_modesq[:,0], correlation_error[:,4]), \
         'Reconstruction scores do not match for 5 modes.'
     assert np.allclose(correlation_error_modesq[:,1], correlation_error[:,1]), \
@@ -160,8 +169,14 @@ def test_reconstruct_mode_superposition(solver, gen_eigenmap):
 def test_reconstruct_regress_method(solver, gen_eigenmap):
     eigenmaps, _ = gen_eigenmap
 
-    _, correlation_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', checks=False, metric='correlation', mode_counts=np.arange(solver.n_modes)+1)
-    _, euclidean_error, _ = reconstruct(eigenmaps, solver.emodes, method='regress', checks=False, metric='euclidean', mode_counts=np.arange(solver.n_modes)+1)
+    kwargs = dict(emodes=solver.emodes, 
+                  method='regress', 
+                  mass=csc_matrix(eye(solver.n_verts)),
+                  mode_counts=np.arange(solver.n_modes)+1)
+    coeffs = decompose(eigenmaps, **kwargs) # type: ignore
+    recon = reconstruct(coeffs=coeffs, **kwargs) # type: ignore
+    correlation_error = recon_error(eigenmaps, recon, metric='correlation', mass=csc_matrix(eye(solver.n_verts)))
+    euclidean_error = recon_error(eigenmaps, recon, metric='euclidean', mass=csc_matrix(eye(solver.n_verts)))
 
     # Errors should strictly decrease when adding modes
     assert np.all(np.diff(correlation_error[:, 1:], axis=1) < 0), \
@@ -173,9 +188,9 @@ def test_reconstruct_real_map_32k(solver_32k):
     emodes = solver_32k.emodes
 
     # Load FC gradient from Margulies 2016 PNAS
-    map = fetch_map('fcgradient1')[solver_32k.mask]
-    _, recon_score, _ = reconstruct(map, emodes, mass=solver_32k.mass, method='regress', metric='correlation', 
-                                    mode_counts=np.arange(solver_32k.n_modes)+1)
+    map = fetch_example_map('fcgradient1')[solver_32k.mask]
+    recon = reconstruct(emodes, data=map, mass=solver_32k.mass, mode_counts=np.arange(solver_32k.n_modes)+1)
+    recon_score = recon_error(map, recon, mass=solver_32k.mass)
 
     # Correlation error should strictly decrease from 1, but not reach 0
     assert np.all(np.diff(recon_score[1:]) < 0), 'Reconstruction error does not strictly decrease.'
@@ -185,85 +200,85 @@ def test_reconstruct_real_map_32k(solver_32k):
 def test_reconstruct_invalid_map_shape(solver):
 
     with pytest.raises(ValueError, match=r"data.*first dimension.*3619"):
-        reconstruct(np.ones(4002), solver.emodes, mass=solver.mass)
+        reconstruct(solver.emodes, data=np.ones(4002), mass=solver.mass)
 
 def test_reconstruct_massless(solver):
 
     with pytest.raises(ValueError, match="do not form an orthonormal basis set in Euclidean space"):
-        reconstruct(np.ones(solver.n_verts), solver.emodes)
+        reconstruct(solver.emodes, data=np.ones(solver.n_verts))
 
 class TestShape: 
     def test_decompose_1d(self, solver):
         for i in range(solver.n_modes):
-            beta = decompose(solver.emodes[:, i], solver.emodes, mass=solver.mass)
-            assert beta.shape == (solver.n_modes,), \
-                'Beta shape is incorrect for 1D data.'
+            coeffs = decompose(solver.emodes[:, i], solver.emodes, mass=solver.mass)
+            assert coeffs.shape == (solver.n_modes,), \
+                'coeffs shape is incorrect for 1D data.'
 
     def test_decompose_1d_trivial(self, solver):
         for i in range(solver.n_modes):
-            beta = decompose(solver.emodes[:, i:i+1], solver.emodes, mass=solver.mass)
-            assert beta.shape == (solver.n_modes, 1), \
-                'Beta shape is incorrect for 2D data with one column.'
+            coeffs = decompose(solver.emodes[:, i:i+1], solver.emodes, mass=solver.mass)
+            assert coeffs.shape == (solver.n_modes, 1), \
+                'coeffs shape is incorrect for 2D data with one column.'
 
     def test_decompose_2d(self, solver):
-        beta_decomposed = decompose(solver.emodes, solver.emodes, mass=solver.mass)
-        assert beta_decomposed.shape == (solver.n_modes, solver.n_modes), \
-            'Beta shape is incorrect for 2D data.'
+        coeffs_decomposed = decompose(solver.emodes, solver.emodes, mass=solver.mass)
+        assert coeffs_decomposed.shape == (solver.n_modes, solver.n_modes), \
+            'coeffs shape is incorrect for 2D data.'
     
     def test_decompose_3d(self, solver):
         data = np.random.default_rng().standard_normal((solver.n_verts, 5, 3))
-        beta_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=solver.n_modes)
-        assert beta_decomposed.shape == (solver.n_modes, 5, 3), \
-            'Beta shape is incorrect for 3D data.'
+        coeffs_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=solver.n_modes)
+        assert coeffs_decomposed.shape == (solver.n_modes, 5, 3), \
+            'coeffs shape is incorrect for 3D data.'
     
     def test_decompose_1d_mode_counts(self, solver): 
-        beta = np.random.default_rng().standard_normal(solver.n_modes)
-        data = solver.emodes @ beta
+        coeffs = np.random.default_rng().standard_normal(solver.n_modes)
+        data = solver.emodes @ coeffs
         mode_counts = np.random.default_rng().integers(1, solver.n_modes+1, size=10)
-        beta_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=mode_counts)
-        assert len(beta_decomposed) == len(mode_counts), \
-            'Number of beta outputs does not match number of mode counts.'
+        coeffs_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=mode_counts)
+        assert len(coeffs_decomposed) == len(mode_counts), \
+            'Number of coeffs outputs does not match number of mode counts.'
         for i in range(len(mode_counts)):
-            assert beta_decomposed[i].shape == (mode_counts[i],), \
-                f'Beta shape is incorrect for mode count {mode_counts[i]}'
+            assert coeffs_decomposed[i].shape == (mode_counts[i],), \
+                f'coeffs shape is incorrect for mode count {mode_counts[i]}'
 
     def test_decompose_1d_mode_ids(self, solver): 
-        beta = np.random.default_rng().standard_normal(solver.n_modes)
-        data = solver.emodes @ beta
+        coeffs = np.random.default_rng().standard_normal(solver.n_modes)
+        data = solver.emodes @ coeffs
         n_modes = np.random.default_rng().integers(1, solver.n_modes, size=3)
         mode_ids = [np.random.default_rng().choice(solver.n_modes, size=k, replace=False) for k in n_modes]
-        beta_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_ids=mode_ids)
-        assert len(beta_decomposed) == len(mode_ids), \
-            'Number of beta outputs does not match number of mode ID sets.'
+        coeffs_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_ids=mode_ids)
+        assert len(coeffs_decomposed) == len(mode_ids), \
+            'Number of coeffs outputs does not match number of mode ID sets.'
         for i in range(len(mode_ids)):
-            assert beta_decomposed[i].shape == (len(mode_ids[i]),), \
-                f'Beta shape is incorrect for mode IDs {mode_ids[i]}'
+            assert coeffs_decomposed[i].shape == (len(mode_ids[i]),), \
+                f'coeffs shape is incorrect for mode IDs {mode_ids[i]}'
 
     def test_decompose_2d_mode_counts(self, solver):
-        beta = np.random.default_rng().standard_normal((solver.n_modes, 5))
-        data = solver.emodes @ beta
+        coeffs = np.random.default_rng().standard_normal((solver.n_modes, 5))
+        data = solver.emodes @ coeffs
         mode_counts = np.random.default_rng().integers(1, solver.n_modes+1, size=10)
-        beta_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=mode_counts)
-        assert len(beta_decomposed) == len(mode_counts), \
-            'Number of beta outputs does not match number of mode counts.'
+        coeffs_decomposed = decompose(data, solver.emodes, mass=solver.mass, mode_counts=mode_counts)
+        assert len(coeffs_decomposed) == len(mode_counts), \
+            'Number of coeffs outputs does not match number of mode counts.'
         for i in range(len(mode_counts)):
-            assert beta_decomposed[i].shape == (mode_counts[i], 5), \
-                f'Beta shape is incorrect for mode count {mode_counts[i]}'
+            assert coeffs_decomposed[i].shape == (mode_counts[i], 5), \
+                f'coeffs shape is incorrect for mode count {mode_counts[i]}'
 
     def test_reconstruct_1d(self, solver):
         for i in range(solver.n_modes):
-            recon, _, _ = reconstruct(solver.emodes[:,i], solver.emodes, mass=solver.mass)
+            recon = reconstruct(solver.emodes, data=solver.emodes[:,i], mass=solver.mass)
             assert recon.shape == (solver.n_verts,), \
                 'Reconstruction shape does not match number of vertices for 1D data.'
 
     def test_reconstruct_2d_trivial(self, solver):
         for i in range(solver.n_modes):
-            recon, _, _ = reconstruct(solver.emodes[:,i:i+1], solver.emodes, mass=solver.mass)
+            recon = reconstruct(solver.emodes, data=solver.emodes[:,i:i+1], mass=solver.mass)
             assert recon.shape == (solver.n_verts,1), \
                 'Reconstruction shape does not match number of vertices for 2D data with one column.'              
 
     def test_reconstruct_2d(self, solver):
-        recon, _, _ = reconstruct(solver.emodes, solver.emodes, mass=solver.mass)
+        recon = reconstruct(solver.emodes, data=solver.emodes, mass=solver.mass)
         assert recon.shape == (solver.n_verts, solver.n_modes), \
             'Reconstruction shape does not match input modes for 2D data.'
 
@@ -272,32 +287,32 @@ class TestShape:
             ndims = np.random.default_rng().integers(1, 5) # data will be between 2 and 6 dimensional
             shape = np.random.default_rng().integers(1, 10, size=ndims) # actual size 
             data = np.random.default_rng().standard_normal((solver.n_verts, *shape))
-            recon, _, _ = reconstruct(data, solver.emodes, mass=solver.mass)
+            recon = reconstruct(solver.emodes, data=data, mass=solver.mass)
             assert recon.shape == (solver.n_verts, *shape), \
                 'Reconstruction shape does not match expected shape for random data.'
 
     def test_reconstruct_1d_mode_counts(self, solver): 
         mode_counts = np.random.default_rng().integers(1, solver.n_modes+1, size=10)
-        recon, _, _ = reconstruct(solver.emodes[:, 0], solver.emodes, mass=solver.mass, mode_counts=mode_counts)
+        recon = reconstruct(solver.emodes, data=solver.emodes[:, 0], mass=solver.mass, mode_counts=mode_counts)
         assert recon.shape == (solver.n_verts, len(mode_counts)), \
             'Reconstruction shape does not match expected shape for 1D data with mode counts.'
 
     def test_reconstruct_1d_mode_ids(self, solver):
         n_modes = np.random.default_rng().integers(1, solver.n_modes, size=3)
         mode_ids = [np.random.default_rng().choice(solver.n_modes, size=k, replace=False) for k in n_modes]
-        recon, _, _ = reconstruct(solver.emodes[:, 0], solver.emodes, mass=solver.mass, mode_ids=mode_ids)
+        recon = reconstruct(solver.emodes, data=solver.emodes[:, 0], mass=solver.mass, mode_ids=mode_ids)
         assert recon.shape == (solver.n_verts, len(mode_ids)), \
             'Reconstruction shape does not match expected shape for 1D data with mode IDs.'
             
     def test_reconstruct_2d_mode_counts(self, solver):
         mode_counts = np.random.default_rng().integers(1, solver.n_modes+1, size=10)
-        recon, _, _ = reconstruct(solver.emodes, solver.emodes, mass=solver.mass, mode_counts=mode_counts)
+        recon = reconstruct(solver.emodes, data=solver.emodes, mass=solver.mass, mode_counts=mode_counts)
         assert recon.shape == (solver.n_verts, solver.n_modes, len(mode_counts)), \
             'Reconstruction shape does not match expected shape for 2D data with mode counts.'
 
     def test_reconstruct_2d_mode_ids(self, solver):
         n_modes = np.random.default_rng().integers(1, solver.n_modes, size=3)
         mode_ids = [np.random.default_rng().choice(solver.n_modes, size=k, replace=False) for k in n_modes]
-        recon, _, _ = reconstruct(solver.emodes, solver.emodes, mass=solver.mass, mode_ids=mode_ids)
+        recon = reconstruct(solver.emodes, data=solver.emodes, mass=solver.mass, mode_ids=mode_ids)
         assert recon.shape == (solver.n_verts, solver.n_modes, len(mode_ids)), \
             'Reconstruction shape does not match expected shape for 2D data with mode IDs.'

@@ -1,8 +1,9 @@
 import pytest
 import numpy as np
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_surf
+from neuromodes.io import fetch_example_surf
 from neuromodes.nulls import eigenstrap
+from neuromodes.stats import meanw, stdw
 
 # Params and setup
 n_nulls = 100
@@ -10,7 +11,7 @@ n_maps = 3 # for 2d data
 
 @pytest.fixture(scope='module')
 def solver():
-    mesh, medmask = fetch_surf(density='4k')
+    mesh, medmask = fetch_example_surf(density='4k')
     return EigenSolver(mesh, mask=medmask).solve(n_modes=100)
 
 @pytest.fixture(scope='module')
@@ -52,7 +53,7 @@ def test_shape_mismatch_emodes_evals(solver, test_data):
 def test_non_square_modes(test_data):
     """Should handle non-square n_modes by truncating last eigengroup with warning"""
     # Use 8 modes (not a perfect square)
-    mesh, medmask = fetch_surf(density='4k')
+    mesh, medmask = fetch_example_surf(density='4k')
     non_square_solver = EigenSolver(mesh, mask=medmask).solve(n_modes=8)
     
     # Should complete with a warning about truncating last eigengroup
@@ -117,7 +118,7 @@ def test_internull_corrs(nulls):
 def test_residual_none(solver, test_data):
     """Nulls should not have any residual added when residual=None"""
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, residual=None)
-    recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes], metric=None)[0])
+    recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes]))
     residuals = nulls - recons
     
     assert np.allclose(residuals, 0, atol=1e-10), \
@@ -125,17 +126,17 @@ def test_residual_none(solver, test_data):
 
 def test_residual_add(solver, test_data):
     """Nulls should have residual added when residual='add'"""
-    data_recons = np.squeeze(solver.reconstruct(test_data, mode_counts=[solver.n_modes], metric=None)[0])
+    data_recons = np.squeeze(solver.reconstruct(test_data, mode_counts=[solver.n_modes]))
     data_residuals = test_data - data_recons
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, residual='add')
-    null_recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes], metric=None)[0])
+    null_recons = np.squeeze(solver.reconstruct(nulls, mode_counts=[solver.n_modes]))
     null_residuals = nulls - null_recons
     assert np.allclose(null_residuals, data_residuals[:,np.newaxis]), \
         "Nulls should have residual added when residual='add'"
     
 def test_residual_permute(solver, test_data):
     """Nulls should have permuted residual added when residual='permute'"""
-    data_recons = solver.reconstruct(test_data, mode_counts=solver.n_modes, metric=None)[0]
+    data_recons = solver.reconstruct(test_data, mode_counts=solver.n_modes)
     data_residuals = test_data - data_recons
     # Have to do it this way as permute residuals will not be orthogonal to modes (ie an approach
     # like the `residual='add'`` approach will not work)
@@ -221,19 +222,19 @@ def test_resample_affine(solver, test_data):
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="affine")
     
     for i in range(nulls.shape[1]):
-        mean = np.mean(nulls[:, i])
-        std = np.std(nulls[:, i])
-        assert np.isclose(mean, test_data.mean()), f"Null {i} mean is not close to data mean"
-        assert np.isclose(std, test_data.std()), f"Null {i} std is not close to data std"
+        mean = meanw(nulls[:, i], solver.mass)
+        std = stdw(nulls[:, i], solver.mass)
+        assert np.isclose(mean, meanw(test_data, solver.mass)), f"Null {i} mean is not close to data mean"
+        assert np.isclose(std, stdw(test_data, solver.mass)), f"Null {i} std is not close to data std"
 
 def test_resample_mean(solver, test_data):
     """With resample='mean', nulls should have mean equal to original data mean"""
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="mean")
     
-    data_mean = np.mean(test_data)
-    
+    data_mean = meanw(test_data, solver.mass)
+
     for i in range(nulls.shape[1]):
-        null_mean = np.mean(nulls[:, i])
+        null_mean = meanw(nulls[:, i], solver.mass)
         assert np.isclose(null_mean, data_mean), f"Null {i} mean is not close to data mean"
 
 def test_resample_range(solver, test_data):
@@ -331,9 +332,9 @@ def test_different_maps(solver, test_data_2d):
 
 def test_resample_none_2d(solver, test_data_2d):
     """Nulls should approximately preserve mean of original data even without using resample='mean'"""
-    data_means = np.mean(test_data_2d, axis=0)
-    null_means = np.mean(solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample=None), axis=0)
-    
+    data_means = meanw(test_data_2d, solver.mass)
+    null_means = meanw(solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample=None), solver.mass)
+
     assert np.allclose(null_means, data_means, atol=0.05), \
         f"Null means are not close to data means {data_means}"
 
@@ -356,10 +357,10 @@ def test_resample_affine_2d(solver, test_data_2d):
     
     for j in range(test_data_2d.shape[1]):
         for i in range(nulls.shape[1]):
-            mean = np.mean(nulls[:, i, j])
-            std = np.std(nulls[:, i, j])
-            data_mean = np.mean(test_data_2d[:, j])
-            data_std = np.std(test_data_2d[:, j])
+            mean = meanw(nulls[:, i, j], solver.mass)
+            std = stdw(nulls[:, i, j], solver.mass)
+            data_mean = meanw(test_data_2d[:, j], solver.mass)
+            data_std = stdw(test_data_2d[:, j], solver.mass)
             assert np.isclose(mean, data_mean), f"Null {i} map {j} mean is not close to data mean"
             assert np.isclose(std, data_std), f"Null {i} map {j} std is not close to data std"
 
@@ -368,9 +369,9 @@ def test_resample_mean_2d(solver, test_data_2d):
     nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="mean")
     
     for j in range(test_data_2d.shape[1]):
-        data_mean = np.mean(test_data_2d[:, j])
+        data_mean = meanw(test_data_2d[:, j], solver.mass)
         for i in range(nulls.shape[1]):
-            null_mean = np.mean(nulls[:, i, j])
+            null_mean = meanw(nulls[:, i, j], solver.mass)
             assert np.isclose(null_mean, data_mean), \
                 f"Null {i} map {j} mean is not close to data mean"
 

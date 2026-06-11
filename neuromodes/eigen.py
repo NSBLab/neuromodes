@@ -3,7 +3,7 @@ Module for computing geometric eigenmodes of brain structures from surface meshe
 """
 
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 from warnings import warn
 from dataclasses import dataclass
 from lapy import Solver
@@ -13,13 +13,15 @@ from neuromodes.mesh import mask_mesh, check_surf
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Any, Literal, TypeAlias
     from lapy import TriaMesh
     from nibabel.gifti.gifti import GiftiImage
-    from numpy import floating, integer, bool_
     from numpy.random import Generator
     from numpy.typing import NDArray
     from scipy.sparse import csc_matrix
-    from neuromodes.basis import _ReconSingle, _ReconList, _ReconTSSingle, _ReconTSList
+
+    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
+    from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
 
 class EigenSolver(Solver):
     """
@@ -80,9 +82,9 @@ class EigenSolver(Solver):
     def __init__(
         self,
         geometry: str | Path | GiftiImage | TriaMesh | dict,
-        mask: NDArray[bool_] | None = None,
+        mask: NDArray[np.bool_] | None = None,
         normalize: bool = False,
-        hetero: NDArray[floating] | None = None,
+        hetero: NDArray[np.floating] | None = None,
     ):
         # Read in surface mesh
         geometry = read_surf(geometry)
@@ -197,7 +199,7 @@ class EigenSolver(Solver):
         rtol: float = 1e-5,
         sigma: float = -0.01, # EASIEST way is to hard-code this to LaPy default (2026/03)
         seed: int | Generator | None = 0, 
-        v0: NDArray[floating] | None = None
+        v0: NDArray[np.floating] | None = None
     ) -> EigenSolver:
         """
         Solves the generalized eigenvalue problem for the Laplace-Beltrami operator and compute
@@ -290,12 +292,42 @@ class EigenSolver(Solver):
     def _check_for_emodes(self) -> None:
         if not hasattr(self, 'emodes'):
             raise ValueError("Eigenmodes not found. Please run the solve() method first.")
-    
+        
+    # 1. mode_counts is None or int -> Single Array 
+    @overload
     def decompose(
         self,
-        data: NDArray[floating],
+        data: NDArray,
+        *,
+        mode_counts: int | None = ...,
+        mode_ids: None = ...
+    ) -> NDArray[np.floating]: ...
+
+    # 2. mode_counts is Sequence -> List of Arrays
+    @overload
+    def decompose(
+        self,
+        data: NDArray,
+        *,
+        mode_counts: _IntSequenceKind,
+        mode_ids: None = ...
+    ) -> list[NDArray[np.floating]]: ...
+
+    # 3. mode_ids is Sequence -> List of Arrays
+    @overload
+    def decompose(
+        self,
+        data: NDArray,
+        *,
+        mode_counts: None = ...,
+        mode_ids: _SeqSequenceKind
+    ) -> list[NDArray[np.floating]]: ...
+
+    def decompose(
+        self,
+        data: NDArray[np.floating],
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating] | list[NDArray[np.floating]]:
         """
         This is a wrapper for :func:`~neuromodes.basis.decompose`. Note that ``emodes``, ``mass``,
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
@@ -314,9 +346,9 @@ class EigenSolver(Solver):
     
     def reconstruct(
         self,
-        data: NDArray[floating],
+        data: NDArray[np.floating],
         **kwargs
-    ) -> _ReconSingle | _ReconList:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.basis.reconstruct`. Note that ``emodes``, ``mass``,
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
@@ -333,23 +365,23 @@ class EigenSolver(Solver):
             **kwargs
         )
     
-    def reconstruct_timeseries(
+    def recon_error(
         self,
-        timeseries: NDArray[floating],
+        data: NDArray,
+        recon: NDArray,
         **kwargs
-    ) -> _ReconTSSingle | _ReconTSList:
+    ) -> NDArray[np.floating]:
         """
-        This is a wrapper for :func:`~neuromodes.basis.reconstruct_timeseries`. Note that
-        ``emodes``, ``mass``, and ``checks`` are passed automatically by the ``EigenSolver``
-        instance.
+        This is a wrapper for :func:`~neuromodes.basis.recon_error`. Note that ``mass`` and
+        ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.basis import reconstruct_timeseries
-
+        from neuromodes.basis import recon_error
+        
         self._check_for_emodes()
             
-        return reconstruct_timeseries(
-            timeseries=timeseries,
-            emodes=self.emodes,
+        return recon_error(
+            data=data,
+            recon=recon,
             mass=self.mass,
             checks='maps',
             **kwargs
@@ -358,7 +390,7 @@ class EigenSolver(Solver):
     def compute_gem(
         self,
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.network.compute_gem`. Note that ``emodes``,
         ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
@@ -377,7 +409,7 @@ class EigenSolver(Solver):
     def sim_nft_waves(
         self,
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.waves.sim_nft_waves`. Note that ``emodes``,
         ``evals``, ``mass``, ``hetero``, and ``checks`` are passed automatically by the
@@ -392,16 +424,17 @@ class EigenSolver(Solver):
             evals=self.evals,
             mass=self.mass,
             hetero=self.hetero,
+            stiffness=self.stiffness,
             checks='maps',
             **kwargs
         )
     
     def balloon_model(
         self,
-        activity: NDArray[floating],
+        activity: NDArray[np.floating],
         dt: float,
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.waves.balloon_model`. Note that ``emodes``,
         ``mass``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
@@ -421,9 +454,9 @@ class EigenSolver(Solver):
     
     def unmask_data(
         self,
-        data: NDArray[floating],
+        data: NDArray[np.floating],
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.mesh.unmask_data`. Note that ``mask`` is passed
         automatically by the ``EigenSolver`` instance.
@@ -441,9 +474,9 @@ class EigenSolver(Solver):
     
     def eigenstrap(
         self,
-        data: NDArray[floating],
+        data: NDArray[np.floating],
         **kwargs
-    ) -> NDArray[floating]:
+    ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.nulls.eigenstrap`. Note that `emodes`, `evals`,
         `mass`, and `checks` are passed automatically by the `EigenSolver` instance.
@@ -463,13 +496,13 @@ class EigenSolver(Solver):
 
 # TODO: move to stats.py
 def sigmoid_rescale(
-    data: NDArray[floating],
+    data: NDArray[np.floating],
     steepness: float = 1.0,
     upper: float = 1.0,
     lower: float = 0.0,
     center: float = 0.0,
     checks: bool = True
-) -> NDArray[floating]:
+) -> NDArray[np.floating]:
     """
     Rescales the input data to be within the range ``(lower, upper)`` by applying to each ``data``
     value ``x`` the sigmoid function ``f(x) = lower + (upper - lower) / (1 + exp(-steepness * (x -
@@ -513,9 +546,9 @@ def sigmoid_rescale(
     return lower + (upper - lower) / (1 + np.exp(-steepness * (data - center)))
 
 def standardize_emodes(
-    emodes: NDArray[floating],
+    emodes: NDArray[np.floating],
     checks: bool = True
-) -> NDArray[floating]:
+) -> NDArray[np.floating]:
     """
     Flips the modes' signs such that the first element of each eigenmode has positive amplitude. 
     Note that the sign of each mode is arbitrary--standardisation is only helpful to compare sets of
@@ -542,24 +575,25 @@ def standardize_emodes(
     return emodes * np.copysign(1, np.sign(np.asarray(emodes)[0, :]))
 
 def is_orthonormal_basis(
-    emodes: NDArray[floating],
+    emodes: NDArray[np.floating],
     mass: csc_matrix | None = None,
     atol: float = 1e-03,
     rtol: float = 1e-05,
-    checks: bool | str = 'shape'
+    checks: _CheckKind = 'shape'
 ) -> bool:
     """
-    Check if a set of vectors is orthonormal in Euclidean space (i.e., ``emodes.T @ emodes == I``,
-    where ``I`` is an identity matrix) or with respect to a mass matrix (i.e., ``emodes.T @ mass @
-    emodes == I``). Mass-orthonormality is expected for the geometric eigenmodes (see notes).
+    Check if a set of vectors is orthonormal with respect to a mass matrix (i.e., ``emodes.T @ mass
+    @ emodes == I``, where ``I`` is an identity matrix). ``mass = I`` corresponds to Euclidean
+    orthonormality, and an assumption that all vertices in a mesh have equal Voronoi areas/volumes.
+    Mass-orthonormality is expected for the geometric eigenmodes (see notes).
 
     Parameters
     ----------
     emodes : array-like
         The vectors array of shape ``(n_verts, n_modes)``, where n_modes is the number of vectors.
     mass : array-like, optional
-        The mass matrix of shape ``(n_verts, n_verts)``. If ``None``, Euclidean orthonormality is
-        checked. Default is ``None``.
+        The mass matrix of shape ``(n_verts, n_verts)``. If ``None``, an identity matrix is used
+        (Eucliean orthonormality). Default is ``None``.
     atol : float, optional
         Absolute tolerance for the orthonormality check. Default is ``1e-3``.
     rtol : float, optional
@@ -570,8 +604,7 @@ def is_orthonormal_basis(
     Returns
     -------
     bool
-        ``True`` if the set of vectors is orthonormal (Euclidean or mass-orthonormal), ``False``
-        otherwise.
+        ``True`` if the set of vectors is orthonormal, ``False`` otherwise.
 
     Notes
     -----
@@ -595,7 +628,7 @@ def is_orthonormal_basis(
 
 def get_eigengroup_inds(
     n_modes: int,
-    ) -> list[NDArray[integer]]:
+    ) -> list[NDArray]:
     """
     Identify eigengroups based on ordering of spherical harmonics. Each eigengroup 
     contains the next 2k+1 modes, where k is the eigengroup number (starting from 0). If
@@ -622,23 +655,24 @@ def get_eigengroup_inds(
 _MISSING = object()  
 @dataclass(frozen=True, init=False)
 class EigenData:
-    emodes: NDArray[floating]
-    evals: NDArray[floating] 
+    emodes: NDArray[np.floating]
+    evals: NDArray[np.floating] 
     mass: csc_matrix
     stiffness: csc_matrix
-    hetero: NDArray[floating]
-    data: NDArray[floating]
+    hetero: NDArray[np.floating]
+    data: NDArray[np.floating]
 
     def __init__(
         self,
-        emodes: NDArray[floating] | None = _MISSING, # type: ignore[assignment]
-        evals: NDArray[floating] | None = _MISSING, # type: ignore[assignment] 
+        emodes: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
+        evals: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment] 
         mass: csc_matrix | None = _MISSING, # type: ignore[assignment]
         stiffness: csc_matrix | None = _MISSING, # type: ignore[assignment]
-        hetero: NDArray[floating] | None = _MISSING, # type: ignore[assignment]
-        data: NDArray[floating] | None = _MISSING, # type: ignore[assignment]
-        checks: bool | str = True
+        hetero: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
+        data: NDArray[np.floating] | tuple[NDArray[np.floating]] | list[NDArray[np.floating]] | None = _MISSING, # type: ignore[assignment]
+        checks: _CheckKind = True
     ):  # TODO: add mask?
+        # TODO: refactor to use helper functions
 
         # Local helper to bypass 'frozen' restriction during initialization
         def _set(name, val):
@@ -725,15 +759,30 @@ class EigenData:
                     )
             
         if data is not _MISSING:
-            if check_maps and data is not None: # if check_maps is True, always check the shape
-                data = np.asarray(data)
-                if np.isnan(data).any(): 
-                    warn("NaN values detected in data, which may cause issues with computations.")
-                if np.isinf(data).any():
-                    warn("Inf values detected in data, which may cause issues with computations.")
-                if n_verts is not None and data.shape[0] != n_verts:
-                    raise ValueError(f"data must have first dimension {n_verts} to match the other "
-                                     "variables.")
+            if check_maps: # if check_maps is True, always check the shape
+                # Convert single data array to iterable for consistent processing
+                if not isinstance(data, (tuple, list)):
+                    data = [data]
+                
+                # check shape and for NaN/Inf values in each data array
+                data_proc = []
+                for d in data:
+                    if d is not None:
+                        d = np.asarray(d)
+                        if np.isnan(d).any(): 
+                            warn("NaN values detected in data, which may cause issues with computations.")
+                        if np.isinf(d).any():
+                            warn("Inf values detected in data, which may cause issues with computations.")
+                        if n_verts is None:
+                            n_verts = d.shape[0]  # Establish the ground truth if not set
+                        elif n_verts != d.shape[0]:
+                            raise ValueError(f"data must have first dimension n_verts = {n_verts} to "
+                                            "match the other arguments.")
+                    data_proc.append(d)
+                
+                # Convert to tuple if needed
+                data = tuple(data_proc) if len(data_proc) > 1 else data_proc[0]
+                    
             _set('data', data)
 
         # Check mass-orthonormality

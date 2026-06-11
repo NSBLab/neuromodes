@@ -38,7 +38,7 @@ API Reference
    solve
    decompose
    reconstruct
-   reconstruct_timeseries
+   recon_error
    sim_nft_waves
    balloon_model
    compute_gem
@@ -69,8 +69,7 @@ API Reference
 
    decompose
    reconstruct
-   reconstruct_timeseries
-   calc_vec_fc
+   recon_error
 
 .. _ref_waves:
 

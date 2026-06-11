@@ -11,6 +11,7 @@ import numpy as np
 from scipy.stats import special_ortho_group
 from neuromodes.basis import decompose
 from neuromodes.eigen import EigenData, get_eigengroup_inds
+from neuromodes.stats import meanw, stdw
 
 if TYPE_CHECKING:
     from scipy.sparse import csc_matrix
@@ -223,6 +224,7 @@ def eigenstrap(
           (something of the form ``emodes[:, 1:]`` and ``evals[1:]``), here users are expected to
           input ``emodes`` and ``evals`` with the constant mode/eigenvalue included. This has
           minimal changes to the functionality of the code, other than this syntactic change.
+          TODO: this means mass-mean is preserved by default, get rid of option?
 
        h. Concurrent processing of multiple maps. This function can process multiple maps at the
           same time. This was possible in the original implementation, but required users to save
@@ -236,6 +238,8 @@ def eigenstrap(
           remain intact. This difference is only relevant if both ``resample`` and ``residual`` are
           used.
 
+        TODO: area-weighted mean and std in resampling
+
        j. Syntax for exact replication. To exactly match the default version of the original
           implementation of eigenstrapping in ref [1]_, users specify the following input parameters
           to this function:
@@ -245,6 +249,7 @@ def eigenstrap(
           - Set ``resample="range"``
           - Set ``decomp_method="regress"``
           - Set ``rotation_method="scipy"``
+          TODO: set mass to eye
 
           Note that the original implementation (``eigenstrapping.SurfaceEigenstrapping``) must also
           be run with a particular configuration to ensure reproducibility/compatibility:
@@ -410,14 +415,14 @@ def eigenstrap(
                     nulls[mask, :, map] = resampled[:, :, j]
                     nulls[~mask, :, map] = data[~mask, map][:, np.newaxis]
 
-    elif resample == 'mean':
-        nulls -= nulls.mean(axis=0, keepdims=True)
-        nulls += np.nanmean(data, axis=0)
+    elif resample == 'mean':  # TODO: consider removing, as default should already do this
+        nulls -= meanw(nulls, mass, keepdims=True)
+        nulls += meanw(data, mass, keepdims=True)
     elif resample == 'affine':
-        nulls -= nulls.mean(axis=0, keepdims=True)
-        nulls /= nulls.std(axis=0, keepdims=True)
-        nulls *= np.nanstd(data, axis=0)
-        nulls += np.nanmean(data, axis=0)
+        nulls -= meanw(nulls, mass, keepdims=True)
+        nulls /= stdw(nulls, mass, keepdims=True)
+        nulls *= stdw(data, mass, keepdims=True)
+        nulls += meanw(data, mass, keepdims=True)
     elif resample == 'range': # to match original
         nulls -= nulls.min(axis=0, keepdims=True)
         nulls /= nulls.max(axis=0, keepdims=True)
@@ -484,9 +489,9 @@ def _rotate_coeffs_scipy(
     return tforms
 
 def _rotate_coeffs_qr(
-        inv_coeffs: NDArray[floating],
-        groups: list[NDArray[integer]],
-        seeds: NDArray[integer]
+    inv_coeffs: NDArray[floating],
+    groups: list[NDArray[integer]],
+    seeds: NDArray[integer]
 ) -> NDArray[floating]:
     """
     Rotate coefficients using QR decomposition of random Gaussian matrices to generate random

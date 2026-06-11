@@ -4,12 +4,12 @@ import numpy as np
 import pytest
 from scipy.stats import zscore  # TODO: replace with stats.zscorew
 from neuromodes.eigen import EigenSolver, is_orthonormal_basis, sigmoid_rescale, get_eigengroup_inds
-from neuromodes.io import fetch_surf, fetch_map
+from neuromodes.io import fetch_example_surf, fetch_example_map
 from neuromodes.mesh import mask_mesh
 
 @pytest.fixture(scope="module")
 def surf_medmask_hetero():
-    mesh, medmask = fetch_surf(density='4k')
+    mesh, medmask = fetch_example_surf(density='4k')
     hetero = fetch_map(data="myelinmap", density="4k")
     hetero = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
     return mesh, medmask, hetero
@@ -112,9 +112,9 @@ def test_hetero_ones(surf_medmask_hetero):
             f'Eigenmode {i+1} with hetero=ones does not match its homogeneous equivalent.'
 
 def test_real_heteromaps(surf_medmask_hetero):
-    mesh, medmask = fetch_surf() # 32k density to match real maps
+    mesh, medmask = fetch_example_surf() # 32k density to match real maps
     for map in ['fcgradient1', 'myelinmap', 'ndi', 'odi', 'thickness']:
-        hetero = fetch_map(map)
+        hetero = fetch_example_map(map)
         EigenSolver(mesh, mask=medmask, hetero=hetero) # just test that it initializes without error
 
 @pytest.fixture(scope="module")
