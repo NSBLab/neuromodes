@@ -8,17 +8,16 @@ import numpy as np
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
-    from numpy import floating
     from numpy.typing import NDArray
     from neuromodes.eigen import _CheckKind
 
 def compute_gem(
-    emodes: NDArray[floating],
-    evals: NDArray[floating],
+    emodes: NDArray[np.floating],
+    evals: NDArray[np.floating],
     r: float = 9.53,
     k: int = 108,
     checks: _CheckKind = 'shape'
-) -> NDArray[floating]:
+) -> NDArray[np.floating]:
     """
     Generate a vertex-wise structural connectivity matrix using the Geometric Eigenmode Model [1]_.
 

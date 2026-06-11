@@ -2,30 +2,26 @@ from pathlib import Path
 from lapy.shapedna import normalize_ev
 import numpy as np
 import pytest
-from scipy.stats import zscore  # TODO: replace with stats.zscorew
 from neuromodes.eigen import EigenSolver, is_orthonormal_basis, sigmoid_rescale, get_eigengroup_inds
 from neuromodes.io import fetch_example_surf, fetch_example_map
-from neuromodes.mesh import mask_mesh
+from neuromodes.stats import zscorew
 
 @pytest.fixture(scope="module")
 def surf_medmask_hetero():
-    mesh, medmask = fetch_example_surf(density='4k')
-    hetero = fetch_map(data="myelinmap", density="4k")
-    hetero = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
-    return mesh, medmask, hetero
-
-def test_init_params(surf_medmask_hetero):
-    surf, medmask, hetero = surf_medmask_hetero
-    _ = EigenSolver(surf, mask=medmask, hetero=hetero)
+    surf, medmask = fetch_example_surf(density='4k')
+    hetero = fetch_example_map(data="myelinmap", density="4k")[medmask]
+    # TODO: reconsider API so we don't need two EigenSolvers; maybe hetero should go in compute_lbo()
+    mass = EigenSolver(surf, mask=medmask).compute_lbo().mass
+    hetero = sigmoid_rescale(zscorew(hetero, mass), steepness=0.5, upper=2.0)
+    return surf, medmask, hetero
     
-def test_premasked_surf(surf_medmask_hetero):
+def test_unmasked_hetero(surf_medmask_hetero):
     surf, medmask, hetero = surf_medmask_hetero
-    masked_surf = mask_mesh(surf, medmask)
-    _ = EigenSolver(masked_surf, hetero=hetero[medmask])
 
-def test_no_medmask(surf_medmask_hetero):
-    surf, _, hetero = surf_medmask_hetero
-    EigenSolver(surf, hetero=hetero)
+    # check that hetero can be provided as unmasked (TODO: consider banning this actually, because
+    # z-scoring should be done on the masked data and will be different on unmasked)
+    hetero = np.concatenate([hetero, np.ones((~medmask).sum())])
+    _ = EigenSolver(surf, mask=medmask, hetero=hetero)
 
 def test_invalid_mask_shape(surf_medmask_hetero):
     surf, _, _ = surf_medmask_hetero
@@ -50,52 +46,41 @@ def test_no_hetero(surf_medmask_hetero):
             f'Eigenvalue {i} does not match the previously computed homogeneous result.'
 
 def test_invalid_hetero_shape(surf_medmask_hetero):
-    surf, _, _ = surf_medmask_hetero
+    surf, medmask, _ = surf_medmask_hetero
     bad_hetero = np.ones(10)
-    with pytest.raises(ValueError, match=r"vertices in the provided mesh \(4002\)."):
-        EigenSolver(surf, hetero=bad_hetero)
+    with pytest.raises(ValueError, match=r"vertices in the provided mesh \(3619\)"):
+        EigenSolver(surf, mask=medmask, hetero=bad_hetero)
 
-def test_nan_inf_hetero(surf_medmask_hetero):
-    surf, _, hetero = surf_medmask_hetero
+def test_nan_hetero(surf_medmask_hetero):
+    surf, medmask, hetero = surf_medmask_hetero
     bad_hetero = hetero.copy()
     bad_hetero[0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask, hetero=bad_hetero)
 
     bad_hetero[0] = np.inf
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask, hetero=bad_hetero)
 
 def test_constant_hetero(surf_medmask_hetero):
-    surf = surf_medmask_hetero[0]
+    surf, medmask, _ = surf_medmask_hetero
 
     hetero = np.ones(surf.v.shape[0])
 
     with pytest.warns(UserWarning, match="Provided hetero is constant"):
-        EigenSolver(surf, hetero=hetero)
+        EigenSolver(surf, mask=medmask, hetero=hetero)
 
-def test_nan_inf_hetero_medmask(surf_medmask_hetero):
-    # Inject NaN/Inf at a cortical vertex (should raise error)
+def test_nan_hetero_medmask(surf_medmask_hetero):
+    # Inject NaN at a cortical vertex (should raise error)
     surf, medmask, hetero = surf_medmask_hetero
     cortical_vertex = np.where(medmask)[0][0]
     bad_hetero = hetero.copy()
     bad_hetero[cortical_vertex] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask, hetero=bad_hetero)
     bad_hetero[cortical_vertex] = np.inf
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, hetero=bad_hetero)
-
-def test_nan_inf_hetero_medmask_ignored(surf_medmask_hetero):
-    # Inject NaN/Inf at a medial vertex (should be ignored)
-    surf, medmask, hetero = surf_medmask_hetero
-    medial_vertex = np.where(~medmask)[0][0]
-    print(medial_vertex)
-    bad_hetero = hetero.copy()
-    bad_hetero[medial_vertex] = np.nan
-    EigenSolver(surf, mask=medmask, hetero=bad_hetero)
-    bad_hetero[medial_vertex] = np.inf  
-    EigenSolver(surf, mask=medmask, hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask, hetero=bad_hetero)
 
 def test_hetero_ones(surf_medmask_hetero):
     surf, medmask, _ = surf_medmask_hetero
@@ -317,12 +302,17 @@ def test_check_euclidean_orthonorm():
     assert is_orthonormal_basis(vecs, mass=np.eye(5)) # type: ignore
     assert not is_orthonormal_basis(vecs, mass=np.ones((5, 5))) # type: ignore
 
-def test_sigmoid_rescale():
-    hetero = np.random.default_rng().normal(loc=100, scale=10, size=1000)
+def test_sigmoid_rescale(solver):
+    randmap = np.random.default_rng().normal(loc=1e6, scale=10, size=solver.n_verts)
 
-    # Check that sigmoid-scaled hetero is within (0, 2)
-    hetero_sig = sigmoid_rescale(zscore(hetero), steepness=0.5, upper=2.0)
-    assert np.all((hetero_sig > 0) & (hetero_sig < 2))
+    # check that sigmoid_rescaled map is all 2s due to high mean
+    hetero_sig = sigmoid_rescale(randmap, steepness=1.0, upper=2.0)
+    assert np.allclose(hetero_sig, 2.0), 'Sigmoid rescaled map with high mean should be all 2s.'
+
+    # Check that sigmoid-scaled z-scored map is within (0, 2)
+    heteroz_sig = sigmoid_rescale(zscorew(randmap, solver.mass), steepness=0.5, upper=2.0)
+    assert np.all((heteroz_sig > 0) & (heteroz_sig < 2)), \
+        'Sigmoid rescaled z-scored map should be within (0, 2).'
 
 def test_get_eigengroup_inds(solver):
     # Test that function returns correct groups for 8 modes

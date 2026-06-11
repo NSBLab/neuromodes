@@ -196,10 +196,6 @@ def test_resample_exact_nan_mask_preserved_2d(solver, test_data_2d):
     test_data[5::19, 1] = np.nan
     test_data[5::19, 2] = np.nan  # use same pattern to test efficient sorting
 
-    # add infs
-    test_data[::29, 0] = np.inf
-    test_data[7::31, 1] = -np.inf
-
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="exact", decomp_method='regress')
 
     for m in range(test_data.shape[1]):

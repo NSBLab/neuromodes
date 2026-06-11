@@ -3,20 +3,21 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 import numpy as np
 import pytest
-from scipy.stats import zscore  # TODO: replace with stats.zscorew
 from neuromodes.io import fetch_example_surf, fetch_example_map
 from neuromodes.eigen import EigenSolver, sigmoid_rescale
+from neuromodes.stats import zscorew
 from neuromodes.waves import sim_nft_waves, calc_wave_speed, _gen_noise, _analytical_fc
 
 @pytest.fixture(scope="module")
 def solver():
     mesh, medmask = fetch_example_surf(density='4k')
     hetero = fetch_example_map(data="myelinmap", density="4k")[medmask]
-    hetero = sigmoid_rescale(zscore(hetero), steepness=1.0, upper=2.0)
+    mass = EigenSolver(mesh, mask=medmask).compute_lbo().mass
+    hetero = sigmoid_rescale(zscorew(hetero, mass), steepness=1.0, upper=2.0)
     return EigenSolver(mesh, mask=medmask, hetero=hetero).solve(n_modes=100, seed=0)
 
 def test_unusual_wave_speed(solver):
-    with pytest.warns(UserWarning, match=r'range of 0-150 m/s \(calculated 46.2-162.5 m/s\).'):
+    with pytest.warns(UserWarning, match=r'range of 0-150 m/s \(calculated 47.1-162.6 m/s\).'):
         solver.sim_nft_waves(r=1000, nt=10)
 
 def test_unusual_wave_speed_no_hetero(solver):

@@ -17,14 +17,13 @@ if TYPE_CHECKING:
     from typing import Literal
     from scipy.sparse import csc_matrix
     from neuromodes.eigen import _CheckKind
-    from neuromodes.basis import _DecompositionKind
     _PDEKind = Literal["fourier", "ode", "fem"]
 
 def sim_nft_waves(
-    emodes: NDArray,
-    evals: NDArray,
+    emodes: NDArray[np.floating],
+    evals: NDArray[np.floating],
     nt: int | None = None,
-    ext_input: NDArray | None = None,
+    ext_input: NDArray[np.floating] | None = None,
     dt: float = 1e-4,
     r: float = 17.4,
     gamma: float = 116.0,
@@ -38,7 +37,7 @@ def sim_nft_waves(
     cache_input: bool = False,
     n_jobs: int = 1, # only used for FEM
     verbose: int = 0 # only used for FEM
-) -> NDArray:
+) -> NDArray[np.floating]:
     """
     Simulate neural activity using a Neural Field Theory wave model [1]_ [2]_ [3]_.
 
@@ -680,99 +679,26 @@ def _model_balloon_ode(
     return bold_coeffs
 
 def _model_wave_fem(
-    ext_input: NDArray,
+    input_coeffs: NDArray[np.floating],
     mass: csc_matrix,
     stiffness: csc_matrix,
     dt: float = 1e-4,
     r: float = 17.4,
     gamma: float = 116.0,
-    speed_limits: tuple[float, float] | None = (0, 150),
-    hetero: NDArray[np.floating] | None = None,
     n_jobs: int = 1,
     verbose: int = 0 # for Parallel only (consider making **Parallel_kwargs)
 ) -> NDArray[np.floating]:
     """
     Full FEM version of ``sim_nft_waves()``, for validating the eigenmode expansion approach.
     """
-    # Format / validate arguments
-    parallel = False
-    if n_jobs > 1 or n_jobs == -1:
-        try:
-            from joblib import Parallel, delayed
-            parallel = True
-        except ImportError:
-            warn("joblib is not installed; parallel computation of frequencies will be disabled. "
-                "Neuromodes can be installed with the 'cache' extra to include joblib as a "
-                "dependency (e.g., pip install neuromodes[cache]).")
-
-    r = float(r)
-    gamma = float(gamma)
-
-    if checks:
-        ved = EigenData(mass=mass, stiffness=stiffness)
-        mass, stiffness = ved.mass, ved.stiffness
-    else: 
-        mass = csc_matrix(mass)
-        stiffness = csc_matrix(stiffness)
-    assert mass is not None
-    
-    mass_diag = mass.diagonal()
-    mass_off_diag = mass - diags(mass_diag, format='csc')
-    if np.any(mass_diag <= 0) or np.any(~np.isfinite(mass_diag)) or mass_off_diag.nnz != 0:
-        raise ValueError("mass matrix must have positive, finite diagonal entries and no "
-                         "off-diagonal elements (lumped).")
-    if np.any(stiffness.diagonal() < 0) or np.any(~np.isfinite(stiffness.diagonal())):
-        raise ValueError("stiffness matrix must have non-negative, finite diagonal entries.")
-    if r <= 0:
-        raise ValueError("Parameter r must be positive.")
-    if gamma <= 0:
-        raise ValueError("Parameter gamma must be positive.")
-    if dt <= 0:
-        raise ValueError("dt must be positive.")
-    if nt is not None and (not isinstance(nt, int) or nt <= 0):
-        raise ValueError("nt must be None or a positive integer.")
-    if speed_limits is not None:
-        if (not isinstance(speed_limits, tuple) or not len(speed_limits) == 2
-            or speed_limits[0] < 0 or speed_limits[0] >= speed_limits[1]):
-            raise ValueError("speed_limits must be a tuple of (min_speed, max_speed), where "
-                             "0 ≤ min_speed < max_speed.")
-        speed = calc_wave_speed(r, gamma, hetero=hetero)
-        min_speed, max_speed = np.min(speed), np.max(speed)
-        if min_speed < speed_limits[0] or max_speed > speed_limits[1]:
-            calc_str = min_speed if min_speed == max_speed else f"{min_speed:.1f}-{max_speed:.1f}"
-            warn("The combination of r, gamma, and hetero leads to wave speeds "
-                 f"outside the range of {speed_limits[0]}-{speed_limits[1]} m/s (calculated "
-                 f"{calc_str} m/s). Consider changing these parameters to ensure physiologically "
-                 "plausible wave speeds, or adjust speed_limits.")
-
-    if ext_input is not None:
-        ext_input = np.asarray_chkfinite(ext_input)
-        if nt is not None:
-            warn("nt is ignored when ext_input is provided.")
-        if seed is not None:
-            warn("seed is ignored when ext_input is provided.")
-        if cache_input:
-            warn("cache_input is ignored when ext_input is provided.")
-        nt = ext_input.shape[1]
-    elif nt is not None:
-        if cache_input and seed is not None:
-            from neuromodes.io import _cache_output
-            noise_func = _cache_output(_gen_noise)
-        else:
-            if cache_input and seed is None:
-                warn("cache_input is ignored when seed is None.")
-            noise_func = _gen_noise
-
-        ext_input = np.asarray(noise_func(mass.shape[0], nt, seed=seed))
-    else:
-        raise ValueError("Either nt or ext_input must be provided.")
+    nt = input_coeffs.shape[1]
 
     # Pad input with zeros on negative side to ensure causality (system is only driven for t >= 0)
     # This is required for the correct Green's function solution of the damped wave equation.
-    ext_input_padded = np.concatenate([np.zeros_like(ext_input), ext_input], axis=1)
+    input_coeffs_padded = np.concatenate([np.zeros_like(input_coeffs), input_coeffs], axis=1)
 
     # Apply Fourier transform to get frequency-domain representation of the causal signal.
-    ext_input_padded_freqs = np.fft.rfft(mass @ ext_input_padded, axis=1)
+    input_coeffs_padded_freqs = np.fft.rfft(mass @ input_coeffs_padded, axis=1)
 
     # Compute components of NFT operator
     spatial = r**2 * stiffness
@@ -782,7 +708,7 @@ def _model_wave_fem(
     # Main computation
     # Compute activity at each frequency
     eqns = (
-        (spatial + temporal[k] * mass, ext_input_padded_freqs[:, k])
+        (spatial + temporal[k] * mass, input_coeffs_padded_freqs[:, k])
         for k in range(len(temporal))
     )
 

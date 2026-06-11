@@ -15,15 +15,14 @@ from neuromodes.stats import meanw, stdw
 
 if TYPE_CHECKING:
     from scipy.sparse import csc_matrix
-    from numpy import floating, integer
     from numpy.typing import NDArray
     from neuromodes.basis import _DecompositionKind
     from neuromodes.eigen import _CheckKind
 
 def eigenstrap(
-    data: NDArray[floating],
-    emodes: NDArray[floating],
-    evals: NDArray[floating], 
+    data: NDArray[np.floating],
+    emodes: NDArray[np.floating],
+    evals: NDArray[np.floating], 
     n_nulls: int = 1000,
     resample: Literal['exact', 'affine', 'mean', 'range'] | None = None,
     residual: Literal['add', 'permute'] | None = None,
@@ -34,7 +33,7 @@ def eigenstrap(
     mass: csc_matrix | None = None,
     seed: int | NDArray | None = None,
     checks: _CheckKind = True,
-) -> NDArray[floating]:
+) -> NDArray[np.floating]:
     """
     Generate spatial null maps via eigenstrapping [1]_.
     
@@ -435,10 +434,10 @@ def eigenstrap(
     return nulls
 
 def _rotate_coeffs_scipy(
-    inv_coeffs: NDArray[floating],
-    groups: list[NDArray[integer]],
-    seeds: NDArray[integer]
-) -> NDArray[floating]:
+    inv_coeffs: NDArray[np.floating],
+    groups: list[NDArray[np.integer]],
+    seeds: NDArray[np.integer]
+) -> NDArray[np.floating]:
     """
     Rotate coefficients using ``scipy.stats.special_ortho_group.rvs`` to sample random orthogonal
     matrices from SO(N). This is largely a legacy option to match the original implementation of
@@ -476,7 +475,7 @@ def _rotate_coeffs_scipy(
     rngs = [None if s is None else np.random.default_rng(s) for s in seeds]
 
     # Define helper to sample rotation matrices from SO(k)
-    def _get_so(k: int, rng: np.random.Generator | None) -> NDArray[floating]:
+    def _get_so(k: int, rng: np.random.Generator | None) -> NDArray[np.floating]:
         return special_ortho_group.rvs(dim=k, random_state=rng) if k != 1 else np.array([[1.0]])
 
     tforms = np.empty_like(inv_coeffs)
@@ -489,10 +488,10 @@ def _rotate_coeffs_scipy(
     return tforms
 
 def _rotate_coeffs_qr(
-    inv_coeffs: NDArray[floating],
-    groups: list[NDArray[integer]],
-    seeds: NDArray[integer]
-) -> NDArray[floating]:
+    inv_coeffs: NDArray[np.floating],
+    groups: list[NDArray[np.integer]],
+    seeds: NDArray[np.integer]
+) -> NDArray[np.floating]:
     """
     Rotate coefficients using QR decomposition of random Gaussian matrices to generate random
     orthogonal matrices.
@@ -529,7 +528,7 @@ def _rotate_coeffs_qr(
     rngs = [np.random.default_rng(s) for s in seeds]
 
     # Define helper to generate random orthogonal matrices via QR decomposition (using scipy/Mezzadri algorithm)
-    def _generate_so(k: int, rngs: list[np.random.Generator]) -> NDArray[floating]:
+    def _generate_so(k: int, rngs: list[np.random.Generator]) -> NDArray[np.floating]:
         # Generate random gaussian matrices for all nulls
         X = np.stack([rng.standard_normal((k, k)) for rng in rngs], axis=0) # rng progresses over each group
         # Perform QR decomposition

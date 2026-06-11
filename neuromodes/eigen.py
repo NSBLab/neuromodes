@@ -297,7 +297,7 @@ class EigenSolver(Solver):
     @overload
     def decompose(
         self,
-        data: NDArray,
+        data: NDArray[np.floating],
         *,
         mode_counts: int | None = ...,
         mode_ids: None = ...
@@ -307,7 +307,7 @@ class EigenSolver(Solver):
     @overload
     def decompose(
         self,
-        data: NDArray,
+        data: NDArray[np.floating],
         *,
         mode_counts: _IntSequenceKind,
         mode_ids: None = ...
@@ -317,7 +317,7 @@ class EigenSolver(Solver):
     @overload
     def decompose(
         self,
-        data: NDArray,
+        data: NDArray[np.floating],
         *,
         mode_counts: None = ...,
         mode_ids: _SeqSequenceKind
@@ -367,8 +367,8 @@ class EigenSolver(Solver):
     
     def recon_error(
         self,
-        data: NDArray,
-        recon: NDArray,
+        data: NDArray[np.floating],
+        recon: NDArray[np.floating],
         **kwargs
     ) -> NDArray[np.floating]:
         """

@@ -198,7 +198,7 @@ def decompose(
     return coeffs[0] if squeeze_output else coeffs # convert back to array if mode_counts was None/scalar
 
 def reconstruct(
-    emodes: NDArray,
+    emodes: NDArray[np.floating],
     data: NDArray | None = None,
     coeffs: list[NDArray] | NDArray | None = None,
     method: _DecompositionKind = 'project',
@@ -306,8 +306,8 @@ def reconstruct(
     return recon_nd
 
 def recon_error(
-    data: NDArray,
-    recon: NDArray,
+    data: NDArray[np.floating],
+    recon: NDArray[np.floating],
     mass: csc_matrix | None = None,
     metric: _MetricCallback | _MetricKind = 'correlation',
     checks: _CheckKind = 'maps',
