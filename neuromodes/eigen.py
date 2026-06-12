@@ -82,9 +82,7 @@ class EigenSolver(Solver):
     def __init__(
         self,
         geometry: str | Path | GiftiImage | TriaMesh | dict,
-        mask: NDArray[np.bool_] | None = None,
-        normalize: bool = False,
-        hetero: NDArray[np.floating] | None = None,
+        mask: NDArray[np.bool_] | None = None
     ):
         # Read in surface mesh
         geometry = read_surf(geometry)
@@ -93,26 +91,64 @@ class EigenSolver(Solver):
         if mask is not None:
             mask = np.asarray(mask, dtype=bool)  # chkfinite in mask_mesh
             geometry = mask_mesh(geometry, mask)
-
-        # Optionally normalize
-        if normalize:
-            geometry.normalize_()  # LaPy method
         
         # Validate mesh
         check_surf(geometry)
 
-        # Hetero inputs (TODO: add geometry to EigenData, remove this)
-        if hetero is not None:
-            hetero = np.asarray_chkfinite(hetero)
-            if hetero.shape != (geometry.v.shape[0],):
-                raise ValueError(f"hetero must have shape (n_verts,) = ({geometry.v.shape[0]},).")
-
         # Assign attributes
         self.geometry = geometry
-        self.hetero = hetero
         self.n_verts = geometry.v.shape[0]  # Nicety
         self.mask = mask
         self.use_cholmod = False  # Permit lapy.eigs()
+
+        # Configuration states
+        self._lump = False
+        self._hetero = None
+
+        # Internal caches
+        self._mass = None
+        self._stiffness = None
+        self._emodes = None
+        self._evals = None
+        self._n_modes = None
+
+    @property
+    def lump(self) -> bool:
+        return self._lump
+    
+    @property
+    def hetero(self) -> NDArray[np.floating] | None:
+        return self._hetero
+    
+    @property
+    def mass(self) -> csc_matrix:
+        if self._mass is None:
+            self._mass = self.fem_tria_mass(self.geometry, self._lump)
+        return self._mass
+
+    @property
+    def stiffness(self) -> csc_matrix:
+        if self._stiffness is None:
+            self.compute_lbo(lump=self._lump, hetero=self._hetero)
+        return self._stiffness
+
+    @property
+    def emodes(self) -> NDArray[np.floating]:
+        if self._emodes is None:
+            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
+        return self._emodes
+    
+    @property
+    def evals(self) -> NDArray[np.floating]:
+        if self._evals is None:
+            raise ValueError("Eigenvalues not found. Please run the solve() method first.")
+        return self._evals
+    
+    @property
+    def n_modes(self) -> int:
+        if self._n_modes is None:
+            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
+        return self._n_modes
 
     def __str__(self) -> str:
         """String representation of the ``EigenSolver`` object."""
@@ -120,7 +156,7 @@ class EigenSolver(Solver):
         geom_type = "Surface"
         elem_type = "triangles"
 
-        # Construct output
+        # Construct base output string
         str_out = (
             'EigenSolver\n'
             '-----------\n'
@@ -130,16 +166,21 @@ class EigenSolver(Solver):
             str_out += f' ({np.sum(self.mask == 0)} others masked out)'
         str_out += f', {self.geometry.t.shape[0]} {elem_type}'
 
-        if self.hetero is not None:
-            str_out += f'\nHeterogeneity map scaling: {self._scaling} (alpha={self._alpha})'
-
-        str_out += f'\n{self.n_modes if hasattr(self, "emodes") else "No"} eigenmodes computed'
+        # FEM matrices and modes
+        if self._mass is not None:
+            str_out += f'\nMass matrix: {"lumped" if self._lump else "consistent"}'
+        if self._stiffness is not None:
+            str_out += ('\nStiffness matrix: '
+                        f'{("heterogeneous" if self._hetero is not None else "homogeneous")}')
+        if self._emodes is not None:
+            str_out += f'\nEigenmodes and eigenvalues: {self.n_modes} computed'
 
         return str_out
 
     def compute_lbo(
         self, 
-        lump: bool = False
+        lump: bool = False,
+        hetero: NDArray[np.floating] | None = None
     ) -> EigenSolver:
         """
         This method computes the Laplace-Beltrami operator using finite element methods on a
@@ -156,34 +197,53 @@ class EigenSolver(Solver):
         EigenSolver
             The ``EigenSolver`` instance.
         """
-        if self.hetero is None:
-            stiffness, mass = self._fem_tria(self.geometry, lump)
-        else:
-            # Get principal curvatures to define direction of anisotropy
-            # Note: change of basis into (u1, u2) is not strictly needed for our isotropic
-            # diffusion tensor, but _fem_tria_aniso performs it
-            u1, u2, _, _ = self.geometry.curvature_tria()
+        # Cache validation
+        if not np.array_equal(hetero, self._hetero):
+            self._stiffness = None  # hetero affects stiffness only
+            self._emodes = None
+            self._evals = None
+            self._n_modes = None
+            if hetero is not None:
+                hetero = np.asarray_chkfinite(hetero)
+                if hetero.shape != (self.n_verts,):
+                    raise ValueError(f"hetero must have shape (n_verts,) = ({self.n_verts},).")
+            self._hetero = hetero
+        
+        if lump != self._lump:
+            self._mass = None  # lump affects mass only
+            self._emodes = None
+            self._evals = None
+            self._n_modes = None
+            self._lump = lump
 
-            # Map hetero from vertices to triangles by averaging
-            hetero_tria = self.geometry.map_vfunc_to_tfunc(self.hetero)
+        # Compute LBO as mass and stiffness matrices
+        if self._stiffness is not None:  # LaPy has no method to compute only stiffness
+            if self.hetero is None:
+                self._stiffness, self._mass = self._fem_tria(self.geometry, lump)
+            else:
+                # Get principal curvatures to define direction of anisotropy
+                # Note: change of basis into (u1, u2) is not strictly needed for our isotropic
+                # diffusion tensor, but _fem_tria_aniso performs it
+                u1, u2, _, _ = self.geometry.curvature_tria()
 
-            # Construct isotropic diffusion tensor by using hetero for both u1 and u2 directions
-            hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
+                # Map hetero from vertices to triangles by averaging
+                hetero_tria = self.geometry.map_vfunc_to_tfunc(self.hetero)
 
-            # Compute FEM matrices under heterogeneous LBO
-            stiffness, mass = self._fem_tria_aniso(self.geometry, u1, u2, hetero_mat, lump)
-                
-        # Assign attributes and return instance to allow chaining
-        self.stiffness = stiffness
-        self.mass = mass
+                # Construct isotropic diffusion tensor by using hetero for both u1 and u2 directions
+                hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
+
+                # Compute FEM matrices under heterogeneous LBO
+                self._stiffness, self._mass = self._fem_tria_aniso(self.geometry, u1, u2,
+                                                                   hetero_mat, lump)
         return self
 
     def solve(
         self,
-        n_modes: int, 
-        standardize: bool = True,
-        fix_mode1: bool = True,
+        n_modes: int,
+        hetero: NDArray[np.floating] | None = None,
         lump: bool = False,
+        set_emode1: bool = True,
+        align_emodes: bool = True,
         atol: float = 1e-3,
         rtol: float = 1e-5,
         sigma: float = -0.01, # EASIEST way is to hard-code this to LaPy default (2026/03)
@@ -242,8 +302,8 @@ class EigenSolver(Solver):
             raise ValueError("n_modes must be a positive integer less than the number of vertices"
                              f" ({self.n_verts}).")
 
-        # Compute the Laplace-Beltrami operator / set stiffness and mass matrices
-        self.compute_lbo(lump)
+        # Ensure LBO is consistent with lump/hetero config
+        self.compute_lbo(lump, hetero)
         
         # Setup intitialization vector
         if v0 is not None:
@@ -260,27 +320,23 @@ class EigenSolver(Solver):
             warn(f"Computed eigenmodes are not mass-orthonormal (atol={atol}, rtol={rtol}).")
 
         ## Post-process
-        if fix_mode1:
+        if set_emode1:
             if sigma >= 0:
-                warn("Mode 1 will not be fixed to a constant when sigma >= 0, as the constant mode "
-                     "may not be among the computed modes.")
+                warn("emodes[:, 0] will not be set to its analytical constant value when sigma >= "
+                     "0, as it may not correspond to the constant eigenmode.")
             else:
                 # Value given by mass-orthonormality condition
                 emodes[:, 0] = self.mass.sum()**(-0.5)
                 evals[0] = 0.0
 
-        if standardize:
-            emodes = standardize_emodes(emodes, checks=False)
+        if align_emodes:
+            emodes = align_basis(emodes, checks=False)
 
         # Store results
-        self.n_modes = n_modes  # Nicety
-        self.evals = evals
-        self.emodes = emodes
+        self._n_modes = n_modes  # Nicety
+        self._evals = evals
+        self._emodes = emodes
         return self
-
-    def _check_for_emodes(self) -> None:
-        if not hasattr(self, 'emodes'):
-            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
         
     # 1. mode_counts is None or int -> Single Array 
     @overload
@@ -322,8 +378,6 @@ class EigenSolver(Solver):
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.basis import decompose
-
-        self._check_for_emodes()
     
         return decompose(
             data=data,
@@ -343,8 +397,6 @@ class EigenSolver(Solver):
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.basis import reconstruct
-        
-        self._check_for_emodes()
             
         return reconstruct(
             data=data,
@@ -365,8 +417,6 @@ class EigenSolver(Solver):
         ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.basis import recon_error
-        
-        self._check_for_emodes()
             
         return recon_error(
             data=data,
@@ -386,8 +436,6 @@ class EigenSolver(Solver):
         """
         from neuromodes.network import compute_gem
 
-        self._check_for_emodes()
-
         return compute_gem(
             emodes=self.emodes,
             evals=self.evals,
@@ -405,8 +453,6 @@ class EigenSolver(Solver):
         ``EigenSolver`` instance.
         """
         from neuromodes.waves import sim_nft_waves
-
-        self._check_for_emodes()
 
         return sim_nft_waves(
             emodes=self.emodes,
@@ -429,8 +475,6 @@ class EigenSolver(Solver):
         ``mass``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
         from neuromodes.waves import balloon_model
-
-        self._check_for_emodes()
 
         return balloon_model(
             activity=activity,
@@ -472,8 +516,6 @@ class EigenSolver(Solver):
         """
         from neuromodes.nulls import eigenstrap
 
-        self._check_for_emodes()
-
         return eigenstrap(
             data=data,
             emodes=self.emodes,
@@ -483,7 +525,8 @@ class EigenSolver(Solver):
             **kwargs
         )
 
-def standardize_emodes(
+# TODO: consider renaming
+def align_basis(
     emodes: NDArray[np.floating],
     checks: bool = True
 ) -> NDArray[np.floating]:
