@@ -12,6 +12,7 @@ Lab <https://www.monash.edu/medicine/psych/alex-fornito-lab>`_. Documentation ca
 Features
 --------
 .. image:: https://github.com/NSBLab/neuromodes/raw/main/docs/_static/overview.png
+
 Asterisk (*) indicates features under development that are not yet available.
 
 - eigen: Compute geometric eigenmodes from cortical surface meshes, optionally incorporating spatial
@@ -38,19 +39,19 @@ Installation
 .. code-block:: bash
 
   pip install neuromodes
-|
+
 To try out any newer features under development, clone from our ``dev`` branch instead via:
 
 .. code-block:: bash
 
   pip install git+https://github.com/NSBLab/neuromodes.git@dev
-|
+
 If you wish to run the tutorials, please instead install our extra ``tutorials`` dependencies via:
 
 .. code-block:: bash
 
   pip install "neuromodes[tutorials] @ git+https://github.com/NSBLab/neuromodes.git"
-|
+
 If you encounter any problems, please consider `opening an issue
 <https://github.com/NSBLab/neuromodes/issues>`_. Meanwhile, try switching to the exact environment
 used for development via the modern project and package manager `UV <https://docs.astral.sh/uv/>`_:
@@ -61,7 +62,7 @@ used for development via the modern project and package manager `UV <https://doc
   cd neuromodes
   uv venv --python 3.14.3
   uv sync --frozen
-|
+
 Tests can be run with ``pytest`` from the repository root:
 
 .. code-block:: bash
