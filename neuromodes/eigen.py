@@ -3,17 +3,22 @@ Module for computing geometric eigenmodes of brain structures from surface meshe
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from importlib.util import find_spec
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from dataclasses import dataclass
-from lapy import Solver
+
 import numpy as np
+from lapy import Solver
+
 from neuromodes.io import read_surf
-from neuromodes.mesh import mask_mesh, check_surf
+from neuromodes.mesh import check_surf, mask_mesh
 
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any, Literal, TypeAlias
+
     from lapy import TriaMesh
     from nibabel.gifti.gifti import GiftiImage
     from numpy.random import Generator
@@ -271,6 +276,7 @@ class EigenSolver(Solver):
         set_emode1: bool = True,
         align_emodes: bool = True,
         sigma: float = -0.01, # EASIEST way is to hard-code this to LaPy default (2026/03)
+        decomp: Literal['lu', 'cholesky'] = 'lu',
         seed: int | Generator | None = 0, 
         v0: NDArray[np.floating] | None = None
     ) -> EigenSolver:
@@ -306,6 +312,10 @@ class EigenSolver(Solver):
             Shift-invert parameter to speed up the computation of eigenvalues close to this value.
             Note that this changes the identity and ordering of returned eigenmodes and eigenvalues.
             Default is ``-0.01``.
+        decomp : {'lu', 'cholesky'}, optional
+            The decomposition method to use for the shift-invert operation. ``'lu'`` uses a sparse
+            LU decomposition, while ``'cholesky'`` uses a sparse Cholesky decomposition. The latter
+            is faster but requires the ``cholespy`` package. Default is ``'lu'``.
         seed : int or numpy.random.Generator, optional
             Random seed for the generation of the initialization vector (see below). If ``None``,
             computed eigenmodes and eigenvalues will not be exactly identical across runs. Most
@@ -326,6 +336,13 @@ class EigenSolver(Solver):
             If ``n_modes`` is not a positive integer less than ``n_verts``.
         ValueError
             If ``v0`` is provided but does not have shape ``(n_verts,)``.
+        ValueError
+            If ``decomp`` is not one of ``'lu'`` or ``'cholesky'``.
+        ImportError
+            If ``decomp`` is ``'cholesky'`` but the ``cholespy`` package is not installed.
+        ValueError
+            If ``decomp`` is ``'cholesky'`` but ``sigma`` is non-negative, as the shift matrix
+            (stiffness - sigma * mass) must be positive definite.
 
         References
         ----------
@@ -334,6 +351,15 @@ class EigenSolver(Solver):
             https://doi.org/10.64898/2026.01.22.701178
         """
         # Validate arguments
+        if decomp not in ['cholesky', 'lu']:
+            raise ValueError("decomp must be 'cholesky' or 'lu'.")
+        if decomp == 'cholesky' and find_spec('cholespy') is None:
+            raise ImportError("cholespy is required for Cholesky decomposition. Neuromodes can be "
+                              "installed with the 'cholesky' extra to include cholespy as a "
+                              "dependency (e.g., pip install neuromodes[cholesky]).")
+        if decomp == 'cholesky' and sigma >= 0:
+            raise ValueError("sigma must be negative for Cholesky decomposition, as the shift "
+                             "matrix (stiffness - sigma * mass) must be positive definite.")
         if n_modes != int(n_modes) or n_modes <= 0 or n_modes >= self.n_verts:
             raise ValueError("n_modes must be a positive integer less than the number of vertices"
                              f" ({self.n_verts}).")
@@ -346,7 +372,47 @@ class EigenSolver(Solver):
         self.compute_lbo(lump, hetero)
 
         # Solve the eigenvalue problem
-        evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
+        if decomp == 'cholesky':  # TODO: consider LaPy PR to make this a simple Solver.eigs() call
+
+            # NOTE: D is for double precision, as stiffness will always be float64. If we later
+            # support float32, we can import the F version instead.
+            from cholespy import CholeskySolverD, MatrixType
+            from scipy.sparse.linalg import LinearOperator, eigsh
+
+            # Cholesky factorisation via shift-invert
+            shiftmat = self.stiffness - sigma * self.mass
+            chol = CholeskySolverD(
+                self.n_verts, shiftmat.indptr, shiftmat.indices, shiftmat.data, MatrixType.CSC,
+            )
+
+            # Define helper function to match Callable format expected by LinearOperator
+            def _cholsolve(b):
+                x = np.empty_like(b)
+                chol.solve(b, x)
+                return x
+            
+            OPinv = LinearOperator(
+                matvec=_cholsolve,
+                dtype=np.float64,
+                shape=shiftmat.shape
+            )
+            
+            # Solve and sort eigenpairs
+            evals, emodes = eigsh(
+                self.stiffness,
+                n_modes,
+                self.mass,
+                sigma=sigma,
+                OPinv=OPinv,
+                v0=v0,
+                rng=seed
+            )
+
+            sort_idx = np.argsort(evals)
+            evals = evals[sort_idx]
+            emodes = emodes[:, sort_idx]
+        else:
+            evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
 
         ## Post-process
         if set_emode1:
@@ -706,8 +772,7 @@ class EigenData:
         if evals is not _MISSING:
             if evals is not None:
                 evals = np.asarray_chkfinite(evals)
-                if check_shape: 
-                    if emodes is not None and evals.shape != (emodes.shape[1],):
+                if check_shape and emodes is not None and evals.shape != (emodes.shape[1],):
                         raise ValueError(f"evals must have shape (n_modes,) = ({emodes.shape[1]},).")
                 if check_evals:
                     if (evals[1:] <= 0).any():
@@ -722,16 +787,18 @@ class EigenData:
         # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
         if mass is not _MISSING:
             all_inputs.append('mass')
-            if mass is not None and check_shape:
-                if mass.ndim != 2 or mass.shape[0] != mass.shape[1]: # type: ignore[union-attr]
-                    raise ValueError("mass must be a square matrix.")
+            if mass is not None and check_shape and (
+                mass.ndim != 2 or mass.shape[0] != mass.shape[1]
+                ):
+                raise ValueError("mass must be a square matrix.")
             _set('mass', mass)
 
         if stiffness is not _MISSING:
             all_inputs.append('stiffness')
-            if stiffness is not None and check_shape:
-                if stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]: # type: ignore[union-attr]
-                    raise ValueError("stiffness must be a square matrix.")
+            if stiffness is not None and check_shape and(
+                stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]
+                ):
+                raise ValueError("stiffness must be a square matrix.")
             _set('stiffness', stiffness)
 
         # TODO: consider removing, data can just accept a list of arrays instead
@@ -739,9 +806,8 @@ class EigenData:
             all_inputs.append('hetero')
             if hetero is not None:
                 hetero = np.asarray_chkfinite(hetero)
-                if check_shape:
-                    if hetero.ndim != 1:
-                        raise ValueError("hetero must have shape (n_verts,).")
+                if check_shape and hetero.ndim != 1:
+                    raise ValueError("hetero must have shape (n_verts,).")
             _set('hetero', hetero)
 
         n_verts = None

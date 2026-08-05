@@ -138,6 +138,30 @@ wheels = [
 ]
 
 [[package]]
+name = "cholespy"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/9d/78/6900f46f4a8627dcbb0406cde5a4e00159f034a6c6a8811770145a36a2db/cholespy-2.2.0.tar.gz", hash = "sha256:4f12da345d318013f386b0a1e6e0f5e63893ab30ff9ecf8ca50e121b85a58125", size = 58987392, upload_time = "2026-01-15T16:30:12.681Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b9/c1/2c10d184041ae8521bdb7e79e2ef849978bca5c26a0c6a37ca1c421d3035/cholespy-2.2.0-cp310-cp310-macosx_10_14_x86_64.whl", hash = "sha256:ccc618bca1406671b43a7eff23bea63f69c720edb75f22831a8c4bcacc0f7e45", size = 1113449, upload_time = "2026-01-15T16:29:32.132Z" },
+    { url = "https://files.pythonhosted.org/packages/64/7c/152b74db45d97ef0645ce783380c31129e8f9d0ea933031b4294677d4a05/cholespy-2.2.0-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:df5a3117dea5c027a3322b4337f7f3e76cbc47fd3ab8a5182c15f2290775f97e", size = 968680, upload_time = "2026-01-15T16:29:33.911Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/3c/aa633135f367a106bef5d86ff697da6c6653ad8b6ae2f2010dbcd20ab84b/cholespy-2.2.0-cp310-cp310-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1c041beedecd276772d13abd2a48f359b60956a5ac171f3beff3abacf9d21a64", size = 5626364, upload_time = "2026-01-15T16:29:35.241Z" },
+    { url = "https://files.pythonhosted.org/packages/ac/cc/543d6bc039dd15278f796b07a1546b31733ef9ce4c6a9c9ba3ca6bf22846/cholespy-2.2.0-cp310-cp310-win_amd64.whl", hash = "sha256:8d0e6c0132bdaf7e20dae81e39ce7b20a1cf84b1f04e66d72974dac30e618a7d", size = 4944846, upload_time = "2026-01-15T16:29:36.937Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/2b/2c5f48e0005695aa0b99af8011c2ae035dfd8c14b6a836dd64d505a7f5c4/cholespy-2.2.0-cp311-cp311-macosx_10_14_x86_64.whl", hash = "sha256:74d85d00fb2ba2d7fdb766defcc083071f1f377f9faf91a271a53c0716f0ef74", size = 1113964, upload_time = "2026-01-15T16:29:38.31Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/7e/e411c09928839d6c755d7bcf53dbb856f18fd966ae12971aa6a4b61aa5e7/cholespy-2.2.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:9980c19be21a2707e76ffb1a27db20cf6fa3af800115c534d8c3a83ae42afbb1", size = 969033, upload_time = "2026-01-15T16:29:39.767Z" },
+    { url = "https://files.pythonhosted.org/packages/35/b5/df31b615d58b75eb1007cff061a9c48f7a2eb37bdd1fdd15354823fcbafe/cholespy-2.2.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5f19dc5fc30b053a4d0749371b161059eacf7a95496eecd33edc494a4d28113c", size = 5626635, upload_time = "2026-01-15T16:29:41.817Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/f6/05508ee258e9650ac650a86c27a94ca411207762054cf220c5be5b4a9fb1/cholespy-2.2.0-cp311-cp311-win_amd64.whl", hash = "sha256:a4f13b70a03cb6e7929496d469ba409bdf672323f097641381a2c4092ad3204b", size = 4945162, upload_time = "2026-01-15T16:29:44.128Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/b3/f573bcd0a7d8cb8413d988c60d2dba754bcf47915cbeae0971c54966e9f4/cholespy-2.2.0-cp312-abi3-macosx_10_14_x86_64.whl", hash = "sha256:90af005b75147b0119838c24e7c36b70af7a9643644a3f3e62780b0b50b55978", size = 1112543, upload_time = "2026-01-15T16:29:45.592Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/40/a300878fcf6cccb667228f1b45dd4ecd1d04d1ee01daa76f2c9ab79ce2ab/cholespy-2.2.0-cp312-abi3-macosx_11_0_arm64.whl", hash = "sha256:7d32daeb91a40025c92a8ce51c12044fa616749ed37b177935b62e761c8fbe53", size = 967653, upload_time = "2026-01-15T16:29:47.199Z" },
+    { url = "https://files.pythonhosted.org/packages/84/94/b2a491bbd74386b2301ff8c3a33957261404f866846645e699b7611c65d6/cholespy-2.2.0-cp312-abi3-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:3e32e9760380a3804ac6da150ac4eb7e5b4554cfd3b36d437fd819c17e1e9317", size = 5622555, upload_time = "2026-01-15T16:29:49.439Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/46/6e073f0247841e62f2d4643ba7eec61365295e4ff632ebc283c5946f3063/cholespy-2.2.0-cp312-abi3-win_amd64.whl", hash = "sha256:deecc02df678e51e7741667b1b47158663496ca893cf2f75daa34b2520ebbe65", size = 4942733, upload_time = "2026-01-15T16:29:51.34Z" },
+    { url = "https://files.pythonhosted.org/packages/26/b8/0c78ce56976c46b23ac7e65d6f0186ba70b391cb538561bf642133da9998/cholespy-2.2.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:18bf86cb04533901b114d407aed2e44a517f21429ee5c9b47746b5fd0f624e0a", size = 1117399, upload_time = "2026-01-15T16:29:52.84Z" },
+    { url = "https://files.pythonhosted.org/packages/96/a0/a1ea4db30ff9545a5a922110ec95d945501c8029ecfaa78fd08b8a11e1d5/cholespy-2.2.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:960950b4cc8dfdf0dab580452240f6d98d3f27b95aa0e2f638360d12b9c9ea10", size = 971161, upload_time = "2026-01-15T16:29:54.511Z" },
+    { url = "https://files.pythonhosted.org/packages/98/3f/70f37fd6141ec7c836834556f1fb7a7f549f284d18638fb6425499723deb/cholespy-2.2.0-cp314-cp314t-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1db1e21db352fe116cd318a135f823a0e63c1c83f38104c3567dd03f92edad0e", size = 5629245, upload_time = "2026-01-15T16:29:56.213Z" },
+    { url = "https://files.pythonhosted.org/packages/07/dd/dea75e2c94707a90aa1cc48485c5c3ea1336ffc778a181313e7603ba8373/cholespy-2.2.0-cp314-cp314t-win_amd64.whl", hash = "sha256:d2a1acdf8165d75009216eed18b36d361b9933ff2f24b38935e24244ec34e85c", size = 5002901, upload_time = "2026-01-15T16:29:58.457Z" },
+]
+
+[[package]]
 name = "colorama"
 version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
@@ -894,7 +918,12 @@ dependencies = [
 cache = [
     { name = "joblib" },
 ]
+cholesky = [
+    { name = "cholespy" },
+]
 testing = [
+    { name = "cholespy" },
+    { name = "joblib" },
     { name = "pytest" },
 ]
 tutorials = [
@@ -905,17 +934,19 @@ tutorials = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cholespy", marker = "extra == 'cholesky'", specifier = ">=2.2.0" },
     { name = "ipykernel", marker = "extra == 'tutorials'", specifier = ">=6.31.0" },
     { name = "joblib", marker = "extra == 'cache'", specifier = ">=1.5.3" },
     { name = "lapy", specifier = ">=1.6.0" },
     { name = "matplotlib", marker = "extra == 'tutorials'", specifier = ">=3.9.4" },
+    { name = "neuromodes", extras = ["cache", "cholesky"], marker = "extra == 'testing'" },
     { name = "nibabel", specifier = ">=5.2.1" },
     { name = "nsbutils", marker = "extra == 'tutorials'", git = "https://github.com/NSBLab/nsbutils.git?rev=dev" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=8.4.2" },
     { name = "scipy", specifier = ">=1.10.1" },
 ]
-provides-extras = ["testing", "tutorials", "cache"]
+provides-extras = ["testing", "tutorials", "cache", "cholesky"]
 
 [[package]]
 name = "nibabel"

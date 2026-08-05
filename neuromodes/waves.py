@@ -4,18 +4,23 @@ surfaces.
 """
 
 from __future__ import annotations
-from typing import Literal, TYPE_CHECKING, cast
+
+from typing import TYPE_CHECKING, Literal, cast
 from warnings import warn
+
 import numpy as np
 from numpy.typing import NDArray
 from scipy.integrate import solve_ivp
 from scipy.sparse import linalg
-from neuromodes.eigen import EigenData
+
 from neuromodes.basis import decompose
+from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
     from typing import Literal
+
     from scipy.sparse import csc_matrix
+
     from neuromodes.eigen import _CheckKind
     _PDEKind = Literal["fourier", "ode", "fem"]
 
@@ -474,7 +479,7 @@ def _model_wave_ode(
     # Simulate wave equation for each mode
     mode_coeffs = np.empty_like(input_coeffs)
     for j in range(n_modes):
-        def wave_odes_j(t_, y):
+        def wave_odes_j(t_, y, j=j):
             """Returns the wave ODEs for mode j."""
             x1, x2 = y
 
@@ -655,7 +660,7 @@ def _model_balloon_ode(
     # Simulate balloon model for each mode
     bold_coeffs = np.empty_like(activity_coeffs)
     for j in range(n_modes):
-        def balloon_odes_j(t_, y):
+        def balloon_odes_j(t_, y, j=j):
             """Returns the balloon model ODEs for mode j."""
             z, f, v, q = y
 

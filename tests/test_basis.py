@@ -1,10 +1,12 @@
 import numpy as np
 import pytest
 from scipy.sparse import csc_matrix, eye
-from neuromodes.basis import decompose, reconstruct, recon_error
+
+from neuromodes.basis import decompose, recon_error, reconstruct
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_example_surf, fetch_example_map
+from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.stats import sigmoid_rescale, zscorew
+
 
 @pytest.fixture(scope='module')
 def solver():
@@ -12,7 +14,7 @@ def solver():
     randmap = np.random.default_rng(0).standard_normal(size=medmask.sum())
     solver = EigenSolver(surf, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), steepness=0.5, upper=2.0)
-    return solver.solve(n_modes=10, hetero=hetero)
+    return solver.solve(n_modes=10, hetero=hetero, decomp='cholesky')
 
 def test_decompose_eigenmodes_1d(solver):
     for i in range(solver.n_modes):
@@ -78,7 +80,7 @@ def solver_32k():
     randmap = rng.standard_normal(size=medmask.sum())
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), upper=2.0)
-    solver.solve(10, hetero=hetero)
+    solver.solve(10, hetero=hetero, decomp='cholesky')
     return solver
 
 def test_decompose_nans(solver_32k):
@@ -174,11 +176,11 @@ def test_reconstruct_mode_superposition(solver, gen_eigenmap):
 def test_reconstruct_regress_method(solver, gen_eigenmap):
     eigenmaps, _ = gen_eigenmap
 
-    kwargs = dict(emodes=solver.emodes, 
-                  method='regress', 
-                  mass=csc_matrix(eye(solver.n_verts)),
-                  mode_counts=np.arange(solver.n_modes)+1,
-                  checks='maps')
+    kwargs = {'emodes': solver.emodes, 
+                  'method': 'regress', 
+                  'mass': csc_matrix(eye(solver.n_verts)),
+                  'mode_counts': np.arange(solver.n_modes)+1,
+                  'checks': 'maps'}
     coeffs = decompose(eigenmaps, **kwargs) # type: ignore
     recon = reconstruct(coeffs=coeffs, **kwargs) # type: ignore
     correlation_error = recon_error(eigenmaps, recon, metric='correlation', mass=csc_matrix(eye(solver.n_verts)))

@@ -6,11 +6,13 @@ vertex has Voronoi area/volume of 1.
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from warnings import warn
-from scipy.spatial.distance import squareform, cdist
-from scipy.sparse import csc_matrix, csr_matrix, spmatrix, diags
+
+import numpy as np
+from scipy.sparse import csc_matrix, csr_matrix, diags, spmatrix
+from scipy.spatial.distance import cdist, squareform
+
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:

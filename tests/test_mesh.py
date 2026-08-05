@@ -1,7 +1,9 @@
-from lapy import TriaMesh
 import numpy as np
+from lapy import TriaMesh
 from pytest import raises
-from neuromodes.mesh import mask_mesh, check_surf
+
+from neuromodes.mesh import check_surf, mask_mesh
+
 
 def test_mask_surf():
 

@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 testing = [
     "pytest>=8.4.2",
+    "neuromodes[cache,cholesky]",
 ]
 tutorials = [
     "ipykernel>=6.31.0",
@@ -24,6 +25,9 @@ tutorials = [
 ]
 cache = [
     "joblib>=1.5.3",
+]
+cholesky = [
+    "cholespy>=2.2.0",
 ]
 
 [build-system]
