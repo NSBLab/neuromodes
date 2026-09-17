@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 from lapy.shapedna import normalize_ev
 
-from neuromodes.eigen import EigenSolver, get_eigengroup_inds, is_orthonormal_basis
+from neuromodes.eigen import (
+    EigenSolver,
+    align_basis,
+    get_eigengroup_inds,
+    is_orthonormal_basis,
+)
 from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.stats import sigmoid_rescale, zscorew
 
@@ -34,7 +39,7 @@ def test_invalid_mask_shape(surf_medmask):
 def test_no_hetero(surf_medmask):
     surf, medmask = surf_medmask
     homo_solver = EigenSolver(surf, mask=medmask)
-    homo_solver.solve(10, decomp='cholesky') # hardcoded to 10 to match the saved prior_modes
+    homo_solver.solve(10) # hardcoded to 10 to match the saved prior_modes
 
     # Load homogeneous eigenmodes/eigenvalues for comparison
     test_data = Path(__file__).parent / 'test_data'
@@ -69,8 +74,8 @@ def test_hetero_ones(surf_medmask):
     hetero = np.ones(sum(medmask))
 
     # If hetero is all ones, this should give the same stiffness matrix
-    homo_solver = EigenSolver(surf, mask=medmask).solve(20, decomp='cholesky')
-    hetero_solver = EigenSolver(surf, mask=medmask).solve(20, hetero=hetero, decomp='cholesky')
+    homo_solver = EigenSolver(surf, mask=medmask).solve(20)
+    hetero_solver = EigenSolver(surf, mask=medmask).solve(20, hetero=hetero)
 
     assert np.allclose(hetero_solver.evals, homo_solver.evals), \
         'Eigenvalues with hetero=ones do not match homogeneous eigenvalues.'
@@ -100,21 +105,18 @@ def test_stiffness_rowsums(solver):
         
 def test_seeded_modes(solver):
     n_modes = 16
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36,
-                 decomp='cholesky')
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36,
-                    decomp='cholesky')
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
 
     assert (emodes1 == emodes2).all(), 'Modes from same seed are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed are not identical.'
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=37,
-                 decomp='cholesky')
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=37)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
 
@@ -124,23 +126,20 @@ def test_seeded_modes(solver):
 def test_generator_seeded_modes(solver):
     n_modes = 16
     rng = np.random.default_rng(0)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False,
-                 decomp='cholesky', seed=rng)
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
     # Reset the generator to ensure the same sequence of random numbers
     rng = np.random.default_rng(0)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False,
-                 decomp='cholesky', seed=rng)
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
     assert (emodes1 == emodes2).all(), 'Modes from same seed generator are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed generator are not identical.'
 
     rng = np.random.default_rng(1)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False,
-                 decomp='cholesky', seed=rng)
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
     assert not (emodes1 == emodes3).all(), 'Modes from different seed generators are identical.'
@@ -151,14 +150,12 @@ def test_vector_seeded_modes(solver):
     rng = np.random.default_rng(0)
     v0 = rng.standard_normal(size=solver.n_verts)
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0,
-                 decomp='cholesky')
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
     # Reuse the same seed vector
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0,
-                 decomp='cholesky')
+    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
 
@@ -168,7 +165,7 @@ def test_vector_seeded_modes(solver):
     v0_diff = rng.standard_normal(size=solver.n_verts)
 
     solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False,
-                 v0=v0_diff, decomp='cholesky')
+                 v0=v0_diff)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
 
@@ -180,26 +177,11 @@ def test_invalid_vector_seed(solver):
                        match=r"v0 must have shape \(n_verts,\) = \(3619,\)."):
         solver.solve(2400, v0=np.ones(10))
 
-def test_cholesky_vs_lu(solver):
-    solver.solve(16, hetero=solver.hetero, decomp='lu', set_emode1=False)
-    emodes_lu = solver.emodes.copy()
-    evals_lu = solver.evals.copy()
-
-    # NOTE: this is the last in-place modification of the solver object, so the emodes and evals
-    # computed here are used for the rest of the tests
-    solver.solve(16, hetero=solver.hetero, decomp='cholesky')
-
-    assert np.allclose(emodes_lu, solver.emodes), \
-        'Eigenmodes from LU and Cholesky decompositions do not match.'
-    assert np.allclose(evals_lu, solver.evals), \
-        'Eigenvalues from LU and Cholesky decompositions do not match.'
-
-def test_unaligned_modes(solver, surf_medmask):
-    emodes = solver.emodes
+def test_align_basis(solver, surf_medmask):
     surf, medmask = surf_medmask
     emodes_unalign = EigenSolver(surf, mask=medmask).solve(
-        solver.n_modes, hetero=solver.hetero, align_emodes=False, decomp='cholesky'
-        ).emodes
+        solver.n_modes, hetero=solver.hetero, align_emodes=False).emodes
+    emodes = align_basis(emodes_unalign)
     
     assert not np.all(emodes_unalign[0, :] >= 0), \
         'Unaligned first vertex should have both positive and negative values.'
@@ -212,7 +194,7 @@ def test_solve_lumped_mass(solver, surf_medmask):
 
     # Get modes after solving with lumped mass matrix
     emodes_lump = EigenSolver(surf, mask=medmask).solve(solver.n_modes, hetero=solver.hetero,
-                                                        lump=True, decomp='cholesky').emodes
+                                                        lump=True).emodes
 
     for i in range(1, solver.n_modes):
         mse = np.mean((solver.emodes[:, i] - emodes_lump[:, i])**2)
@@ -235,13 +217,15 @@ def test_n_modes_consistency(solver, surf_medmask):
 
     # Solve for more modes and check that the first 16 modes are approximately the same
     # TODO: may as well use 100 modes in the fixture and instead solve for fewer here?
-    solver_more_modes = EigenSolver(surf, mask=medmask).solve(100, hetero=solver.hetero,
-                                                              decomp='cholesky')
-    assert np.allclose(solver.emodes, solver_more_modes.emodes[:, :16], atol=1e-4), \
+    solver.solve(16, hetero=solver.hetero, set_emode1=False, align_emodes=True)
+    solver2 = EigenSolver(surf, mask=medmask).solve(100, hetero=solver.hetero, set_emode1=False,
+                                                    align_emodes=True)
+    assert np.allclose(solver.emodes, solver2.emodes[:, :16], atol=1e-4), \
         'Modes differ when solving for different n_modes.'
     
 def test_normalized_surf(solver):
     surf = solver.geometry
+    solver.solve(16, hetero=solver.hetero)
 
     # Use LaPy to normalize evals
     evals_lapy = normalize_ev(surf, solver.evals)
@@ -249,7 +233,7 @@ def test_normalized_surf(solver):
     # Normalize mesh before EigenSolver
     surf_norm = surf.__class__(surf.v, surf.t)  # Avoid in-place modification
     surf_norm.normalize_()
-    solver_norm = EigenSolver(surf_norm).solve(16, hetero=solver.hetero, decomp='cholesky')
+    solver_norm = EigenSolver(surf_norm).solve(16, hetero=solver.hetero)
 
     # Check that evals match between the two normalization approaches
     assert np.allclose(evals_lapy, solver_norm.evals, atol=1e-20), \
@@ -259,8 +243,7 @@ def test_constant_mode1(solver, surf_medmask):
     surf, medmask = surf_medmask
     emode1 = solver.emodes[:, 0]
     
-    solver_unset = EigenSolver(surf, mask=medmask).solve(2, hetero=solver.hetero, set_emode1=False,
-                                                         decomp='cholesky')
+    solver_unset = EigenSolver(surf, mask=medmask).solve(2, hetero=solver.hetero, set_emode1=False)
     emode1_unfixed = solver_unset.emodes[:, 0]
     eval1_unfixed = solver_unset.evals[0]
 
@@ -278,16 +261,9 @@ def test_positive_sigma(solver, surf_medmask):
     emodes = solver.emodes
     evals = solver.evals
 
-    # check that Cholesky is rejected
-    with pytest.raises(ValueError, match=r"sigma must be negative for Cholesky decomposition"):
-        solver_pos_sigma = EigenSolver(surf, mask=medmask).solve(
-            solver.n_modes, hetero=solver.hetero, sigma=0, decomp='cholesky'
-            )
-
     with pytest.warns(UserWarning, match=r"emodes\[:, 0\] will not be set"):
-        solver_pos_sigma = EigenSolver(surf, mask=medmask).solve(
-            solver.n_modes, hetero=solver.hetero, sigma=1e-4, decomp='lu'
-            )
+        solver_pos_sigma = EigenSolver(surf, mask=medmask).solve(solver.n_modes,
+                                                                 hetero=solver.hetero, sigma=1e-4)
     emodes_pos_sigma = solver_pos_sigma.emodes
     evals_pos_sigma = solver_pos_sigma.evals
 

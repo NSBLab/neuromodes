@@ -22,7 +22,7 @@ def solver():
     mesh, medmask = fetch_example_surf(density=density)
     print(f"\nInitilising mesh with {density} vertices and {max(n_groups)**2} modes.")
     tic = time.time()
-    s = EigenSolver(mesh, mask=medmask).solve(n_modes=max(n_groups)**2, decomp='cholesky')
+    s = EigenSolver(mesh, mask=medmask).solve(n_modes=max(n_groups)**2)
     print(f"Time to solve eigenmodes: {time.time() - tic:.5f} seconds.\n")
     return s
 
@@ -93,7 +93,7 @@ def test_32k():
 
     print(f"\nInitialising mesh with {density} vertices and {n_modes} modes.")
     tic = time.time()
-    solver = EigenSolver(fetch_example_surf(density=density)[0]).solve(n_modes=n_modes, decomp='cholesky')
+    solver = EigenSolver(fetch_example_surf(density=density)[0]).solve(n_modes=n_modes)
     print(f"Time to solve eigenmodes: {time.time() - tic:.5f} seconds.")
 
     test_data = np.random.default_rng().normal(size=(solver.n_verts, n_maps))

@@ -15,7 +15,7 @@ n_nulls = 20
 def solver():
     """Initialise solver and solve for eigenmodes, which will be used for all tests."""
     mesh, _ = fetch_example_surf(density=density, hemi=hemi, surf_type='sphere')
-    return EigenSolver(mesh).solve(n_modes=n_modes, decomp='cholesky')
+    return EigenSolver(mesh).solve(n_modes=n_modes)
 
 # These are the main parameters which will exactly preserve PSD. For example, `resample='exact'`
 # will not.

@@ -25,7 +25,7 @@ residual_options = [None, 'permute'] # skip add for convenience as it has no ran
 @pytest.fixture(scope='module')
 def solver(seed=None):
     mesh, medmask = fetch_example_surf(density=density)
-    return EigenSolver(mesh, mask=medmask).solve(n_modes=n_modes, seed=seed, decomp='cholesky')
+    return EigenSolver(mesh, mask=medmask).solve(n_modes=n_modes, seed=seed)
 
 @pytest.fixture(scope='module')
 def test_data(solver):
@@ -277,7 +277,7 @@ def test_compared_to_original_seed_outside(nulls_orig):
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls
-    solver = EigenSolver(mesh, mask=medmask).solve(n_modes, set_emode1=True, decomp='cholesky')
+    solver = EigenSolver(mesh, mask=medmask).solve(n_modes, set_emode1=True)
     np.random.seed(seed)            # matches original seed=seed 
     nulls_neuromodes = eigenstrap(
         emodes=solver.emodes,
@@ -323,7 +323,7 @@ def test_compared_to_original_seed_inside(nulls_orig):
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls
-    solver = EigenSolver(mesh, mask=medmask).solve(n_modes, set_emode1=True, decomp='cholesky')
+    solver = EigenSolver(mesh, mask=medmask).solve(n_modes, set_emode1=True)
     nulls_neuromodes = eigenstrap(
         emodes=solver.emodes,
         evals=solver.evals,
