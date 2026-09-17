@@ -4,18 +4,23 @@ geometric eigenmodes.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING, overload
 from warnings import warn
+
 import numpy as np
+
 from neuromodes.eigen import EigenData
-from neuromodes.stats import lstsqw, cdistw, _process_vertex_areas
+from neuromodes.stats import _process_vertex_areas, cdistw, lstsqw
 
 if TYPE_CHECKING:
-    from typing import Any, TypeAlias, Literal
     from collections.abc import Sequence
+    from typing import Any, Literal, TypeAlias
+
     from numpy.typing import NDArray
     from scipy.sparse import csc_matrix
     from scipy.spatial.distance import _MetricCallback, _MetricKind
+
     from neuromodes.eigen import _CheckKind
 
     _IntSequenceKind: TypeAlias = Sequence[int] | NDArray[np.integer]

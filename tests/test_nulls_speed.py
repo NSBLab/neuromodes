@@ -1,6 +1,8 @@
-import pytest
 import time
+
 import numpy as np
+import pytest
+
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
 

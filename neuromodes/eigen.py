@@ -3,25 +3,29 @@ Module for computing geometric eigenmodes of brain structures from surface meshe
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from dataclasses import dataclass
-from lapy import Solver
+
 import numpy as np
+from lapy import Solver
+
 from neuromodes.io import read_surf
-from neuromodes.mesh import mask_mesh, check_surf
+from neuromodes.mesh import check_surf, mask_mesh
 
 if TYPE_CHECKING:
     from pathlib import Path
     from typing import Any, Literal, TypeAlias
+
     from lapy import TriaMesh
     from nibabel.gifti.gifti import GiftiImage
     from numpy.random import Generator
     from numpy.typing import NDArray
     from scipy.sparse import csc_matrix
 
-    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
     from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
+    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
 
 class EigenSolver(Solver):
     """
@@ -576,10 +580,10 @@ def align_basis(
     numpy.ndarray
         The aligned basis vectors array of shape ``(n_verts, n_modes)``.
     """
-    emodes = EigenData(emodes=emodes, checks=checks).emodes
+    emodes = EigenData(data=emodes, checks=checks).data
    
     # Flip modes where the first element is negative
-    return emodes * np.copysign(1, np.sign(np.asarray(emodes)[0, :]))
+    return emodes * np.copysign(1, np.sign(emodes[0, :]))
 
 def is_orthonormal_basis(
     emodes: NDArray[np.floating],
@@ -706,9 +710,8 @@ class EigenData:
         if evals is not _MISSING:
             if evals is not None:
                 evals = np.asarray_chkfinite(evals)
-                if check_shape: 
-                    if emodes is not None and evals.shape != (emodes.shape[1],):
-                        raise ValueError(f"evals must have shape (n_modes,) = ({emodes.shape[1]},).")
+                if check_shape and emodes is not None and evals.shape != (emodes.shape[1],):
+                    raise ValueError(f"evals must have shape (n_modes,) = ({emodes.shape[1]},).")
                 if check_evals:
                     if (evals[1:] <= 0).any():
                         warn("Non-positive eigenvalues detected (beyond first eigenvalue). This "
@@ -722,16 +725,18 @@ class EigenData:
         # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
         if mass is not _MISSING:
             all_inputs.append('mass')
-            if mass is not None and check_shape:
-                if mass.ndim != 2 or mass.shape[0] != mass.shape[1]: # type: ignore[union-attr]
-                    raise ValueError("mass must be a square matrix.")
+            if mass is not None and check_shape and (
+                mass.ndim != 2 or mass.shape[0] != mass.shape[1]
+                ):
+                raise ValueError("mass must be a square matrix.")
             _set('mass', mass)
 
         if stiffness is not _MISSING:
             all_inputs.append('stiffness')
-            if stiffness is not None and check_shape:
-                if stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]: # type: ignore[union-attr]
-                    raise ValueError("stiffness must be a square matrix.")
+            if stiffness is not None and check_shape and (
+                stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]
+                ):
+                raise ValueError("stiffness must be a square matrix.")
             _set('stiffness', stiffness)
 
         # TODO: consider removing, data can just accept a list of arrays instead
@@ -739,9 +744,8 @@ class EigenData:
             all_inputs.append('hetero')
             if hetero is not None:
                 hetero = np.asarray_chkfinite(hetero)
-                if check_shape:
-                    if hetero.ndim != 1:
-                        raise ValueError("hetero must have shape (n_verts,).")
+                if check_shape and hetero.ndim != 1:
+                    raise ValueError("hetero must have shape (n_verts,).")
             _set('hetero', hetero)
 
         n_verts = None

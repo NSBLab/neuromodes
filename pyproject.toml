@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 testing = [
     "pytest>=8.4.2",
+    "neuromodes[cache]",
 ]
 tutorials = [
     "ipykernel>=6.31.0",

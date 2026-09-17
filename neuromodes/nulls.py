@@ -5,17 +5,21 @@ This module provides functions for generating null brain maps that preserve spat
 autocorrelation structure through random rotation of geometric eigenmodes.
 """
 from __future__ import annotations
-from typing import Literal, TYPE_CHECKING
+
+from typing import TYPE_CHECKING, Literal
 from warnings import warn
+
 import numpy as np
 from scipy.stats import special_ortho_group
+
 from neuromodes.basis import decompose
 from neuromodes.eigen import EigenData, get_eigengroup_inds
 from neuromodes.stats import meanw, stdw
 
 if TYPE_CHECKING:
-    from scipy.sparse import csc_matrix
     from numpy.typing import NDArray
+    from scipy.sparse import csc_matrix
+
     from neuromodes.basis import _DecompositionKind
     from neuromodes.eigen import _CheckKind
 

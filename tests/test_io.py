@@ -2,11 +2,19 @@ import os
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
-from lapy import TriaMesh
+
 import numpy as np
+from lapy import TriaMesh
 from pytest import raises
-from neuromodes.io import read_surf, fetch_example_surf, fetch_example_map, _cache_output
+
+from neuromodes.io import (
+    _cache_output,
+    fetch_example_map,
+    fetch_example_surf,
+    read_surf,
+)
 from neuromodes.mesh import check_surf
+
 
 def test_fetch_example_surf():
     for hemi in ['L', 'R']:
@@ -135,6 +143,6 @@ def test_cache_output_caches_result(tmp_path):
 
 def test_caching_no_joblib():
     # Mock the import of joblib to raise ImportError
-    with patch.dict('sys.modules', {'joblib': None}):
-        with raises(ImportError, match="joblib is required for caching"):
+    with (patch.dict('sys.modules', {'joblib': None}),
+          raises(ImportError, match="joblib is required for caching")):
             _cache_output(lambda x: x)

@@ -1,10 +1,12 @@
 from pathlib import Path
-import pytest
+
 import numpy as np
-from scipy.sparse import csc_matrix, eye
+import pytest
 from packaging import version
+from scipy.sparse import csc_matrix, eye
+
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_example_surf, fetch_example_map
+from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.nulls import eigenstrap
 
 # Params

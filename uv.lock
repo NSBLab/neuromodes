@@ -895,6 +895,7 @@ cache = [
     { name = "joblib" },
 ]
 testing = [
+    { name = "joblib" },
     { name = "pytest" },
 ]
 tutorials = [
@@ -909,6 +910,7 @@ requires-dist = [
     { name = "joblib", marker = "extra == 'cache'", specifier = ">=1.5.3" },
     { name = "lapy", specifier = ">=1.6.0" },
     { name = "matplotlib", marker = "extra == 'tutorials'", specifier = ">=3.9.4" },
+    { name = "neuromodes", extras = ["cache"], marker = "extra == 'testing'" },
     { name = "nibabel", specifier = ">=5.2.1" },
     { name = "nsbutils", marker = "extra == 'tutorials'", git = "https://github.com/NSBLab/nsbutils.git?rev=dev" },
     { name = "numpy", specifier = ">=1.24.4" },

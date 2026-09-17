@@ -3,17 +3,18 @@ Module for validating and manipulating meshes of brain structures.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 import numpy as np
 
 if TYPE_CHECKING:
     from lapy import TriaMesh
-    from numpy import floating, bool_
     from numpy.typing import NDArray
 
 def mask_mesh(
     geometry: TriaMesh,
-    mask: NDArray[bool_]
+    mask: NDArray[np.bool_]
 ) -> TriaMesh:
     """
     Remove specified vertices and corresponding faces from a triangular surface mesh. Note that this
@@ -58,10 +59,10 @@ def mask_mesh(
     return geometry.__class__(v=v_masked, t=t_masked)
 
 def unmask_data(
-    data: NDArray[floating],
-    mask: NDArray[bool_],
+    data: NDArray[np.floating],
+    mask: NDArray[np.bool_],
     fill_value: float = np.nan
-) -> NDArray[floating]:
+) -> NDArray[np.floating]:
     """
     Unmasks data by inserting it into a full array with the same length as the medial wall mask.
 

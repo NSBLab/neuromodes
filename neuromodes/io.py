@@ -3,16 +3,20 @@ Module for loading surface meshes and maps, as well as setting up caching.
 """
 
 from __future__ import annotations
-from importlib.resources import files, as_file
+
+from importlib.resources import as_file, files
+from importlib.util import find_spec
 from os import getenv
 from pathlib import Path
-from typing import Tuple, cast, TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
 from lapy import TriaMesh
 from nibabel.gifti.gifti import GiftiImage
 from nibabel.loadsave import load
 
 if TYPE_CHECKING:
-    from typing import Callable
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
 
 fs_extensions = ('.white', '.pial', '.inflated', '.orig', '.sphere', '.smoothwm', '.qsphere',
@@ -74,7 +78,7 @@ def read_surf(
                 f'(.gii), and FreeSurfer files ({", ".join(fs_extensions)})'
             )
     else:
-        raise ValueError(
+        raise TypeError(
             'surf must be a path (str or Path) to a valid VTK (.vtk), GIFTI (.gii), or Freesurfer'
             f'file {fs_extensions}, an instance of nibabel.GiftiImage or lapy.TriaMesh, or a '
             "dictionary of 'faces' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
@@ -89,7 +93,7 @@ def fetch_example_surf(
     hemi: str = 'L',
     surf_type: str = 'midthickness',
     template: str = 'fsLR'
-) -> Tuple[TriaMesh, NDArray]:
+) -> tuple[TriaMesh, NDArray]:
     """
     Load a cortical triangular surface mesh and medial wall mask from the included package data. For
     a list of available surfaces, see ``neuromodes/data/included_data.csv`` or
@@ -224,12 +228,15 @@ def _cache_output(
     ImportError
         If ``joblib`` is not installed.
     """
-    try:
-        from joblib import Memory
-    except ImportError:
-        raise ImportError("joblib is required for caching. Neuromodes can be installed with the "
-                          "'cache' extra to include joblib as a dependency (e.g., pip install "
-                          "neuromodes[cache]).")
+    # Check for and import joblib
+    if find_spec("joblib") is None:
+        raise ImportError(
+            "joblib is required for caching. Neuromodes can be installed with the 'cache' extra to "
+            "include joblib as a dependency (e.g., pip install neuromodes[cache])."
+        )
+    from joblib import Memory
+
+    # Set up cache directory
     if cache_dir is None:
         cache_dir = getenv("CACHE_DIR")
         if cache_dir is None:
@@ -239,4 +246,5 @@ def _cache_output(
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Return cached version of the function
     return Memory(cache_dir, verbose=0).cache(function)

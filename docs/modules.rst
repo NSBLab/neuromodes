@@ -88,8 +88,10 @@ API Reference
    :toctree: generated/
 
    sim_nft_waves
+   calc_nft_wave_speed
+   calc_nft_mode_freqs
+   calc_nft_fc
    balloon_model
-   calc_wave_speed
 
 .. _ref_network:
 
