@@ -150,12 +150,12 @@ def meanw(
         The area-weighted mean of shape ``(n_maps,)`` if ``keepdims=False``, or ``(1, n_maps)`` if
         ``keepdims=True``.
     """
-    ved = EigenData(data=data, mass=mass)  # FIXME: areas vector
+    ved = EigenData(data=data, mass=mass)
     data, mass = ved.data, ved.mass
 
     areas = _mass_to_areas(mass, data.shape[0])
     out = np.average(data, axis=0, weights=areas)
-    return out[None, :] if keepdims else out  # TODO: test for data.ndim /= 2 cases
+    return out[None, :] if keepdims else out
 
 def demeanw(
     data: NDArray[np.floating],
@@ -210,7 +210,7 @@ def varw(
 
     B = demeanw(data, mass)
     out = ssqw(B, mass) / mass.sum()
-    return out[None, :] if keepdims else out  # TODO: test for data.ndim /= 2 cases
+    return out[None, :] if keepdims else out
 
 def momentw(
     data: NDArray[np.floating],

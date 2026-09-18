@@ -73,7 +73,7 @@ def decompose(
     mass: csc_matrix | None = None,
     mode_counts: _IntSequenceKind | int | None = None,
     mode_ids: _SeqSequenceKind | None = None,
-    checks: _CheckKind | None = True,  
+    checks: _CheckKind | None = None,  
 ) -> NDArray[np.floating] | list[NDArray[np.floating]]:
     """
     Calculate the decomposition of the given data onto a basis set.
@@ -81,7 +81,7 @@ def decompose(
     Parameters
     ----------
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
         vertices and additional axes represent maps to be decomposed independently. E.g.,
         ``data`` could be a single map of shape ``(n_verts,)`` or multiple maps of shape
         ``(n_verts, n_maps)`` or multiple maps for different subjects of shape 
@@ -107,7 +107,7 @@ def decompose(
         The indices of the modes to be used for reconstruction, overriding ``mode_counts``. If
         ``None``, all modes are used. Default is ``None``.
     checks : str or bool, optional
-        Whether to validate arguments prior to analysis. Default is ``True``.
+        Whether to validate arguments prior to analysis. Default is ``None``.
 
     Returns
     -------
@@ -221,7 +221,7 @@ def reconstruct(
         The basis vectors array of shape ``(n_verts, n_modes)``, where ``n_modes`` is the number of
         vectors.
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
         vertices and additional axes represent maps to be decomposed independently. If ``None``,
         ``coeffs`` must be provided. Default is ``None``.
     coeffs : array-like, optional
@@ -319,39 +319,46 @@ def calc_recon_error(
     **cdist_kwargs
 ) -> NDArray[np.floating]:
     """
-    Calculate the reconstruction error between the given data and its reconstruction.
+    Calculate the reconstruction error between the given data and each reconstruction, using the
+    specified metric.
 
     Parameters
     ----------
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number 
-        of vertices and additional axes represent maps to be decomposed independently.
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number 
+        of vertices and additional axes represent maps.
     recon : array-like
         The reconstructed data array of shape ``(n_verts, ..., n_recons)``, where ``n_recons`` 
         is the number of different reconstructions ordered in ``mode_counts`` (see 
-        :func:`basis.decompose`). Each slice is the independent reconstruction of each map.
+        :func:`basis.decompose`). Each slice contains the independent reconstruction(s) of each the
+        corresponding map in ``data``.
     mass : array-like, optional
         The mass matrix of shape ``(n_verts, n_verts)``. If vectors are orthonormal in 
         Euclidean space, leave as ``None``. See :func:`eigen.is_orthonormal_basis` for more 
         details. Default is ``None``.
     metric : str or callable, optional
-        The distance metric to use for calculating reconstruction error. See 
-        :func:`stats.cdistw` for options. Default is ``'correlation'``.
+        The distance metric to use for calculating reconstruction error. Can be any metric accepted
+        by ``scipy.spatial.distance.cdist``, or a custom metric function. Default is
+        ``'correlation'``.
     checks : str or bool, optional
         Whether to validate arguments prior to analysis. Default is ``'maps'``.
+    **cdist_kwargs
+        Additional keyword arguments to be passed to ``scipy.spatial.distance.cdist`` when
+        calculating reconstruction error.
 
     Returns
     -------
     recon_error : numpy.ndarray
-        The reconstruction error array of shape ``(..., n_recons)``, where ``n_recons`` is
-        the number of different reconstructions ordered in ``mode_counts``. Each slice is
-        the independent reconstruction error of each map.
+        The reconstruction error array of shape ``(..., n_recons)``, where ``n_recons`` is the
+        number of different reconstructions ordered in ``mode_counts``. Each slice contains the
+        error(s) of the corresponding map in ``data``.
 
     Raises
     ------
     ValueError
-        If the input arrays have incompatible shapes.
+        If ``data`` and ``recon`` have incompatible shapes.
     """
+
     # Format / validate checks
     if checks is not False: 
         ved = EigenData(mass=mass, data=(data, recon), checks=checks)
