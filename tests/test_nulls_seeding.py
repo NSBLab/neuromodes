@@ -38,7 +38,7 @@ def nulls_orig():
     # Hardcoded params matching both tests
     res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     
     test_data = Path(__file__).parent / 'test_data'
     
@@ -49,7 +49,7 @@ def nulls_orig():
     else:
         scipy_version = '1.16.0'
     
-    nulls_file = test_data / f"sp-human_tpl-fsLR_den-{res}_hemi-{hemi}_{surf_type}_eigenstrap-nulls-orig_scipy={scipy_version}.npy"
+    nulls_file = test_data / f"sp-human_tpl-fsLR_den-{res}_hemi-{hemi}_{structure}_eigenstrap-nulls-orig_scipy={scipy_version}.npy"
         
     return np.load(nulls_file)
 
@@ -265,14 +265,14 @@ def test_compared_to_original_seed_outside(nulls_orig):
     # These parameters are hard coded to match data saved in the repo and should not be changed
     res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     n_modes = 10**2
     n_nulls = 100
     seed = 365
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_example_surf(res=res, hemi=hemi, surf_type=surf_type)
+    mesh, medmask = fetch_example_surf(structure=structure, res=res, hemi=hemi)
     map = fetch_example_map(data, res=res)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
@@ -311,14 +311,14 @@ def test_compared_to_original_seed_inside(nulls_orig):
     # These parameters are hard coded to match data saved in the repo and should not be changed
     res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     n_modes = 10**2
     n_nulls = 100
     seed = 365
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_example_surf(res=res, hemi=hemi, surf_type=surf_type)
+    mesh, medmask = fetch_example_surf(structure=structure, res=res, hemi=hemi)
     map = fetch_example_map(data, res=res)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 

@@ -46,7 +46,7 @@ class EigenSolver(Solver):
         ``.fsaverage``
         - An instance of ``GiftiImage``, ``lapy.TriaMesh``, or ``lapy.TetMesh``
         - A dictionary with two keys: ``'vertices'``, referencing a ``(n_verts, 3)``-shape array of
-        vertex coordinates, and ``'faces'``, referencing a ``(n_faces, 3)``- or ``(n_faces,
+        vertex coordinates, and ``'cells'``, referencing a ``(n_cells, 3)``- or ``(n_cells,
         4)``-shape array of vertex indices in each triangle (surfaces) or tetrahedron (volumes),
         respectively
     mask : array-like, optional
@@ -245,7 +245,8 @@ class EigenSolver(Solver):
         # For the LBO to be SPSD, hetero must be non-negative
         if hetero is not None and np.any(hetero < 0):
             warn("hetero contains negative values, which may result in negative Laplace-Beltrami "
-                 "eigenvalues. It is recommended that heterogeneity maps are first rescaled (e.g., via )")
+                 "eigenvalues. It is recommended that heterogeneity maps are first rescaled (e.g., via " \
+                 "neuromodes.stats.sigmoid_rescale) to be non-negative.")
 
         # Cache validation
         if not np.array_equal(hetero, self._hetero):
@@ -275,8 +276,9 @@ class EigenSolver(Solver):
                     self._stiffness, self._mass = self._fem_tetra(self.geometry, lump)
                 else:
                     # Isotropic volumetric FEM (LaPy has no Solver._fem_tetra_aniso, so use our own)
-                    self._stiffness, self._mass = _fem_tetra_hetero(self.geometry, self.hetero,
-                                                                    lump)
+                    self._stiffness, self._mass = _fem_tetra_hetero(
+                        self.geometry, self.hetero, lump
+                    )
             else:  # surface
                 if self.hetero is None:
                     self._stiffness, self._mass = self._fem_tria(self.geometry, lump)
@@ -293,8 +295,9 @@ class EigenSolver(Solver):
                     hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
 
                     # Compute FEM matrices under heterogeneous LBO
-                    self._stiffness, self._mass = self._fem_tria_aniso(self.geometry, u1, u2,
-                                                                       hetero_mat, lump)
+                    self._stiffness, self._mass = self._fem_tria_aniso(
+                        self.geometry, u1, u2, hetero_mat, lump
+                    )
         return self
 
     def solve(
@@ -334,7 +337,7 @@ class EigenSolver(Solver):
             Default is ``True``.
         align_emodes : bool, optional
             Whether to ensure that each eigenmode has a positive first element by flipping its sign
-            if necessary. Note that since these signs are arbitrary, this can be useful for
+            if necessary. Note that since these signs are arbitrary but this can be useful for
             visualization. Default is ``True``.
         sigma : float, optional
             Shift-invert parameter to speed up the computation of eigenvalues close to this value.
@@ -440,9 +443,9 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.basis.decompose`. Note that ``emodes``, ``mass``,
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.basis import decompose
+        from neuromodes.basis import decompose as _decompose
     
-        return decompose(
+        return _decompose(
             data=data,
             emodes=self.emodes,
             mass=self.mass,
@@ -459,9 +462,9 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.basis.reconstruct`. Note that ``emodes``, ``mass``,
         and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.basis import reconstruct
+        from neuromodes.basis import reconstruct as _reconstruct
             
-        return reconstruct(
+        return _reconstruct(
             data=data,
             emodes=self.emodes,
             mass=self.mass,
@@ -469,19 +472,19 @@ class EigenSolver(Solver):
             **kwargs
         )
     
-    def recon_error(
+    def calc_recon_error(
         self,
         data: NDArray[np.floating],
         recon: NDArray[np.floating],
         **kwargs
     ) -> NDArray[np.floating]:
         """
-        This is a wrapper for :func:`~neuromodes.basis.recon_error`. Note that ``mass`` and
+        This is a wrapper for :func:`~neuromodes.basis.calc_recon_error`. Note that ``mass`` and
         ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.basis import recon_error
+        from neuromodes.basis import calc_recon_error as _calc_recon_error
             
-        return recon_error(
+        return _calc_recon_error(
             data=data,
             recon=recon,
             mass=self.mass,
@@ -497,9 +500,9 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.network.compute_gem`. Note that ``emodes``,
         ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.network import compute_gem
+        from neuromodes.network import compute_gem as _compute_gem
 
-        return compute_gem(
+        return _compute_gem(
             emodes=self.emodes,
             evals=self.evals,
             checks=False,
@@ -515,9 +518,9 @@ class EigenSolver(Solver):
         ``evals``, ``mass``, ``hetero``, and ``checks`` are passed automatically by the
         ``EigenSolver`` instance.
         """
-        from neuromodes.waves import sim_nft_waves
+        from neuromodes.waves import sim_nft_waves as _sim_nft_waves
 
-        return sim_nft_waves(
+        return _sim_nft_waves(
             emodes=self.emodes,
             evals=self.evals,
             mass=self.mass,
@@ -537,9 +540,9 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.waves.balloon_model`. Note that ``emodes``,
         ``mass``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.waves import balloon_model
+        from neuromodes.waves import balloon_model as _balloon_model
 
-        return balloon_model(
+        return _balloon_model(
             activity=activity,
             dt=dt,
             emodes=self.emodes,
@@ -557,9 +560,9 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.nulls.eigenstrap`. Note that `emodes`, `evals`,
         `mass`, and `checks` are passed automatically by the `EigenSolver` instance.
         """
-        from neuromodes.nulls import eigenstrap
+        from neuromodes.nulls import eigenstrap as _eigenstrap
 
-        return eigenstrap(
+        return _eigenstrap(
             data=data,
             emodes=self.emodes,
             evals=self.evals,
@@ -577,12 +580,12 @@ class EigenSolver(Solver):
         This is a wrapper for :func:`~neuromodes.mesh.unmask_data`. Note that ``mask`` is passed
         automatically by the ``EigenSolver`` instance.
         """
-        from neuromodes.mesh import unmask_data
+        from neuromodes.mesh import unmask_data as _unmask_data
 
         if self.mask is None:
             raise ValueError("No mask found. This method is only applicable for masked meshes.")
 
-        return unmask_data(
+        return _unmask_data(
             data=data,
             mask=self.mask,
             **kwargs
@@ -649,7 +652,7 @@ def is_orthonormal_basis(
 
     Notes
     -----
-    Under discretization, the set of eigenmodes ``x`` for any generalized eigenvalue problem ``A @
+    Under discretization, the set of eigenmodes ``emodes`` for any generalized eigenvalue problem ``A @
     emodes = - evals * mass @ emodes`` is expected to be mass-orthonormal, rather than Euclidean
     orthonormal. It follows that the first eigenmode is a constant ``1/sqrt(sum(mass))``, but
     precision error during computation can introduce spurious spatial deviations. Since
@@ -697,8 +700,8 @@ def _fem_tetra_hetero(
     lump: bool = False
 ) -> tuple[csc_matrix, csc_matrix]:
     """
-    This function is a copy of `lapy.solver.Solver._fem_tetra`, modified to incorporate
-    heterogeneity. For a `hetero` of ones, output is identical to LaPy's `_fem_tetra` method.
+    This function is a copy of ``lapy.solver.Solver._fem_tetra``, modified to incorporate
+    heterogeneity. For a ``hetero`` of ones, output is identical to LaPy's ``_fem_tetra`` method.
     """        
     # Compute vertex coordinates and a difference vector for each triangle:
     t1 = geometry.t[:, 0]

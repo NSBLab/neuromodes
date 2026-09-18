@@ -16,14 +16,14 @@ def test_mask_surf():
         [1, 0, 1]
     ])
 
-    faces = np.array([
+    cells = np.array([
         [0, 1, 2],
         [0, 2, 3],
         [1, 2, 4],
         [1, 3, 5]
     ])
 
-    vol = TriaMesh(v=verts, t=faces)
+    vol = TriaMesh(v=verts, t=cells)
 
     mask = np.array([True, True, True, True, False, False])
 
@@ -36,9 +36,9 @@ def test_mask_surf():
 def test_surf_unreferenced_verts():
     # Create an invalid surface mesh with unreferenced vertices
     vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [2, 2, 2]])  # Last vertex unreferenced
-    faces = np.array([[0, 1, 2], [0, 2, 3]])  # Only uses first 4 vertices, vertex 4 is unreferenced
+    cells = np.array([[0, 1, 2], [0, 2, 3]])  # Only uses first 4 vertices, vertex 4 is unreferenced
     
-    invalid_mesh = TriaMesh(v=vertices, t=faces)
+    invalid_mesh = TriaMesh(v=vertices, t=cells)
    
     # check_surf should raise ValueError due to unreferenced vertex
     with raises(ValueError, match="Surface mesh contains .* unreferenced"):
@@ -47,8 +47,8 @@ def test_surf_unreferenced_verts():
 def test_surf_not_contiguous():
     # Create two separate triangles (disconnected components)
     vertices = np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [2, 0, 0], [3, 0, 0], [2, 1, 0]])
-    faces = np.array([[0, 1, 2], [3, 4, 5]])  # Two separate triangles
-    disconnected_mesh = TriaMesh(v=vertices, t=faces)
+    cells = np.array([[0, 1, 2], [3, 4, 5]])  # Two separate triangles
+    disconnected_mesh = TriaMesh(v=vertices, t=cells)
     
     # check_surf should raise ValueError due to multiple components
     with raises(ValueError, match="Surface mesh is not contiguous.*connected components"):

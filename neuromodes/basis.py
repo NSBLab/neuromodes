@@ -82,7 +82,10 @@ def decompose(
     ----------
     data : array-like
         The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
-        vertices and additional axes represent maps to be decomposed independently.
+        vertices and additional axes represent maps to be decomposed independently. E.g.,
+        ``data`` could be a single map of shape ``(n_verts,)`` or multiple maps of shape
+        ``(n_verts, n_maps)`` or multiple maps for different subjects of shape 
+        ``(n_verts, n_maps, n_subjects)``.
     emodes : array-like
         The basis vectors array of shape ``(n_verts, n_modes)``, where ``n_modes`` is the number of
         vectors.
@@ -253,7 +256,7 @@ def reconstruct(
         the number of different reconstructions ordered in ``mode_counts``. Each slice is the
         independent reconstruction of each map. Note that if ``mode_counts`` includes any constant
         vector (e.g., the first geometric eigenmode), the reconstructions will be constant for that
-        value of ``mode_counts`` (this may also result in warnings/nans for ``recon_error``). 
+        value of ``mode_counts`` (this may also result in warnings/nans for :func:`calc_recon_error`). 
     
     Raises
     ------
@@ -307,7 +310,7 @@ def reconstruct(
 
     return recon_nd
 
-def recon_error(
+def calc_recon_error(
     data: NDArray[np.floating],
     recon: NDArray[np.floating],
     mass: csc_matrix | None = None,
@@ -316,7 +319,38 @@ def recon_error(
     **cdist_kwargs
 ) -> NDArray[np.floating]:
     """
-    TODO
+    Calculate the reconstruction error between the given data and its reconstruction.
+
+    Parameters
+    ----------
+    data : array-like
+        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number 
+        of vertices and additional axes represent maps to be decomposed independently.
+    recon : array-like
+        The reconstructed data array of shape ``(n_verts, ..., n_recons)``, where ``n_recons`` 
+        is the number of different reconstructions ordered in ``mode_counts`` (see 
+        :func:`basis.decompose`). Each slice is the independent reconstruction of each map.
+    mass : array-like, optional
+        The mass matrix of shape ``(n_verts, n_verts)``. If vectors are orthonormal in 
+        Euclidean space, leave as ``None``. See :func:`eigen.is_orthonormal_basis` for more 
+        details. Default is ``None``.
+    metric : str or callable, optional
+        The distance metric to use for calculating reconstruction error. See 
+        :func:`stats.cdistw` for options. Default is ``'correlation'``.
+    checks : str or bool, optional
+        Whether to validate arguments prior to analysis. Default is ``'maps'``.
+
+    Returns
+    -------
+    recon_error : numpy.ndarray
+        The reconstruction error array of shape ``(..., n_recons)``, where ``n_recons`` is
+        the number of different reconstructions ordered in ``mode_counts``. Each slice is
+        the independent reconstruction error of each map.
+
+    Raises
+    ------
+    ValueError
+        If the input arrays have incompatible shapes.
     """
     # Format / validate checks
     if checks is not False: 
@@ -346,8 +380,9 @@ def recon_error(
     error_2d_shape = (data_2d.shape[1],) + (n_recons,)
     recon_error_2d = np.empty(error_2d_shape, dtype=data.dtype)
     for i in range(data_2d.shape[1]):
-        recon_error_2d[i, :] = cdistw(data_2d[:, [i]], recon_3d[:, i, :],
-                                      mass=mass, metric=metric, **cdist_kwargs)
+        recon_error_2d[i, :] = cdistw(
+            data_2d[:, [i]], recon_3d[:, i, :], mass=mass, metric=metric, **cdist_kwargs
+        )
 
     recon_error = recon_error_2d.reshape(recon.shape[1:])
     return recon_error

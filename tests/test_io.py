@@ -53,7 +53,7 @@ def test_fetch_invalid_map():
 def test_read_surf_dict():
     surf_data = {
         'vertices': [[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]],
-        'faces': [[0, 1, 2], [1, 2, 3]]
+        'cells': [[0, 1, 2], [1, 2, 3]]
     }
     surf = read_surf(surf_data)
     assert isinstance(surf, TriaMesh)
@@ -75,9 +75,9 @@ def test_read_surf_invalid():
         read_surf(invalid_path)
 
 def test_read_surf_freesurfer():
-    for surf_type in ['inflated', 'orig', 'pial', 'smoothwm', 'sphere', 'white']:
+    for structure in ['inflated', 'orig', 'pial', 'smoothwm', 'sphere', 'white']:
         fs_surf = read_surf(
-            Path(__file__).parent / 'test_data' / f'fsaverage-lh.{surf_type}'
+            Path(__file__).parent / 'test_data' / f'fsaverage-lh.{structure}'
             )
          
         assert isinstance(fs_surf, TriaMesh)
@@ -119,7 +119,7 @@ def test_read_vol_dict():
 
     vol_data = {
         'vertices': verts,
-        'faces': tets
+        'cells': tets
     }
 
     vol = read_vol(vol_data)
@@ -145,7 +145,7 @@ def test_mesh_dict():
     # Volume case
     vol = {
         'vertices': [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
-        'faces': [[0, 1, 2, 3]]
+        'cells': [[0, 1, 2, 3]]
     }
     assert is_vol(vol), "is_vol should return True for a valid volume dictionary"
     vol_tetmesh = read_vol(vol)
@@ -163,7 +163,7 @@ def test_mesh_dict():
     # Wrong shape
     vol_invalid = {
         'vertices': vol['vertices'],
-        'faces': [[0, 1, 2]]  # Should have 4 indices for tetras
+        'cells': [[0, 1, 2]]  # Should have 4 indices for tetras
     }
 
     with raises(IndexError):
@@ -172,7 +172,7 @@ def test_mesh_dict():
     # Surface case
     surf = {
         'vertices': [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
-        'faces': [[0, 1, 2], [0, 2, 3]]
+        'cells': [[0, 1, 2], [0, 2, 3]]
     }
 
     assert not is_vol(surf)
@@ -181,7 +181,7 @@ def test_mesh_dict():
         "read_surf should return a TriaMesh with the correct triangular connectivity"
     check_surf(surf_triamesh)
 
-    # Missing faces
+    # Missing cells
     surf_invalid = {
         'vertices': surf['vertices']
     }
@@ -191,7 +191,7 @@ def test_mesh_dict():
     # Wrong shape
     geom_invalid = {
         'vertices': surf['vertices'],
-        'faces': [[0, 1], [0, 2]]  # Should have 3 or 4 indices for faces
+        'cells': [[0, 1], [0, 2]]  # Should have 3 or 4 indices for cells
     }
     with raises(ValueError, match="Received an invalid dictionary for `geometry`."):
         is_vol(geom_invalid)
