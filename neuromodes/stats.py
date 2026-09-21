@@ -1,16 +1,18 @@
 """
-Mass (or simply area)-weighted adaptations of common statistical functions for spatial maps.
-Conventional functions are equivalent to setting mass to identity, representing a mesh where each
-vertex has Voronoi area/volume of 1.
+Mass (or simply vertex area/volume)-weighted adaptations of common statistical functions for spatial
+maps. Conventional functions are equivalent to setting mass to identity, representing a mesh where
+each vertex has Voronoi area/volume of 1.
 """
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from warnings import warn
-from scipy.spatial.distance import squareform, cdist
-from scipy.sparse import csc_matrix, csr_matrix, spmatrix, diags
+
+import numpy as np
+from scipy.sparse import csc_matrix, csr_matrix, diags, spmatrix
+from scipy.spatial.distance import cdist, squareform
+
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from scipy.spatial.distance import _MetricCallback, _MetricKind
 
 def gramw(
-    data: NDArray[np.floating],
+    data_a: NDArray[np.floating],
     data_b: NDArray[np.floating] | None = None,
     *,
     mass: spmatrix | NDArray[np.floating] | None
@@ -28,7 +30,7 @@ def gramw(
 
     Parameters
     ----------
-    data : array-like
+    data_a : array-like
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
@@ -42,7 +44,7 @@ def gramw(
         The Gram matrix of shape ``(n_maps, n_maps_b)`` if ``data_b`` is provided, or
         ``(n_maps, n_maps)`` if not.
     """
-    ved = EigenData(data=(data, data_b), mass=mass)
+    ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
     mass = _process_vertex_areas(ved.mass, a.shape[0])
 
@@ -230,8 +232,8 @@ def momentw(
     order : int
         The order of the moment to compute.
     keepdims : bool, optional
-        If True, the output will have the same number of dimensions as the input array. Default is
-        False.
+        If ``True``, the output will have the same number of dimensions as the input array. Default is
+        ``False``.
 
     Returns
     -------
@@ -268,8 +270,8 @@ def stdw(
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     keepdims : bool, optional
-        If True, the output will have the same number of dimensions as the input array. Default is
-        False.
+        If ``True``, the output will have the same number of dimensions as the input array. Default is
+        ``False``.
 
     Returns
     -------
@@ -309,13 +311,6 @@ def covw(
 ) -> NDArray[np.floating]:
     """
     Mass-weighted covariance amongst or between brain maps.
-    
-    Usage:
-    - ``covw(A, mass=mass)`` computes covariance of maps ``A`` amongst themselves.
-    - ``covw(A, B, mass=mass)`` computes cross-covariance between maps ``A`` and maps ``B``.
-    
-    Note that this function does not offer Bessel's correction, as mesh vertices are not IID samples
-    and maps typically display spatial autocorrelation.
 
     Parameters
     ----------
@@ -332,6 +327,15 @@ def covw(
     np.ndarray
         The mass-weighted covariance matrix, of shape ``(n_maps, n_maps_b)`` if ``data_b`` is
         provided, or ``(n_maps, n_maps)`` if not.
+
+    Notes
+    -----
+    Usage:
+    - ``covw(A, mass=mass)`` computes covariance of maps ``A`` amongst themselves.
+    - ``covw(A, B, mass=mass)`` computes cross-covariance between maps ``A`` and maps ``B``.
+    
+    Note that this function does not offer Bessel's correction, as mesh vertices are not IID samples
+    and maps typically display spatial autocorrelation.
     """
     a = np.asarray(data)
 
@@ -352,11 +356,6 @@ def vecnormw(
 ) -> NDArray[np.floating]:
     """
     Calculates the mass-weighted L^p norm of each brain map.
-    
-    Cases
-    - ``p=2``: exact, square root of sum of squares
-    - ``p=np.inf``: exact, maximum absolute value (no mass needed)
-    - ``p!=2 and p!=np.inf``: approximate using vertex areas (i.e., lumped mass matrix)
 
     Parameters
     ----------
@@ -374,6 +373,13 @@ def vecnormw(
     -------
     np.ndarray
         The mass-weighted L^p norm of each brain map.
+
+    Notes
+    -----
+    Cases:
+    - ``p=2``: exact, square root of sum of squares
+    - ``p=np.inf``: exact, maximum absolute value (no mass needed)
+    - ``p!=2 and p!=np.inf``: approximate using vertex areas (i.e., lumped mass matrix)
     """
     data = np.asarray(data)
     
@@ -567,9 +573,9 @@ def parcellate(
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum'}, optional
-        The method for aggregating vertex values within each parcel. If 'mean', the function
-        computes the area-weighted mean of each parcel. If 'sum', the function computes the
-        area-weighted sum of each parcel. Default is 'mean'.
+        The method for aggregating vertex values within each parcel. If ``'mean'``, the function
+        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
+        area-weighted sum of each parcel. Default is ``'mean'``.
 
     Returns
     -------
@@ -579,7 +585,7 @@ def parcellate(
     Raises
     ------
     ValueError
-        If ``method`` is not 'mean' or 'sum'.
+        If ``method`` is not ``'mean'`` or ``'sum'``.
     ValueError
         If ``data`` is not 1D or 2D.
     ValueError

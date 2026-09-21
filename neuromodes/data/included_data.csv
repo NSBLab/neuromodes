@@ -1,18 +1,33 @@
-DATA_TYPE,SPECIES,TEMPLATE,DENSITY,HEMI,SOURCE,DOI,DESCRIPTION
-midthickness,Homo sapiens,fsLR,4k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69). Note that the medial wall mask has been updated to correctly mask out all medial wall vertices (num. cortical vertices reduced from 3636 to 3619)
-midthickness,Homo sapiens,fsLR,4k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69). Note that the medial wall mask has been updated to correctly mask out all medial wall vertices (num. cortical vertices reduced from 3636 to 3619)
-midthickness,Homo sapiens,fsLR,32k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69)
-midthickness,Homo sapiens,fsLR,32k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69)
-midthickness,Macaca mulatta,fsLR,32k,L,Donahue et al. (2016) J Neurosci,10.1523/JNEUROSCI.0493-16.2016,Cortical midthickness surface mesh and medial wall mask (Yerkes19)
-midthickness,Macaca mulatta,fsLR,32k,R,Donahue et al. (2016) J Neurosci,10.1523/JNEUROSCI.0493-16.2016,Cortical midthickness surface mesh and medial wall mask (Yerkes19)
-midthickness,Callithrix jacchus,fsLR,32k,L,Hayashi et al. (2021) NeuroImage,10.1016/j.neuroimage.2021.117726,Cortical midthickness surface mesh and medial wall mask (Riken50)
-midthickness,Callithrix jacchus,fsLR,32k,R,Hayashi et al. (2021) NeuroImage,10.1016/j.neuroimage.2021.117726,Cortical midthickness surface mesh and medial wall mask (Riken50)
-sphere,Homo sapiens,fsLR,4k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
-sphere,Homo sapiens,fsLR,4k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
-sphere,Homo sapiens,fsLR,32k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
-sphere,Homo sapiens,fsLR,32k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
-fcgradient1,Homo sapiens,fsLR,32k,L,Margulies et al. (2016) PNAS,10.1073/pnas.1608282113,First functional connectivity gradient derived from resting-state fMRI
-myelinmap,Homo sapiens,fsLR,32k,L,Glasser et al. (2016) Nature,10.1038/nature18933,Myelin map derived from T1w/T2w ratio
-ndi,Homo sapiens,fsLR,32k,L,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Neurite density index derived from NODDI
-odi,Homo sapiens,fsLR,32k,L,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Orientation dispersion index derived from NODDI
-thickness,Homo sapiens,fsLR,32k,L,Glasser et al. (2016) Nature,10.1038/nature18933,Cortical thickness map
+DATA_TYPE,SPECIES,TEMPLATE,RESOLUTION,HEMI,SOURCE,DOI,DESCRIPTION
+midthickness,human (Homo sapiens),fsLR,4k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69). Note that the medial wall mask has been updated to correctly mask out all medial wall vertices (num. cortical vertices reduced from 3636 to 3619)
+midthickness,human (Homo sapiens),fsLR,4k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69). Note that the medial wall mask has been updated to correctly mask out all medial wall vertices (num. cortical vertices reduced from 3636 to 3619)
+midthickness,human (Homo sapiens),fsLR,32k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69)
+midthickness,human (Homo sapiens),fsLR,32k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Cortical midthickness surface mesh and medial wall mask (Conte69)
+midthickness,macaque (Macaca mulatta),fsLR,32k,L,Donahue et al. (2016) J Neurosci,10.1523/JNEUROSCI.0493-16.2016,Cortical midthickness surface mesh and medial wall mask (Yerkes19)
+midthickness,macaque (Macaca mulatta),fsLR,32k,R,Donahue et al. (2016) J Neurosci,10.1523/JNEUROSCI.0493-16.2016,Cortical midthickness surface mesh and medial wall mask (Yerkes19)
+midthickness,marmoset (Callithrix jacchus),fsLR,32k,L,Hayashi et al. (2021) NeuroImage,10.1016/j.neuroimage.2021.117726,Cortical midthickness surface mesh and medial wall mask (Riken50)
+midthickness,marmoset (Callithrix jacchus),fsLR,32k,R,Hayashi et al. (2021) NeuroImage,10.1016/j.neuroimage.2021.117726,Cortical midthickness surface mesh and medial wall mask (Riken50)
+sphere,human (Homo sapiens),fsLR,4k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
+sphere,human (Homo sapiens),fsLR,4k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
+sphere,human (Homo sapiens),fsLR,32k,L,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
+sphere,human (Homo sapiens),fsLR,32k,R,Glasser et al. (2011) J Neurosci,10.1523/JNEUROSCI.2180-11.2011,Mesh inflated to sphere (Conte69)
+fcgradient1,human (Homo sapiens),fsLR,32k,L,Margulies et al. (2016) PNAS,10.1073/pnas.1608282113,First functional connectivity gradient derived from resting-state fMRI
+fcgradient1,human (Homo sapiens),fsLR,32k,R,Margulies et al. (2016) PNAS,10.1073/pnas.1608282113,First functional connectivity gradient derived from resting-state fMRI
+myelinmap,human (Homo sapiens),fsLR,4k,L,Glasser et al. (2016) Nature,10.1038/nature18933,Myelin map derived from T1w/T2w ratio
+myelinmap,human (Homo sapiens),fsLR,4k,R,Glasser et al. (2016) Nature,10.1038/nature18933,Myelin map derived from T1w/T2w ratio
+myelinmap,human (Homo sapiens),fsLR,32k,L,Glasser et al. (2016) Nature,10.1038/nature18933,Myelin map derived from T1w/T2w ratio
+myelinmap,human (Homo sapiens),fsLR,32k,R,Glasser et al. (2016) Nature,10.1038/nature18933,Myelin map derived from T1w/T2w ratio
+ndi,human (Homo sapiens),fsLR,32k,L,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Neurite density index derived from NODDI
+ndi,human (Homo sapiens),fsLR,32k,R,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Neurite density index derived from NODDI
+odi,human (Homo sapiens),fsLR,32k,L,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Orientation dispersion index derived from NODDI
+odi,human (Homo sapiens),fsLR,32k,R,Fukutomi et al. (2018) NeuroImage,10.1016/j.neuroimage.2018.02.017,Orientation dispersion index derived from NODDI
+thickness,human (Homo sapiens),fsLR,32k,L,Glasser et al. (2016) Nature,10.1038/nature18933,Cortical thickness map
+thickness,human (Homo sapiens),fsLR,32k,R,Glasser et al. (2016) Nature,10.1038/nature18933,Cortical thickness map
+isocortex,mouse (Mus musculus),AMBA,200um,L,Wang et al. (2020) Cell,10.1016/j.cell.2020.04.007,Isocortical volume mesh generated by Gajwani et al. (2026) from the Allen Mouse Brain Atlas
+isocortex,mouse (Mus musculus),AMBA,200um,R,Wang et al. (2020) Cell,10.1016/j.cell.2020.04.007,Isocortical volume mesh generated by Gajwani et al. (2026) from the Allen Mouse Brain Atlas
+thalamus,human (Homo sapiens),MNI152,2mm,L,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Left thalamus volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas 
+thalamus,human (Homo sapiens),MNI152,2mm,R,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Right thalamus volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas 
+hippocampus,human (Homo sapiens),MNI152,2mm,L,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Left hippocampus volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas
+hippocampus,human (Homo sapiens),MNI152,2mm,R,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Right hippocampus volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas
+striatum,human (Homo sapiens),MNI152,2mm,L,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Left striatum volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas
+striatum,human (Homo sapiens),MNI152,2mm,R,Frazier et al. (2005) Am J Psychiatry,10.1176/appi.ajp.162.7.1256,Right striatum volume mesh generated by Pang et al. (2023) from the Harvard-Oxford subcortical atlas

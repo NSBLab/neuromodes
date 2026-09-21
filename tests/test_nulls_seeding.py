@@ -1,14 +1,16 @@
 from pathlib import Path
-import pytest
+
 import numpy as np
-from scipy.sparse import csc_matrix, eye
+import pytest
 from packaging import version
+from scipy.sparse import csc_matrix, eye
+
 from neuromodes.eigen import EigenSolver
-from neuromodes.io import fetch_example_surf, fetch_example_map
+from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.nulls import eigenstrap
 
 # Params
-density = '4k'
+res = '4k'
 n_modes = 100 # should be a square number
 n_maps = 3
 n_nulls = 20
@@ -22,7 +24,7 @@ residual_options = [None, 'permute'] # skip add for convenience as it has no ran
 
 @pytest.fixture(scope='module')
 def solver(seed=None):
-    mesh, medmask = fetch_example_surf(density=density)
+    mesh, medmask = fetch_example_surf(res=res)
     return EigenSolver(mesh, mask=medmask).solve(n_modes=n_modes, seed=seed)
 
 @pytest.fixture(scope='module')
@@ -34,9 +36,9 @@ def test_data(solver):
 def nulls_orig():
     """Load original nulls, handling scipy version compatibility."""
     # Hardcoded params matching both tests
-    density = '4k'
+    res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     
     test_data = Path(__file__).parent / 'test_data'
     
@@ -47,7 +49,7 @@ def nulls_orig():
     else:
         scipy_version = '1.16.0'
     
-    nulls_file = test_data / f"sp-human_tpl-fsLR_den-{density}_hemi-{hemi}_{surf_type}_eigenstrap-nulls-orig_scipy={scipy_version}.npy"
+    nulls_file = test_data / f"sp-human_tpl-fsLR_den-{res}_hemi-{hemi}_{structure}_eigenstrap-nulls-orig_scipy={scipy_version}.npy"
         
     return np.load(nulls_file)
 
@@ -261,17 +263,17 @@ def test_reproducibility_number_groups_scipy(solver, test_data, rotation_method,
 
 def test_compared_to_original_seed_outside(nulls_orig): 
     # These parameters are hard coded to match data saved in the repo and should not be changed
-    density = '4k'
+    res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     n_modes = 10**2
     n_nulls = 100
     seed = 365
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_example_surf(density=density, hemi=hemi, surf_type=surf_type)
-    map = fetch_example_map(data, density=density)[medmask]
+    mesh, medmask = fetch_example_surf(structure=structure, res=res, hemi=hemi)
+    map = fetch_example_map(data, res=res)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls
@@ -307,17 +309,17 @@ def test_compared_to_original_seed_outside(nulls_orig):
 
 def test_compared_to_original_seed_inside(nulls_orig): 
     # These parameters are hard coded to match data saved in the repo and should not be changed
-    density = '4k'
+    res = '4k'
     hemi = 'L'
-    surf_type = 'midthickness'
+    structure = 'midthickness'
     n_modes = 10**2
     n_nulls = 100
     seed = 365
     data = 'myelinmap'
 
     # Load data
-    mesh, medmask = fetch_example_surf(density=density, hemi=hemi, surf_type=surf_type)
-    map = fetch_example_map(data, density=density)[medmask]
+    mesh, medmask = fetch_example_surf(structure=structure, res=res, hemi=hemi)
+    map = fetch_example_map(data, res=res)[medmask]
     map = (map - np.mean(map)) # to match original implementation which doesn't use the constant mode
 
     # Compute new nulls

@@ -4,18 +4,23 @@ geometric eigenmodes.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING, overload
 from warnings import warn
+
 import numpy as np
+
 from neuromodes.eigen import EigenData
-from neuromodes.stats import lstsqw, cdistw, _process_vertex_areas
+from neuromodes.stats import _process_vertex_areas, cdistw, lstsqw
 
 if TYPE_CHECKING:
-    from typing import Any, TypeAlias, Literal
     from collections.abc import Sequence
+    from typing import Any, Literal, TypeAlias
+
     from numpy.typing import NDArray
     from scipy.sparse import csc_matrix
     from scipy.spatial.distance import _MetricCallback, _MetricKind
+
     from neuromodes.eigen import _CheckKind
 
     _IntSequenceKind: TypeAlias = Sequence[int] | NDArray[np.integer]
@@ -76,8 +81,11 @@ def decompose(
     Parameters
     ----------
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
-        vertices and additional axes represent maps to be decomposed independently.
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
+        vertices and additional axes represent maps to be decomposed independently. E.g.,
+        ``data`` could be a single map of shape ``(n_verts,)`` or multiple maps of shape
+        ``(n_verts, n_maps)`` or multiple maps for different subjects of shape 
+        ``(n_verts, n_maps, n_subjects)``.
     emodes : array-like
         The basis vectors array of shape ``(n_verts, n_modes)``, where ``n_modes`` is the number of
         vectors.
@@ -213,7 +221,7 @@ def reconstruct(
         The basis vectors array of shape ``(n_verts, n_modes)``, where ``n_modes`` is the number of
         vectors.
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
         vertices and additional axes represent maps to be decomposed independently. If ``None``,
         ``coeffs`` must be provided. Default is ``None``.
     coeffs : array-like, optional
@@ -248,7 +256,7 @@ def reconstruct(
         the number of different reconstructions ordered in ``mode_counts``. Each slice is the
         independent reconstruction of each map. Note that if ``mode_counts`` includes any constant
         vector (e.g., the first geometric eigenmode), the reconstructions will be constant for that
-        value of ``mode_counts`` (this may also result in warnings/nans for ``recon_error``). 
+        value of ``mode_counts`` (this may also result in warnings/nans for :func:`calc_recon_error`). 
     
     Raises
     ------
@@ -302,7 +310,7 @@ def reconstruct(
 
     return recon_nd
 
-def recon_error(
+def calc_recon_error(
     data: NDArray[np.floating],
     recon: NDArray[np.floating],
     mass: csc_matrix | None = None,
@@ -317,16 +325,17 @@ def recon_error(
     Parameters
     ----------
     data : array-like
-        The input data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number of
-        vertices and additional axes represent maps that have been reconstructed.
+        The empirical data array of shape ``(n_verts, ...)``, where ``n_verts`` is the number 
+        of vertices and additional axes represent maps.
     recon : array-like
-        The reconstructed data array of shape ``(n_verts, ..., n_recons)``, where ``n_recons`` is
-        the number of different reconstructions ordered in ``mode_counts``. Each slice contains the
-        reconstruction(s) of the corresponding map in ``data``.
+        The reconstructed data array of shape ``(n_verts, ..., n_recons)``, where ``n_recons`` 
+        is the number of different reconstructions ordered in ``mode_counts`` (see 
+        :func:`basis.decompose`). Each slice contains the independent reconstruction(s) of each the
+        corresponding map in ``data``.
     mass : array-like, optional
-        The mass matrix of shape ``(n_verts, n_verts)``. If vectors are orthonormal in Euclidean
-        space, leave as ``None``. See :func:`eigen.is_orthonormal_basis` for more details. Default
-        is ``None``.
+        The mass matrix of shape ``(n_verts, n_verts)``. If vectors are orthonormal in 
+        Euclidean space, leave as ``None``. See :func:`eigen.is_orthonormal_basis` for more 
+        details. Default is ``None``.
     metric : str or callable, optional
         The distance metric to use for calculating reconstruction error. Can be any metric accepted
         by ``scipy.spatial.distance.cdist``, or a custom metric function. Default is
@@ -378,8 +387,9 @@ def recon_error(
     error_2d_shape = (data_2d.shape[1],) + (n_recons,)
     recon_error_2d = np.empty(error_2d_shape, dtype=data.dtype)
     for i in range(data_2d.shape[1]):
-        recon_error_2d[i, :] = cdistw(data_2d[:, [i]], recon_3d[:, i, :],
-                                      mass=mass, metric=metric, **cdist_kwargs)
+        recon_error_2d[i, :] = cdistw(
+            data_2d[:, [i]], recon_3d[:, i, :], mass=mass, metric=metric, **cdist_kwargs
+        )
 
     recon_error = recon_error_2d.reshape(recon.shape[1:])
     return recon_error

@@ -1,5 +1,6 @@
-import pytest
 import numpy as np
+import pytest
+
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
 from neuromodes.nulls import eigenstrap
@@ -11,7 +12,7 @@ n_maps = 3 # for 2d data
 
 @pytest.fixture(scope='module')
 def solver():
-    mesh, medmask = fetch_example_surf(density='4k')
+    mesh, medmask = fetch_example_surf(res='4k')
     return EigenSolver(mesh, mask=medmask).solve(n_modes=100)
 
 @pytest.fixture(scope='module')
@@ -53,7 +54,7 @@ def test_shape_mismatch_emodes_evals(solver, test_data):
 def test_non_square_modes(test_data):
     """Should handle non-square n_modes by truncating last eigengroup with warning"""
     # Use 8 modes (not a perfect square)
-    mesh, medmask = fetch_example_surf(density='4k')
+    mesh, medmask = fetch_example_surf(res='4k')
     non_square_solver = EigenSolver(mesh, mask=medmask).solve(n_modes=8)
     
     # Should complete with a warning about truncating last eigengroup

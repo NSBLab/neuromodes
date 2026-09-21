@@ -1,17 +1,20 @@
 import os
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
+
 import numpy as np
 import pytest
-from neuromodes.io import fetch_example_surf, fetch_example_map
+
 from neuromodes import EigenSolver
-from neuromodes.stats import zscorew, sigmoid_rescale
-from neuromodes.waves import sim_nft_waves, calc_wave_speed, _gen_noise, _analytical_fc
+from neuromodes.io import fetch_example_map, fetch_example_surf
+from neuromodes.stats import sigmoid_rescale, zscorew
+from neuromodes.waves import _analytical_fc, _gen_noise, calc_wave_speed, sim_nft_waves
+
 
 @pytest.fixture(scope="module")
 def solver():
-    mesh, medmask = fetch_example_surf(density='4k')
-    myelinmap = fetch_example_map(data="myelinmap", density="4k")[medmask]
+    mesh, medmask = fetch_example_surf(res='4k')
+    myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=1.0, upper=2.0)
     return solver.solve(n_modes=100, hetero=hetero)

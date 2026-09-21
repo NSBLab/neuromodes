@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
+
 from neuromodes.network import compute_gem
+
 
 @pytest.fixture(scope='module')
 def emodes():
