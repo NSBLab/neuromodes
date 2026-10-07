@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from warnings import warn
 
 import numpy as np
-from scipy.sparse import csc_matrix, csr_matrix, diags, spmatrix
+from scipy.sparse import csc_matrix, diags, spmatrix
 from scipy.spatial.distance import cdist, squareform
 
 from neuromodes.eigen import EigenData
@@ -588,8 +588,6 @@ def parcellate(
         If ``method`` is not ``'mean'`` or ``'sum'``.
     ValueError
         If ``data`` is not 1D or 2D.
-    ValueError
-        If ``parcellation`` is not 1D.
     """
     # Format / validate arguments
     if method not in ('mean', 'sum'):
@@ -598,35 +596,61 @@ def parcellate(
     ved = EigenData(data=(data, parcellation), mass=mass)
     data, parcellation = ved.data
     n_verts = data.shape[0]
-    areas = _mass_to_areas(ved.mass, n_verts)
-    parcellation = np.asarray(parcellation, dtype=int, copy=True)
+    areas = _process_vertex_areas(ved.mass, n_verts)
     
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")
+
+    # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
+    # output = p.T @ mass @ data; or 
+    # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
+    parc_areas = _parcellation_vector_to_matrix(parcellation).T @ areas
+    if method == 'mean':
+        parc_areas /= parc_areas @ np.ones((n_verts, 1))
+
+    is_data_vec = (data.ndim == 1)
+    data_2d = data[:, np.newaxis] if is_data_vec else data
+    data_parc = parc_areas @ data_2d
+    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+
+def _parcellation_vector_to_matrix(
+    parcellation: NDArray[np.integer]
+) -> csc_matrix:
+    """
+    Converts a parcellation vector to a sparse parcellation matrix.
+
+    Parameters
+    ----------
+    parcellation : array-like
+        The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
+        the parcel ID for the corresponding vertex.
+
+    Returns
+    -------
+    scipy.sparse.csc_matrix
+        The sparse parcellation matrix, of shape ``(n_verts, n_parcels)``.
+
+    Raises
+    ------
+    ValueError
+        If ``parcellation`` is not 1D.
+    """
+    parcellation = np.asarray(parcellation, copy=True) # user has to ensure parc is integer
+
     if parcellation.ndim != 1:
         raise ValueError("Parcellation map must be 1D.")
     
-    parc_ids = np.unique(parcellation)
-    n_parcels = len(parc_ids)
-    is_data_vec = (data.ndim == 1)
-    data_2d = data[:, np.newaxis] if is_data_vec else data
-
+    n_verts = parcellation.shape[0]
+    mask = parcellation >= 0 # medial wall should be negative
+    
     # Construct sparse parcellation matrix as (n_parcels, n_verts)
-    parc_mat = csr_matrix(
-        (np.ones(n_verts),
-         (parcellation, np.arange(n_verts))),
-        shape=(n_parcels, n_verts)
+    parc_mat = csc_matrix(
+        (np.ones(np.sum(mask)),
+         (np.arange(n_verts)[mask], parcellation[mask])),
+        shape=(n_verts, np.max(parcellation)+1)
         )
-
-    # Adjust parcellation matrix for vertex areas
-    parc_areas = parc_mat @ areas
-    parc_mat = parc_mat.multiply(areas)
-    if method == 'mean':
-        parc_mat /= parc_areas[:, np.newaxis]
-
-    # Apply parcellation matrix to data
-    data_parc = parc_mat @ data_2d
-    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+    
+    return parc_mat
 
 def sigmoid_rescale(
     data: NDArray[np.floating],
