@@ -18,7 +18,7 @@ def compute_gem(
     mass: spmatrix | NDArray[np.floating] | None = None,
     r: float = 9.53,
     k: int = 108,
-    euclidean_pinv: bool = False,
+    weighted_pinv: bool = True,
     checks: _CheckKind = 'shape'
 ) -> NDArray[np.floating]:
     """
@@ -36,13 +36,12 @@ def compute_gem(
     k : int, optional
         Number of eigenmodes to use. Default is ``108``.
     mass : spmatrix | NDArray[np.floating] | None, optional
-        The mass matrix of shape ``(n_verts, n_verts)``. If ``euclidean_pinv`` is ``True``, this
+        The mass matrix of shape ``(n_verts, n_verts)``. If ``weighted_pinv`` is ``False``, this
         parameter is ignored. If ``None``, the identity matrix is used. Default is ``None``.
-    euclidean_pinv : bool, optional
-        Whether to use the Euclidean pseudo-inverse of the eigenmodes (equivalent to ``(emodes[:,
-        :k].T @ emodes[:, :k])**(-1) @ emodes[:, :k].T``). This matches the original implementation
-        [1]_ but does not account for mesh irregularities. If ``False``, uses the mass-weighted
-        pseudo-inverse (``emodes[:, :k].T @ mass``). Default is ``False``.
+    weighted_pinv : bool, optional
+        Whether to incorporate mass-weighting when computing the pseudoinverse of eigenmodes (see
+        Notes). This accounts for mesh irregularities but differs from the original implementation
+        [1]_. Default is ``True``.
     checks : bool, optional
         Whether to validate types and shapes of ``emodes``, ``evals``, and ``mass`` before
         computation. Default is ``True``.
@@ -72,6 +71,23 @@ def compute_gem(
     While the model can be computed using non-cortical modes, users should consider whether this is
     theoretically sensible and physiologically plausible.
 
+    In Euclidean space, the pseudoinverse of a matrix A (with full column rank) is given by A⁺ =
+    (AᵀA)⁻¹Aᵀ. For a linear system Ax = b, x = A⁺b minimizes the Euclidean L2 norm of the residuals,
+    (b - Ax)ᵀ(b - Ax). However, since this vector is defined on a discrete manifold (e.g., a
+    cortical map), the L2 norm becomes the mass-weighted inner product (b - Ax)ᵀM(b - Ax), where M
+    is the mass matrix. The pseudoinverse must therefore adjust accordingly to minimize this
+    mass-weighted L2 norm. Its formula can be derived from the property of the residuals vector
+    being mass-orthogonal to all columns of A:
+
+    AᵀM(b - Ax) = 0
+         AᵀMb = AᵀMAx
+            x = (AᵀMA)⁻¹AᵀMb
+              = A⁺b
+           A⁺ = (AᵀMA)⁻¹AᵀM
+    
+    For an orthonormal basis Ψ (e.g., eigenmodes), this simplifies to Ψ⁺ = ΨᵀM, which is used when
+    ``weighted_pinv`` is ``True``.
+
     References
     ----------
     ..  [1] Normand, F., et al. (2025). Geometric constraints on the architecture of mammalian
@@ -90,22 +106,20 @@ def compute_gem(
         raise ValueError(f"Parameter k must be an integer in the range [1, n_modes = {n_modes}].")
 
     # Compute pseudoinverse of eigenmodes
-    if euclidean_pinv:
-        pinv = np.linalg.pinv(emodes[:, :k])
-    elif mass is None:
-        pinv = emodes[:, :k].T
+    if weighted_pinv:
+        pinv_emodes = emodes[:, :k].T if mass is None else emodes[:, :k].T @ mass
     else:
-        pinv = emodes[:, :k].T @ mass
+        pinv_emodes = np.linalg.pinv(emodes[:, :k])
 
     # Construct model
     denom = 1/(1 + evals[:k] * r**2)
-    gem = emodes[:, :k] @ (denom[:, None] * pinv)
+    gem = emodes[:, :k] @ (denom[:, None] * pinv_emodes)
 
     # Replace diagonal and negative values with zero
     np.fill_diagonal(gem, 0)
     gem = np.maximum(gem, 0)
 
-    # Symmetrise (only removes floating point error if euclidean_pinv is False)
+    # Symmetrise (only removes floating point error if weighted_pinv is True)
     gem = (gem + gem.T) / 2
 
     # Normalise
