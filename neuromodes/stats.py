@@ -46,7 +46,7 @@ def gramw(
     """
     ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
-    mass = _process_vertex_areas(ved.mass, a.shape[0])
+    mass = _create_mass_matrix(ved.mass, a.shape[0])
 
     if b is None:
         b = a
@@ -94,7 +94,7 @@ def dotw(
                          f"{b.shape}.")
 
     n_verts = a.shape[0]
-    mass = _process_vertex_areas(ved.mass, n_verts)
+    mass = _create_mass_matrix(ved.mass, n_verts)
     a_2d = a.reshape(n_verts, -1)
     b_2d = b.reshape(n_verts, -1)
     out = np.sum(a_2d * (mass @ b_2d), axis=0).reshape(a.shape[1:])
@@ -206,7 +206,7 @@ def varw(
         if ``keepdims=True``.
     """
     data = np.asarray(data)
-    mass = _process_vertex_areas(mass, data.shape[0])
+    mass = _create_mass_matrix(mass, data.shape[0])
 
     B = demeanw(data, mass)
     out = ssqw(B, mass) / mass.sum()
@@ -339,7 +339,7 @@ def covw(
     """
     a = np.asarray(data)
 
-    mass = _process_vertex_areas(mass, a.shape[0])
+    mass = _create_mass_matrix(mass, a.shape[0])
     total_area = mass.sum()
     
     a_dm = demeanw(a, mass)
@@ -512,7 +512,7 @@ def solvew(
     """
     ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
-    mass = _process_vertex_areas(ved.mass, a.shape[0])
+    mass = _create_mass_matrix(ved.mass, a.shape[0])
     # Solves (a'Wa)x = (a'Wb)
     return np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)
 
@@ -569,7 +569,8 @@ def parcellate(
         The spatial maps, of shape ``(n_verts, n_maps)``.
     parcellation : array-like
         The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
-        the parcel ID for the corresponding vertex.
+        the parcel ID for the corresponding vertex. Values of -1 are treated as medial wall and 
+        ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum'}, optional
@@ -590,30 +591,29 @@ def parcellate(
         If ``data`` is not 1D or 2D.
     """
     # Format / validate arguments
-    if method not in ('mean', 'sum'):
-        raise ValueError(f"method must be 'mean' or 'sum'; got {method}.")
-    
     ved = EigenData(data=(data, parcellation), mass=mass)
     data, parcellation = ved.data
-    n_verts = data.shape[0]
-    areas = _process_vertex_areas(ved.mass, n_verts)
-    
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")
+    
+    if method not in ('mean', 'sum'):
+        raise ValueError(f"method must be 'mean' or 'sum'; got {method}.")
 
     # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
     # output = p.T @ mass @ data; or 
     # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
-    parc_areas = _parcellation_vector_to_matrix(parcellation).T @ areas
+    parc_mass = _create_parcellation_matrix(parcellation).T @ _create_mass_matrix(ved.mass, data.shape[0])
     if method == 'mean':
-        parc_areas /= parc_areas @ np.ones((n_verts, 1))
+        parc_mass /= parc_mass.sum(axis=1) 
 
     is_data_vec = (data.ndim == 1)
     data_2d = data[:, np.newaxis] if is_data_vec else data
-    data_parc = parc_areas @ data_2d
+    data_parc = parc_mass @ data_2d
     return data_parc.squeeze(axis=1) if is_data_vec else data_parc
 
-def _parcellation_vector_to_matrix(
+# TODO add support for passing through parcellation matrix without modification
+# TODO add support for dtypes
+def _create_parcellation_matrix(
     parcellation: NDArray[np.integer]
 ) -> csc_matrix:
     """
@@ -706,12 +706,12 @@ def _mass_to_areas(
     mass: spmatrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None
 ) -> NDArray[np.floating]:
-    mass = _process_vertex_areas(mass=mass, n_verts=n_verts)
+    mass = _create_mass_matrix(mass=mass, n_verts=n_verts)
     return np.asarray(mass.sum(axis=0)).ravel()
 
-# TODO: consider adding dtype parameter to _process_vertex_areas for w=None case
+# TODO: consider adding dtype parameter to _create_mass_matrix for w=None case
 # TODO: consider moving to EigenData
-def _process_vertex_areas(
+def _create_mass_matrix(
     mass: spmatrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None
 ) -> csc_matrix:
