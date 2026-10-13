@@ -3,11 +3,11 @@ name = "neuromodes"
 version = "0.1.0"
 description = "Eigenmode-based brain mapping and modelling toolbox developed by the Neural Systems and Behaviour Lab"
 readme = "README.rst"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["python", "modelling", "neuroimaging", "eigenmodes", "brain-mapping"]
 
 dependencies = [
-    "lapy>=1.6.0",
+    "lapy>=1.7.0",
     "nibabel>=5.2.1",
     "numpy>=1.24.4",
     "scipy>=1.10.1",
@@ -27,12 +27,16 @@ cache = [
     "joblib>=1.5.3",
 ]
 cholesky = [
-    "cholespy>=2.2.0",
+    "cholespy>=2.0",
 ]
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
 
 [tool.setuptools]
 packages = ["neuromodes", "neuromodes.data"]

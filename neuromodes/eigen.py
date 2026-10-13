@@ -87,7 +87,7 @@ class EigenSolver(Solver):
         self.geometry = geometry
         self.n_verts = geometry.v.shape[0]  # Nicety
         self.mask = mask
-        self.use_cholmod = False  # Permit lapy.eigs()
+        self.use_cholmod = False  # Permit self.poisson()
 
         # Configuration states
         self._lump = False
@@ -313,9 +313,10 @@ class EigenSolver(Solver):
             Note that this changes the identity and ordering of returned eigenmodes and eigenvalues.
             Default is ``-0.01``.
         decomp : {'lu', 'cholesky'}, optional
-            The decomposition method to use for the shift-invert operation. ``'lu'`` uses a sparse
-            LU decomposition, while ``'cholesky'`` uses a sparse Cholesky decomposition. The latter
-            is faster but requires the ``cholespy`` package. Default is ``'lu'``.
+            The matrix decomposition method to use for the shift-invert operation. ``'lu'`` uses a
+            sparse LU decomposition (SuperLU), while ``'cholesky'`` uses a sparse Cholesky
+            decomposition (CHOLMOD). The latter is faster but requires the ``cholespy`` package and
+            negative ``sigma``. Default is ``'lu'``. 
         seed : int or numpy.random.Generator, optional
             Random seed for the generation of the initialization vector (see below). If ``None``,
             computed eigenmodes and eigenvalues will not be exactly identical across runs. Most
@@ -338,8 +339,6 @@ class EigenSolver(Solver):
             If ``v0`` is provided but does not have shape ``(n_verts,)``.
         ValueError
             If ``decomp`` is not one of ``'lu'`` or ``'cholesky'``.
-        ImportError
-            If ``decomp`` is ``'cholesky'`` but the ``cholespy`` package is not installed.
         ValueError
             If ``decomp`` is ``'cholesky'`` but ``sigma`` is non-negative, as the shift matrix
             (stiffness - sigma * mass) must be positive definite.
@@ -353,10 +352,6 @@ class EigenSolver(Solver):
         # Validate arguments
         if decomp not in ['cholesky', 'lu']:
             raise ValueError("decomp must be 'cholesky' or 'lu'.")
-        if decomp == 'cholesky' and find_spec('cholespy') is None:
-            raise ImportError("cholespy is required for Cholesky decomposition. Neuromodes can be "
-                              "installed with the 'cholesky' extra to include cholespy as a "
-                              "dependency (e.g., pip install neuromodes[cholesky]).")
         if decomp == 'cholesky' and sigma >= 0:
             raise ValueError("sigma must be negative for Cholesky decomposition, as the shift "
                              "matrix (stiffness - sigma * mass) must be positive definite.")
@@ -372,47 +367,9 @@ class EigenSolver(Solver):
         self.compute_lbo(lump, hetero)
 
         # Solve the eigenvalue problem
-        if decomp == 'cholesky':  # TODO: consider LaPy PR to make this a simple Solver.eigs() call
-
-            # NOTE: D is for double precision, as stiffness will always be float64. If we later
-            # support float32, we can import the F version instead.
-            from cholespy import CholeskySolverD, MatrixType
-            from scipy.sparse.linalg import LinearOperator, eigsh
-
-            # Cholesky factorisation via shift-invert
-            shiftmat = self.stiffness - sigma * self.mass
-            chol = CholeskySolverD(
-                self.n_verts, shiftmat.indptr, shiftmat.indices, shiftmat.data, MatrixType.CSC,
-            )
-
-            # Define helper function to match Callable format expected by LinearOperator
-            def _cholsolve(b):
-                x = np.empty_like(b)
-                chol.solve(b, x)
-                return x
-            
-            OPinv = LinearOperator(
-                matvec=_cholsolve,
-                dtype=np.float64,
-                shape=shiftmat.shape
-            )
-            
-            # Solve and sort eigenpairs
-            evals, emodes = eigsh(
-                self.stiffness,
-                n_modes,
-                self.mass,
-                sigma=sigma,
-                OPinv=OPinv,
-                v0=v0,
-                rng=seed
-            )
-
-            sort_idx = np.argsort(evals)
-            evals = evals[sort_idx]
-            emodes = emodes[:, sort_idx]
-        else:
-            evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
+        self.use_cholmod = (decomp == 'cholesky')
+        evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
+        self.use_cholmod = False  # Reset to default to ease use of self.poisson()
 
         ## Post-process
         if set_emode1:
