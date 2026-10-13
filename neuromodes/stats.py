@@ -553,7 +553,7 @@ def parcellate(
     data: NDArray[np.floating],
     parcellation: NDArray[np.integer],
     mass: spmatrix | NDArray[np.floating] | None,
-    method: Literal['mean', 'sum', 'var'] = 'mean',
+    method: Literal['mean', 'sum', 'var', 'std'] = 'mean',
     checks: bool = True
 ) -> NDArray[np.floating]:
     """
@@ -568,11 +568,12 @@ def parcellate(
         the parcel ID for the corresponding vertex.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
-    method : {'mean', 'sum', 'var'}, optional
+    method : {'mean', 'sum', 'var', 'std'}, optional
         The method for aggregating vertex values within each parcel. If 'mean', the function
         computes the area-weighted mean of each parcel. If 'sum', the function computes the
         area-weighted sum of each parcel. If 'var', the function computes the area-weighted
-        variance of each parcel. Default is 'mean'.
+        variance of each parcel. If 'std', the function computes the area-weighted standard
+        deviation of each parcel. Default is 'mean'.
     checks : bool, optional
         If True, the function will perform input validation and formatting. Default is True.
 
@@ -580,57 +581,50 @@ def parcellate(
     -------
     np.ndarray
         The parcellated spatial maps, of shape ``(n_parcels, n_maps)``.
+    TODO consider also returning the parcellation matrix
 
     Raises
     ------
     ValueError
-        If ``method`` is not 'mean', 'sum', or 'var'.
+        If ``method`` is not 'mean', 'sum', 'var', or 'std'.
     ValueError
         If ``data`` is not 1D or 2D.
     ValueError
         If ``parcellation`` is not 1D.
     """
-    # Format / validate arguments
-    if method not in ['mean', 'sum', 'var']:
-        raise ValueError(f"method must be 'mean', 'sum', or 'var'; got {method}.")
-    
+    # Format / validate arguments    
     ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
     data, parcellation = ved.data
-    n_verts = data.shape[0]
-    areas = _mass_to_areas(ved.mass, n_verts)
-    parcellation = np.asarray(parcellation, dtype=int, copy=True)
-    
-    if data.ndim > 2:
+
+    if data.ndim > 2: # TODO: consider supporting nD input, not just 1D/2D
         raise ValueError("data must be 1D or 2D.")
-    if parcellation.ndim != 1:
-        raise ValueError("Parcellation map must be 1D.")
-    
-    n_parcels = len(np.unique(parcellation))
     is_data_vec = (data.ndim == 1)
     data_2d = data[:, np.newaxis] if is_data_vec else data
+    
+    parcellation = np.asarray(parcellation, dtype=int, copy=True)
+    if parcellation.ndim != 1:
+        raise ValueError("Parcellation map must be 1D.")
 
-    # Construct sparse parcellation matrix as (n_parcels, n_verts)
+    # Construct parcellation matrix as sparse matrix with shape (n_parcels, n_verts)
+    n_verts = data.shape[0]
     parc_mat = csr_matrix(
-        (np.ones(n_verts),
+        (_mass_to_areas(ved.mass, n_verts),
          (parcellation, np.arange(n_verts))),
-        shape=(n_parcels, n_verts)
+        shape=(np.max(parcellation)+1, n_verts)
         )
+    if method in ['mean', 'var', 'std']: # Divide by parcel areas
+        parc_mat /= parc_mat @ np.ones((n_verts,1)) # TODO consider replacing with sum?
 
-    # Adjust parcellation matrix for vertex areas
-    parcel_areas = parc_mat @ areas
-    parc_mat = parc_mat.multiply(areas)
-    if method in ['mean', 'var']:
-        parc_mat /= parcel_areas[:, np.newaxis]
-
-    # Apply parcellation matrix to data
-    data_parc = parc_mat @ data_2d
-
-    if method == 'var':
-        # Use expectation formula: var = E[X^2] - (E[X])^2
-        data_parc = parc_mat @ (data_2d ** 2) - data_parc ** 2
-
-        # Remove numerical error
-        data_parc = np.maximum(data_parc, 0)
+    # Apply parcellation matrix to data (data_parc is the output)
+    if method in ['mean', 'sum']: # TODO benchmark against weighted average / sum (np.bincount/nnp.average)
+        data_parc = parc_mat @ data_2d
+    elif method in ['var', 'std']:
+        data_parc = parc_mat @ (data_2d ** 2) - (parc_mat @ data_2d) ** 2 # var = E[X^2] - (E[X])^2
+        data_parc = np.maximum(data_parc, 0) # Remove numerical error
+        if method == 'std': 
+            data_parc = np.sqrt(data_parc)
+    else: # check at the end to appease pyright
+        raise ValueError(f"method must be 'mean', 'sum', 'var', or 'std'; got {method}.")
 
     return data_parc.squeeze(axis=1) if is_data_vec else data_parc
 
@@ -662,23 +656,16 @@ def calc_homogeneity(
     ved = EigenData(data=(data, parcellation), mass=mass)
     data, parcellation = ved.data
 
-    areas = _mass_to_areas(ved.mass, data.shape[0])
-    n_verts = data.shape[0]
-    n_parcels = len(np.unique(parcellation))
-
     # Get variance of each parcel
     var_parc = parcellate(data, parcellation, mass=ved.mass, method='var', checks=False)
 
-    # Get parcel areas for weighting
-    parc_mat = csr_matrix(  # a bit inefficient, could create a helper func
-        (np.ones(n_verts),
-         (parcellation, np.arange(n_verts))),
-        shape=(n_parcels, n_verts)
-    )
-    parcel_areas = parc_mat @ areas
+    # Get area of each parcel (sum of vertex areas)
+    parcel_areas = np.bincount(parcellation, weights=_mass_to_areas(ved.mass, parcellation.shape[0]))
 
     # Calculate weighted average of parcel variances
-    homogeneity = np.average(var_parc, axis=0, weights=parcel_areas)
+    homogeneity = parcellate(var_parc, np.arange(len(parcel_areas)), mass=diags(parcel_areas), method='mean', checks=False)
+    # homogeneity = np.average(var_parc, axis=0, weights=parcel_areas)
+
     return homogeneity.squeeze(axis=0) if data.ndim == 1 else homogeneity
 
 def resample(
