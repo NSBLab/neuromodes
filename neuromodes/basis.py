@@ -11,7 +11,7 @@ from warnings import warn
 import numpy as np
 
 from neuromodes.eigen import EigenData
-from neuromodes.stats import _process_vertex_areas, cdistw, lstsqw
+from neuromodes.stats import _create_mass_matrix, cdistw, lstsqw
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -139,7 +139,7 @@ def decompose(
         ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
         emodes, mass, data = ved.emodes, ved.mass, ved.data
 
-    mass = _process_vertex_areas(mass, data.shape[0])
+    mass = _create_mass_matrix(mass, data.shape[0])
 
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
     n_modes = [len(x) for x in mode_ids]
