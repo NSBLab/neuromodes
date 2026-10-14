@@ -14,6 +14,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cache = [
+    "joblib>=1.5.3",
+]
 testing = [
     "pytest>=8.4.2",
 ]
@@ -21,9 +24,6 @@ tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
-]
-cache = [
-    "joblib>=1.5.3",
 ]
 
 [build-system]
@@ -40,6 +40,19 @@ packages = ["neuromodes", "neuromodes.data"]
 python_functions = ["test_"]
 python_files = ["test_*.py",]
 testpaths = ["tests",]
+
+[dependency-groups]
+tox = [
+    "tox>=4.0",
+]
+
+[tool.tox]
+requires = ["tox>=4.0"]
+env_list = ["py310", "py311", "py312", "py313", "py314"]
+
+[tool.tox.env_run_base]
+extras = ["testing", "cache"]
+commands = [["pytest", { replace = "posargs", default = ["tests"], extend = true }]]
 
 [project.urls]
 "Homepage" = "https://neuromodes.readthedocs.io"

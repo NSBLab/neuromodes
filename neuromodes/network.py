@@ -3,15 +3,19 @@ Module for generating models of cortical structural connectomes.
 """
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 from warnings import warn
+
 import numpy as np
+
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from neuromodes.eigen import _CheckKind
     from scipy.sparse import spmatrix
+
+    from neuromodes.eigen import _CheckKind
 
 def compute_gem(
     emodes: NDArray[np.floating],

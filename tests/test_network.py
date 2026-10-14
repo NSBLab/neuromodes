@@ -1,13 +1,15 @@
 import numpy as np
 import pytest
-from neuromodes.io import fetch_example_surf
+
 from neuromodes import EigenSolver
+from neuromodes.io import fetch_example_surf
 from neuromodes.network import compute_gem
+
 
 @pytest.fixture(scope='module')
 def solver():
     n_modes = 5
-    surf, medmask = fetch_example_surf(density='4k')
+    surf, medmask = fetch_example_surf(res='4k')
 
     return EigenSolver(surf, mask=~medmask).solve(n_modes)
 

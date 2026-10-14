@@ -1,17 +1,19 @@
 """
-Mass (or simply area)-weighted adaptations of common statistical functions for spatial maps.
-Conventional functions are equivalent to setting mass to identity, representing a mesh where each
-vertex has Voronoi area/volume of 1.
+Mass (or simply vertex area/volume)-weighted adaptations of common statistical functions for spatial
+maps. Conventional functions are equivalent to setting mass to identity, representing a mesh where
+each vertex has Voronoi area/volume of 1.
 """
 
 from __future__ import annotations
 
-import numpy as np
-from typing import Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from warnings import warn
-from scipy.spatial.distance import squareform, cdist
-from scipy.sparse import csc_matrix, csr_matrix, spmatrix, diags
+
+import numpy as np
+from scipy.sparse import csc_matrix, diags, spmatrix
+from scipy.spatial.distance import cdist, squareform
 from scipy.stats import norm
+
 from neuromodes.eigen import EigenData
 
 if TYPE_CHECKING:
@@ -19,7 +21,7 @@ if TYPE_CHECKING:
     from scipy.spatial.distance import _MetricCallback, _MetricKind
 
 def gramw(
-    data: NDArray[np.floating],
+    data_a: NDArray[np.floating],
     data_b: NDArray[np.floating] | None = None,
     *,
     mass: spmatrix | NDArray[np.floating] | None
@@ -29,7 +31,7 @@ def gramw(
 
     Parameters
     ----------
-    data : array-like
+    data_a : array-like
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
@@ -43,9 +45,9 @@ def gramw(
         The Gram matrix of shape ``(n_maps, n_maps_b)`` if ``data_b`` is provided, or
         ``(n_maps, n_maps)`` if not.
     """
-    ved = EigenData(data=(data, data_b), mass=mass)
+    ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
-    mass = _process_vertex_areas(ved.mass, a.shape[0])
+    mass = _create_mass_matrix(ved.mass, a.shape[0])
 
     if b is None:
         b = a
@@ -93,7 +95,7 @@ def dotw(
                          f"{b.shape}.")
 
     n_verts = a.shape[0]
-    mass = _process_vertex_areas(ved.mass, n_verts)
+    mass = _create_mass_matrix(ved.mass, n_verts)
     a_2d = a.reshape(n_verts, -1)
     b_2d = b.reshape(n_verts, -1)
     out = np.sum(a_2d * (mass @ b_2d), axis=0).reshape(a.shape[1:])
@@ -149,12 +151,12 @@ def meanw(
         The area-weighted mean of shape ``(n_maps,)`` if ``keepdims=False``, or ``(1, n_maps)`` if
         ``keepdims=True``.
     """
-    ved = EigenData(data=data, mass=mass)  # FIXME: areas vector
+    ved = EigenData(data=data, mass=mass)
     data, mass = ved.data, ved.mass
 
     areas = _mass_to_areas(mass, data.shape[0])
     out = np.average(data, axis=0, weights=areas)
-    return out[None, :] if keepdims else out  # TODO: test for data.ndim /= 2 cases
+    return out[None, :] if keepdims else out
 
 def demeanw(
     data: NDArray[np.floating],
@@ -205,11 +207,11 @@ def varw(
         if ``keepdims=True``.
     """
     data = np.asarray(data)
-    mass = _process_vertex_areas(mass, data.shape[0])
+    mass = _create_mass_matrix(mass, data.shape[0])
 
     B = demeanw(data, mass)
     out = ssqw(B, mass) / mass.sum()
-    return out[None, :] if keepdims else out  # TODO: test for data.ndim /= 2 cases
+    return out[None, :] if keepdims else out
 
 def momentw(
     data: NDArray[np.floating],
@@ -231,8 +233,8 @@ def momentw(
     order : int
         The order of the moment to compute.
     keepdims : bool, optional
-        If True, the output will have the same number of dimensions as the input array. Default is
-        False.
+        If ``True``, the output will have the same number of dimensions as the input array. Default is
+        ``False``.
 
     Returns
     -------
@@ -269,8 +271,8 @@ def stdw(
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     keepdims : bool, optional
-        If True, the output will have the same number of dimensions as the input array. Default is
-        False.
+        If ``True``, the output will have the same number of dimensions as the input array. Default is
+        ``False``.
 
     Returns
     -------
@@ -310,13 +312,6 @@ def covw(
 ) -> NDArray[np.floating]:
     """
     Mass-weighted covariance amongst or between brain maps.
-    
-    Usage:
-    - ``covw(A, mass=mass)`` computes covariance of maps ``A`` amongst themselves.
-    - ``covw(A, B, mass=mass)`` computes cross-covariance between maps ``A`` and maps ``B``.
-    
-    Note that this function does not offer Bessel's correction, as mesh vertices are not IID samples
-    and maps typically display spatial autocorrelation.
 
     Parameters
     ----------
@@ -333,10 +328,19 @@ def covw(
     np.ndarray
         The mass-weighted covariance matrix, of shape ``(n_maps, n_maps_b)`` if ``data_b`` is
         provided, or ``(n_maps, n_maps)`` if not.
+
+    Notes
+    -----
+    Usage:
+    - ``covw(A, mass=mass)`` computes covariance of maps ``A`` amongst themselves.
+    - ``covw(A, B, mass=mass)`` computes cross-covariance between maps ``A`` and maps ``B``.
+    
+    Note that this function does not offer Bessel's correction, as mesh vertices are not IID samples
+    and maps typically display spatial autocorrelation.
     """
     a = np.asarray(data)
 
-    mass = _process_vertex_areas(mass, a.shape[0])
+    mass = _create_mass_matrix(mass, a.shape[0])
     total_area = mass.sum()
     
     a_dm = demeanw(a, mass)
@@ -353,11 +357,6 @@ def vecnormw(
 ) -> NDArray[np.floating]:
     """
     Calculates the mass-weighted L^p norm of each brain map.
-    
-    Cases
-    - ``p=2``: exact, square root of sum of squares
-    - ``p=np.inf``: exact, maximum absolute value (no mass needed)
-    - ``p!=2 and p!=np.inf``: approximate using vertex areas (i.e., lumped mass matrix)
 
     Parameters
     ----------
@@ -375,6 +374,13 @@ def vecnormw(
     -------
     np.ndarray
         The mass-weighted L^p norm of each brain map.
+
+    Notes
+    -----
+    Cases:
+    - ``p=2``: exact, square root of sum of squares
+    - ``p=np.inf``: exact, maximum absolute value (no mass needed)
+    - ``p!=2 and p!=np.inf``: approximate using vertex areas (i.e., lumped mass matrix)
     """
     data = np.asarray(data)
     
@@ -507,7 +513,7 @@ def solvew(
     """
     ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
-    mass = _process_vertex_areas(ved.mass, a.shape[0])
+    mass = _create_mass_matrix(ved.mass, a.shape[0])
     # Solves (a'Wa)x = (a'Wb)
     return np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)
 
@@ -565,7 +571,8 @@ def parcellate(
         The spatial maps, of shape ``(n_verts, n_maps)``.
     parcellation : array-like
         The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
-        the parcel ID for the corresponding vertex.
+        the parcel ID for the corresponding vertex. Values of -1 are treated as medial wall and 
+        ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum', 'var', 'std'}, optional
@@ -586,47 +593,71 @@ def parcellate(
     Raises
     ------
     ValueError
-        If ``method`` is not 'mean', 'sum', 'var', or 'std'.
+        If ``method`` is not ``'mean'``, ``'sum'``, ``'var'``, or ``'std'``.
     ValueError
         If ``data`` is not 1D or 2D.
+    """
+    # Format / validate arguments
+    ved = EigenData(data=(data, parcellation), mass=mass)
+    data, parcellation = ved.data
+    if data.ndim > 2:
+        raise ValueError("data must be 1D or 2D.")
+    
+    if method not in ('mean', 'sum'):
+        raise ValueError(f"method must be 'mean' or 'sum'; got {method}.")
+
+    # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
+    # output = p.T @ mass @ data; or 
+    # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
+    parc_mass = _create_parcellation_matrix(parcellation).T @ _create_mass_matrix(ved.mass, data.shape[0])
+    if method == 'mean':
+        parc_mass /= parc_mass.sum(axis=1) 
+
+    is_data_vec = (data.ndim == 1)
+    data_2d = data[:, np.newaxis] if is_data_vec else data
+    data_parc = parc_mass @ data_2d
+    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+
+# TODO add support for passing through parcellation matrix without modification
+# TODO add support for dtypes
+def _create_parcellation_matrix(
+    parcellation: NDArray[np.integer]
+) -> csc_matrix:
+    """
+    Converts a parcellation vector to a sparse parcellation matrix.
+
+    Parameters
+    ----------
+    parcellation : array-like
+        The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
+        the parcel ID for the corresponding vertex.
+
+    Returns
+    -------
+    scipy.sparse.csc_matrix
+        The sparse parcellation matrix, of shape ``(n_verts, n_parcels)``.
+
+    Raises
+    ------
     ValueError
         If ``parcellation`` is not 1D.
     """
-    # Format / validate arguments    
-    ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
-    data, parcellation = ved.data
+    parcellation = np.asarray(parcellation, copy=True) # user has to ensure parc is integer
 
-    if data.ndim > 2: # TODO: consider supporting nD input, not just 1D/2D
-        raise ValueError("data must be 1D or 2D.")
-    is_data_vec = (data.ndim == 1)
-    data_2d = data[:, np.newaxis] if is_data_vec else data
-    
-    parcellation = np.asarray(parcellation, dtype=int, copy=True)
     if parcellation.ndim != 1:
         raise ValueError("Parcellation map must be 1D.")
-
-    # Construct parcellation matrix as sparse matrix with shape (n_parcels, n_verts)
-    n_verts = data.shape[0]
-    parc_mat = csr_matrix(
-        (_mass_to_areas(ved.mass, n_verts),
-         (parcellation, np.arange(n_verts))),
-        shape=(np.max(parcellation)+1, n_verts)
+    
+    n_verts = parcellation.shape[0]
+    mask = parcellation >= 0 # medial wall should be negative
+    
+    # Construct sparse parcellation matrix as (n_parcels, n_verts)
+    parc_mat = csc_matrix(
+        (np.ones(np.sum(mask)),
+         (np.arange(n_verts)[mask], parcellation[mask])),
+        shape=(n_verts, np.max(parcellation)+1)
         )
-    if method in ['mean', 'var', 'std']: # Divide by parcel areas
-        parc_mat /= parc_mat @ np.ones((n_verts,1)) # TODO consider replacing with sum?
-
-    # Apply parcellation matrix to data (data_parc is the output)
-    if method in ['mean', 'sum']: # TODO benchmark against weighted average / sum (np.bincount/nnp.average)
-        data_parc = parc_mat @ data_2d
-    elif method in ['var', 'std']:
-        data_parc = parc_mat @ (data_2d ** 2) - (parc_mat @ data_2d) ** 2 # var = E[X^2] - (E[X])^2
-        data_parc = np.maximum(data_parc, 0) # Remove numerical error
-        if method == 'std': 
-            data_parc = np.sqrt(data_parc)
-    else: # check at the end to appease pyright
-        raise ValueError(f"method must be 'mean', 'sum', 'var', or 'std'; got {method}.")
-
-    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+    
+    return parc_mat
 
 def calc_homogeneity(
     data: NDArray[np.floating],
@@ -825,12 +856,12 @@ def _mass_to_areas(
     mass: spmatrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None
 ) -> NDArray[np.floating]:
-    mass = _process_vertex_areas(mass=mass, n_verts=n_verts)
+    mass = _create_mass_matrix(mass=mass, n_verts=n_verts)
     return np.asarray(mass.sum(axis=0)).ravel()
 
-# TODO: consider adding dtype parameter to _process_vertex_areas for w=None case
+# TODO: consider adding dtype parameter to _create_mass_matrix for w=None case
 # TODO: consider moving to EigenData
-def _process_vertex_areas(
+def _create_mass_matrix(
     mass: spmatrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None
 ) -> csc_matrix:

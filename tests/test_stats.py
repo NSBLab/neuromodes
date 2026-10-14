@@ -2,10 +2,28 @@ import numpy as np
 import pytest
 from scipy import sparse
 from scipy.spatial.distance import cdist, pdist
-from scipy.stats import zscore, shapiro
-from neuromodes.stats import (gramw, dotw, ssqw, lstsqw, solvew, cdistw, pdistw, meanw, demeanw,
-                              varw, stdw, zscorew, covw, vecnormw, parcellate, resample,
-                              sigmoid_rescale)
+from scipy.stats import shapiro, zscore
+
+from neuromodes.stats import (
+    cdistw,
+    covw,
+    demeanw,
+    dotw,
+    gramw,
+    lstsqw,
+    meanw,
+    parcellate,
+    pdistw,
+    resample,
+    sigmoid_rescale,
+    solvew,
+    ssqw,
+    stdw,
+    varw,
+    vecnormw,
+    zscorew,
+)
+
 
 @pytest.fixture(scope='module')
 def random_data():
