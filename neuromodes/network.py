@@ -4,6 +4,7 @@ Module for generating models of cortical structural connectomes.
 
 from __future__ import annotations
 from typing import TYPE_CHECKING
+from warnings import warn
 import numpy as np
 from neuromodes.eigen import EigenData
 
@@ -37,7 +38,9 @@ def compute_gem(
         Number of eigenmodes to use. Default is ``108``.
     mass : spmatrix | NDArray[np.floating] | None, optional
         The mass matrix of shape ``(n_verts, n_verts)``. If ``weighted_pinv`` is ``False``, this
-        parameter is ignored. If ``None``, the identity matrix is used. Default is ``None``.
+        parameter is ignored. If ``None``, the identity matrix is used, corresponding to an
+        assumption that the eigenmodes are orthonormal in Euclidean space (equivalent to a uniform
+        mesh). Default is ``None``.
     weighted_pinv : bool, optional
         Whether to incorporate mass-weighting when computing the pseudoinverse of eigenmodes (see
         Notes). This accounts for mesh irregularities but differs from the original implementation
@@ -107,7 +110,12 @@ def compute_gem(
 
     # Compute pseudoinverse of eigenmodes
     if weighted_pinv:
-        pinv_emodes = emodes[:, :k].T if mass is None else emodes[:, :k].T @ mass
+        if mass is None:
+            warn("Mass matrix is None, using identity matrix. This assumes that emodes are "
+                    "orthonormal in Euclidean space (equivalent to a uniform mesh).")
+            pinv_emodes = emodes[:, :k].T
+        else:
+            pinv_emodes = emodes[:, :k].T @ mass
     else:
         pinv_emodes = np.linalg.pinv(emodes[:, :k])
 

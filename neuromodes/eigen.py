@@ -461,7 +461,8 @@ class EigenSolver(Solver):
     ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.network.compute_gem`. Note that ``emodes``,
-        ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
+        ``evals``, ``mass``, and ``checks`` are passed automatically by the ``EigenSolver``
+        instance.
         """
         from neuromodes.network import compute_gem
 
