@@ -463,3 +463,10 @@ def test_lstsqw_consistent_mass(solver):
     coeffs_lumped = lstsqw(maps, targets, mass=solver.mass)[0]
     assert not np.allclose(coeffs, coeffs_lumped, atol=1e-3), \
         "Lstsqw with lumped mass should produce different coefficients than consistent mass."
+
+def test_mult_by_cholesky_non_spd():
+    # create a symmetric indefinite scipy csc matrix
+    A = sparse.csc_matrix([[1, 2], [2, 1]])
+    data = np.random.default_rng(0).standard_normal(size=(2, 3))
+    with pytest.raises(ValueError, match="matrix is not positive definite."):
+        _mult_by_cholesky(data, A)

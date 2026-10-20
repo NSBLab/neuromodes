@@ -309,6 +309,12 @@ def test_calc_nft_fc(solver):
     mse = np.mean((ana_fc - sim_fc)**2)
     assert mse < 0.01, f"Analytical FC does not align with simulated FC (MSE={mse:.4f})."
 
+def test_fem_default(solver):
+    # Check that FEM simulation runs with default parameters   
+    nt = 50
+    ts = solver.sim_nft_waves(nt=nt, method='fem', n_jobs=-1)
+    assert ts.shape == (solver.n_verts, nt), "FEM output shape is incorrect with default parameters."
+
 def test_fem_alignment(solver):
     # Check that modal approximation aligns with FEM solution
     nt=50

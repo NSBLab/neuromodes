@@ -11,7 +11,6 @@ from warnings import warn
 
 import numpy as np
 from scipy.sparse import csc_matrix, csr_matrix, diags, spmatrix
-from scipy.sparse.csgraph import reverse_cuthill_mckee
 from scipy.sparse.linalg import splu
 from scipy.spatial.distance import cdist, squareform
 
@@ -731,73 +730,69 @@ def _process_vertex_areas(
 
 def _mult_by_cholesky(
     data: NDArray[np.floating],
-    matrix: spmatrix | NDArray[np.floating],
-    transpose: bool = False
+    matrix: spmatrix,
+    transpose: bool = False,
 ) -> NDArray[np.floating]:
     """
-    Multiplies the input data by the Cholesky factor L (or its transpose Lᵀ) of the given matrix
-    (i.e., matrix = LLᵀ). If the matrix is diagonal, L = Lᵀ = √(matrix) (element-wise). Note that
-    ``matrix`` must be symmetric positive definite for the Cholesky factorization to exist.
+    Multiplies ``data`` by a Cholesky-derived square-root factor of the symmetric positive-definite
+    ``matrix`` (A), or by its transpose. For a non-diagonal matrix, a fill-reducing permutation P is
+    applied first. The permuted matrix is factorized as
+
+        P A Pᵀ = L Lᵀ,
+
+    where L is triangular. The factor applied in the original ordering is
+
+        F = Pᵀ L P,
+
+    so that A = F Fᵀ. Consequently, ``transpose=False`` applies F and ``transpose=True`` applies Fᵀ.
+    F is generally not triangular because of the permutation. For a diagonal matrix, F = Fᵀ =
+    sqrt(A), applied element-wise.
 
     Parameters
     ----------
     data : array-like
         The spatial maps, of shape ``(n_verts, n_maps)``.
     matrix : array-like
-        The matrix to multiply the data by, of shape ``(n_verts, n_verts)``.
+        The symmetric positive-definite matrix, of shape ``(n_verts, n_verts)``.
     transpose : bool, optional
-        If True, multiplies by ``L.T`` instead of ``L``. Default is ``False``.
+        If ``True``, applies the transposed factor Fᵀ. Default is ``False``.
 
     Returns
     -------
     np.ndarray
-        The input data multiplied by the Cholesky factor of the matrix, of shape ``(n_verts,
-        n_maps)``.
+        The transformed spatial maps, of shape ``(n_verts, n_maps)``.
+"""
 
-    Raises
-    ------
-    ValueError
-        If the matrix is not symmetric or not positive definite.
-    """
-    ved = EigenData(data=data, mass=matrix)  # a bit dodgy
-    data, matrix = ved.data, ved.mass
+    # Diagonal matrix: F = Fᵀ = √A
+    diag = matrix.diagonal()
+    if matrix.nnz == np.count_nonzero(diag):
+        return data * np.sqrt(diag)[:, None]
 
-    # check symmetry of matrix
-    if (matrix != matrix.T).nnz > 0:
-        raise ValueError("matrix is not symmetric.")
+    # Let SuperLU choose a fill-reducing symmetric ordering (min degree on A+Aᵀ), and force
+    # diagonal pivots: PAPᵀ = L_lu U = L_lu D L_luᵀ = (Uᵀ/√D)(Uᵀ/√D)ᵀ = LLᵀ.
+    lu = splu(
+        matrix,
+        permc_spec="MMD_AT_PLUS_A",
+        diag_pivot_thresh=0,
+        options={"SymmetricMode": True},
+    )
 
-    if matrix.nnz == matrix.shape[0]:
-        # Diagonal matrix; L = Lᵀ = √(matrix)
-        return data * np.sqrt(matrix.diagonal())[:, None]
+    # Extract factors and permutation
+    U = lu.U
+    D = U.diagonal()
+    sqrt_D = np.sqrt(D)[:, None]
+    perm = lu.perm_c
 
-    # Non-diagonal matrix; compute Cholesky factorization via LU decomposition.
+    # Permute and scale data
+    data_perm = np.empty_like(data)
+    data_perm[perm] = data
 
-    # Manually permute rows/cols of matrix to reduce its bandwidth and thus increase sparsity of L
-    # and U factors for efficiency. splu usually does this internally, but does not offer the option
-    # to ensure symmetric permutation, as is needed for L_lu U = L_lu D L_luᵀ (see below).
-    perm = reverse_cuthill_mckee(matrix, symmetric_mode=True)
-    matrix_perm = matrix[perm, :][:, perm]
-
-    # Factorize, while forcing splu to avoid permuting and pivoting
-    # matrix = L_lu U = L_lu D L_luᵀ = (L_lu √D) (L_lu √D)ᵀ = L Lᵀ
-    lu = splu(matrix_perm, permc_spec='NATURAL', diag_pivot_thresh=0)
-    L_lu = lu.L.tocsr()
-    D = lu.U.diagonal()[:, None]
-
-    # Check that matrix is SPD (D must be positive)
-    # this is a necessary but not sufficient condition, but computationally easy
-    # TODO: consider more robust checks
-    if np.any(D <= 0):
-        raise ValueError("matrix is not positive definite.")
-
-    # Scale permuted data
     if transpose:
-        # Lᵀ = (L_lu √D)ᵀ = √D L_luᵀ
-        data_rescaled = np.sqrt(D) * (L_lu.T @ data[perm, :])
+        # Lᵀ = U/√D
+        data_perm_scaled = (U @ data_perm) / sqrt_D
     else:
-        # L = L_lu √D
-        data_rescaled = L_lu @ (np.sqrt(D) * data[perm, :])
+        # L = Uᵀ/√D
+        data_perm_scaled = U.T @ (data_perm / sqrt_D)
 
-    # Reverse the permutation
-    inv_perm = np.argsort(perm)
-    return data_rescaled[inv_perm, :]
+    # Reapply permutation to return to original order
+    return data_perm_scaled[perm]
