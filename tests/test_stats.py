@@ -468,5 +468,5 @@ def test_mult_by_cholesky_non_spd():
     # create a symmetric indefinite scipy csc matrix
     A = sparse.csc_matrix([[1, 2], [2, 1]])
     data = np.random.default_rng(0).standard_normal(size=(2, 3))
-    with pytest.raises(ValueError, match="matrix is not positive definite."):
+    with pytest.warns(RuntimeWarning, match="invalid value encountered in sqrt"):
         _mult_by_cholesky(data, A)

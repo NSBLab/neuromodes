@@ -83,7 +83,7 @@ def read_surf(
             f'file {fs_extensions}, an instance of nibabel.GiftiImage or lapy.TriaMesh, or a '
             "dictionary of 'faces' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
             'respectively.'
-            )
+        )
         
     return TriaMesh(v=vertices, t=faces)
 

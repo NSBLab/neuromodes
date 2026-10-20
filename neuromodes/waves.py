@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Literal, cast
 from warnings import warn
 
 import numpy as np
-import scipy.fft
 from numpy.typing import NDArray
+from scipy.fft import irfft, rfft, rfftfreq
 from scipy.integrate import solve_ivp
 from scipy.interpolate import PchipInterpolator
 from scipy.sparse.linalg import eigsh, splu
@@ -65,7 +65,9 @@ def sim_nft_waves(
         External input array of shape ``(n_verts, n_timepoints)``. If ``None``, white noise input is
         generated to simulate ``nt`` time points. Default is ``None``.
     dt : float, optional
-        Time step for simulation in seconds. Default is ``1e-4``.
+        Time step for simulation in seconds. A warning is issued if ``dt`` is too large to 
+        capture the highest-frequency, per the Nyquist-Shannon sampling theorem. Default is
+        ``1e-4``.
     r : float, optional
         Spatial length scale of wave propagation in millimeters. Default is ``17.4``.
     gamma : float, optional
@@ -84,9 +86,16 @@ def sim_nft_waves(
         Heterogeneity map of shape ``(n_verts,)``, to be provided when ``emodes`` are heterogeneous.
         This is used only to check wave speeds (see ``speed_limits`` above). If not provided, wave
         speed is assumed to be spatially uniform. Default is ``None``.
-    fft_pad_tol : float, optional
-        Tolerance for Fourier wrap-around artifacts when ``method`` is ``'fourier'`` or ``'fem'``,
-        between ``0`` and ``1`` (see Notes). Default is ``1e-5``.
+    fft_pad_tol : float or str, optional
+        Tolerance for Fourier wrap-around artifacts when ``method`` is ``'fourier'`` or ``'fem'``.
+        Must be either:
+        - a float in the interval ``(0,1]``. Lower values increase the amount of zero-padding and
+          thus the simulation time and memory usage. The number of padding timepoints is given by
+          -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value of ``1`` at t=0 wraps around
+          to a value of ``fft_pad_tol`` at t=nt-1. 
+        - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
+        Default is ``1e-5``. For more details, see
+        https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     checks : bool, optional
         Whether to validate the input arguments. Default is ``True``.
     seed : int, optional
@@ -96,9 +105,15 @@ def sim_nft_waves(
         recomputation for the same values of ``nt``, ``seed``, and number of rows (vertices) in
         ``emodes`` (see :func:`~neuromodes.io._cache_output` for details). Default is ``False``.
     n_jobs : int, optional
-        Number of parallel jobs to run, for speeding up computation. Ignored if ``method`` is
-        ``'ode'``. If not ``1`` and ``method`` is ``'fem'``, ``joblib`` must be installed. Default
-        is ``1``. 
+        Number of parallel jobs to run, for speeding up computation. It is used differently 
+        depending on the ``method``:
+        - ``'fourier'``: parallelizes the forward and inverse Fourier transforms of the activity 
+          coefficients (across modes).
+        - ``'ode'``: ignored, as the ODE solver is not parallelized
+        - ``'fem'``: parallelizes the forward and inverse Fourier transforms of the activity 
+          coefficients (across modes), as well as the solving of the FEM system of equations 
+          (across frequencies). This requires ``joblib`` to be installed.
+        If ``-1``, all available cores are used. Default is ``1``.
     verbose : int, optional
         ``joblib`` verbosity level for parallel execution when ``method`` is ``'fem'`` and ``n_jobs
         > 1``. Default is ``0``.
@@ -131,30 +146,32 @@ def sim_nft_waves(
     ValueError
         If ``n_jobs`` is not ``1``, ``method`` is ``'fem'``, and ``joblib`` is not installed.
     ValueError
-        If ``fft_pad_tol`` is not between ``0`` and ``1``.
+        If ``fft_pad_tol`` is not in the interval ``(0,1]``.
 
     Notes
     -----
-    Prior works have treated ``r`` as a free parameter to fit empirical data [1]_ [2]_, with the
-    default value reflecting an optimal fit to human resting-state functional MRI data [2]_.
-    Consider adjusting this parameter, as its optimum can vary across analyses (e.g., different
-    surfaces, heterogeneous modes, parcellated timeseries, empirical data, fitting metrics, etc.).
+    1. Prior works have treated ``r`` as a free parameter to fit empirical data [1]_ [2]_, with the
+       default value reflecting an optimal fit to human resting-state functional MRI data [2]_.
+       Consider adjusting this parameter, as its optimum can vary across analyses (e.g., different
+       surfaces, heterogeneous modes, parcellated timeseries, empirical data, fitting metrics,
+       etc.).
 
-    Since the simulation begins at rest, consider discarding the first timepoints of activity to
-    allow the system to reach a steady state.
+    2. Since the simulation begins at rest, consider discarding the first timepoints of activity to
+       allow the system to reach a steady state.
 
-    While the wave model can be run using non-cortical modes, users should consider whether this is
-    theoretically sensible and physiologically plausible.
+    3. While the wave model can be run using non-cortical modes, users should consider whether this
+       is theoretically sensible and physiologically plausible.
 
-    When ``method`` is ``'fourier'`` or ``'fem'``, the model's transfer function is applied in the
-    frequency domain, which can lead to wrap-around artifacts in the time domain. To mitigate these,
-    input time series are padded with zeros at the start/end, creating a temporary buffer for the
-    artifacts to contaminate. The ``fft_pad_tol`` parameter controls the amount of zero-padding,
-    where lower values lead to more padding at the cost of increased simulation time and memory
-    usage. The number of padding timepoints is given by -ln(``fft_pad_tol``)/(``gamma``*``dt``),
-    meaning that a value of ``1`` at t=0 wraps around to a value of ``fft_pad_tol`` at t=nt-1. See
-    https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb for
-    more details.
+    4. ``ext_input`` may need to be interpolated to match the timepoints of the solver, depending on 
+       the value of ``dt``. We use a Piecewise Cubic Hermite Interpolating Polynomial (PCHIP)
+       interpolator, which is smooth and monotonic. The following interpolation options were
+       considered, but not implemented due to their respective drawbacks:
+          a. Linear interpolation creates sharp corners, leading to high-frequency artefacts and
+             numerical instabilities in the solver.
+          b. Cubic splining is better but can overshoot/undershoot and create phantom preceding
+             inputs.
+          c. Another option is sinc interpolation, which bandlimits and thus matches the Fourier
+             method, but this is demanding on time/memory and not implemented by numpy/scipy.
 
     References
     ----------
@@ -185,9 +202,9 @@ def sim_nft_waves(
         
     r = float(r)
     gamma = float(gamma)
-    if r < 0:
+    if r < 0:  # r=0 is allowed as a fringe case where vertices are treated as being uncoupled
         raise ValueError("Parameter r must be non-negative.")
-    if gamma <= 0:
+    if gamma <= 0:  # to avoid division by zero
         raise ValueError("Parameter gamma must be positive.")
     if dt <= 0:
         raise ValueError("dt must be positive.")
@@ -208,9 +225,9 @@ def sim_nft_waves(
                  "plausible wave speeds, or adjust speed_limits.")
     if method not in ['fourier', 'ode', 'fem']:
         raise ValueError(f"Invalid PDE method '{method}'; must be 'fourier', 'ode', or 'fem'.")
-    if fft_pad_tol != 'nt' and (not isinstance(fft_pad_tol, (int, float))
+    if fft_pad_tol != 'nt' and (not isinstance(fft_pad_tol, (float))
                                 or fft_pad_tol <= 0 or fft_pad_tol > 1):
-        raise ValueError("fft_pad_tol must be between 0 and 1, or 'nt'.")
+        raise ValueError("fft_pad_tol must be in the interval (0,1], or 'nt'.")
     if n_jobs != 1:
         if method == 'ode':
             warn("n_jobs is ignored when method is 'ode'.")
@@ -223,9 +240,10 @@ def sim_nft_waves(
     # Check that dt is small enough to capture highest frequency, per Nyquist-Shannon theorem
     # Highest frequency comes from the mode with the highest eigenvalue
     # This needs to be computed for the FEM method
-    max_eval = eigsh(stiffness, M=mass, k=1, which='LM', return_eigenvectors=False)[0] \
-        if method == 'fem' else evals[-1]
-
+    if method == 'fem':
+        max_eval = eigsh(stiffness, M=mass, k=1, which='LM', return_eigenvectors=False)[0]
+    else:
+        max_eval = evals[-1]
     max_freq = calc_nft_mode_freqs(max_eval, r, gamma)
 
     # Check if highest-frequency mode is above Nyquist limit
@@ -233,12 +251,11 @@ def sim_nft_waves(
         dt_nyquist = 1 / (2 * max_freq)
         warn(f"dt={dt} is too large to capture frequencies produced by the highest-frequency mode "
              f"({max_freq:.4f} Hz), per the Nyquist-Shannon sampling theorem. To reduce aliasing, "
-             f"consider reducing dt to below {dt_nyquist:.4f}.")
+             f"consider reducing dt to below {dt_nyquist:.4f}, or decrease the number of modes.")
 
     # Process or generate external input
     if ext_input is not None:
-        if np.isnan(ext_input).any():
-            raise ValueError("ext_input contains NaN values, which are not allowed.")
+        ext_input = np.asarray_chkfinite(ext_input)
         if nt is not None:
             warn("nt is ignored when ext_input is provided.")
         if seed is not None:
@@ -275,9 +292,11 @@ def sim_nft_waves(
         return _model_wave_fem(input_w, mass, stiffness, dt, r, gamma, fft_pad_tol, n_jobs, verbose)
     
     # Standard modal implementation: pass decomposed input, then output reconstruction
-    activity_coeffs = (_model_wave_fourier(input_coeffs, dt, r, gamma, evals, fft_pad_tol, n_jobs)
-                       if method == 'fourier' else
-                       _model_wave_ode(input_coeffs, dt, r, gamma, evals))
+    if method == 'fourier':
+        activity_coeffs = _model_wave_fourier(input_coeffs, dt, r, gamma, evals, fft_pad_tol,
+                                              n_jobs)
+    else:
+        activity_coeffs = _model_wave_ode(input_coeffs, dt, r, gamma, evals)
 
     return emodes @ activity_coeffs
 
@@ -496,7 +515,8 @@ def balloon_model(
         The eigenmodes array of shape ``(n_verts, n_modes)``, where ``n_verts`` is the number of
         vertices and ``n_modes`` is the number of eigenmodes.
     dt : float, optional
-        Time step of simulated activity in seconds.
+        Time step of ``activity``. A warning is issued if ``dt`` is too large to capture the 
+        highest-frequency, per the Nyquist-Shannon sampling theorem.
     kappa : float, optional
         Signal decay rate in seconds^-1.
     tau : float, optional
@@ -519,12 +539,17 @@ def balloon_model(
         Method for solving the balloon PDEs. Either ``'fourier'`` or ``'ode'``. Note that
         ``'fourier'`` relies on a first-order approximation of the nonlinear ODE system. Default is
         ``'fourier'``.
-    fft_pad_tol : float, optional
-        Tolerance for Fourier wrap-around artifacts, between ``0`` and ``1``. Lower values increase
-        the amount of zero-padding and thus the simulation time and memory usage. The number of
-        padding timepoints is given by -ln(``fft_pad_tol``)/(``dt`` * min(``kappa``/2, 1/``tau``,
-        1/(``tau`` * ``alpha``))), meaning that a value of ``1`` at t=0 wraps around to a value of
-        approximately ``fft_pad_tol`` at t=``nt``-1. Default is ``1e-5``.
+    fft_pad_tol : float or str, optional
+        Tolerance for Fourier wrap-around artifacts when ``method`` is ``'fourier'``. 
+        Must be either:
+        - a float in the interval ``(0,1]``. Lower values increase the amount of zero-padding and
+          thus the simulation time and memory usage. The number of padding timepoints is given by 
+          -ln(``fft_pad_tol``)/(``dt`` * min(``kappa``/2, 1/``tau``, 1/(``tau`` * ``alpha``))), 
+          meaning that a value of ``1`` at t=0 wraps around to a value of approximately
+          ``fft_pad_tol`` at t=``nt``-1. 
+        - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
+          Default is ``1e-5``. For more details, see
+          https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     mass : array-like, optional
         The mass matrix of shape (n_verts, n_verts), used for the decomposition of activity. Default
         is ``None``, which uses the identity matrix.
@@ -598,11 +623,14 @@ def balloon_model(
     activity_coeffs = decompose(activity, emodes, mass=mass, checks=False)
 
     # Apply model to each mode's activity timeseries
-    bold_coeffs = (_model_balloon_fourier(activity_coeffs, dt, fft_pad_tol, n_jobs, kappa, tau,
-                                          alpha, rho, V_0, w_f, k1, k2, k3)
-                   if method == 'fourier' else
-                   _model_balloon_ode(activity_coeffs, dt, kappa, tau, alpha, rho, V_0, gamma_h, k1,
-                                      k2, k3))
+    if method == 'fourier':
+        bold_coeffs = _model_balloon_fourier(
+            activity_coeffs, dt, fft_pad_tol, n_jobs, kappa, tau, alpha, rho, V_0, w_f, k1, k2, k3
+        )
+    else:
+        bold_coeffs = _model_balloon_ode(
+            activity_coeffs, dt, kappa, tau, alpha, rho, V_0, gamma_h, k1, k2, k3
+        )
 
     # Transform timeseries from modal coefficients back to vertex space
     return emodes @ bold_coeffs
@@ -615,7 +643,7 @@ def _gen_noise(
 ) -> NDArray[np.floating]:
     """
     Generate reproducible white noise of shape ``(n_samples, nt)`` for a given ``seed``, derived
-    from a standard normal distribution. The output is reproducible across nt (i.e.,
+    from a standard normal distribution. The output is reproducible across ``nt`` (i.e.,
     ``_gen_noise(n_samples, nt, seed) == _gen_noise(n_samples, nt+k, seed)[:, :nt]``). If ``mass``
     is provided, the noise is pre-weighted by the mass matrix for use in the wave PDE of the
     FEM solver (see Notes).
@@ -681,9 +709,9 @@ def _gen_noise(
 
     if mass is None:  # e.g., modes along rows
         return noise
-
-    # vertex space, pre-weighted by Cholesky factor
-    return _mult_by_cholesky(noise, mass, transpose=False)
+    else:
+        # vertex space, pre-weighted by Cholesky factor
+        return _mult_by_cholesky(noise, mass, transpose=False)
 
 def _model_wave_fourier(
     input_coeffs: NDArray[np.floating],
@@ -713,12 +741,14 @@ def _model_wave_fourier(
         Damping rate of wave propagation in seconds^(-1).
     evals : np.ndarray
         The eigenvalues associated with each mode, with shape ``(n_modes,)``.
-    fft_pad_tol : float
-        Tolerance for Fourier wrap-around artifacts, between ``0`` and ``1``. Lower values increase
-        the amount of zero-padding and thus the simulation time and memory usage. The number of
-        padding timepoints is given by -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value
-        of ``1`` at t=0 wraps around to a value of ``fft_pad_tol`` at t=``nt``-1. For more details,
-        see
+    fft_pad_tol : float or str
+        Tolerance for Fourier wrap-around artifacts. Must be either:
+        - a float in the interval ``(0,1]``. Lower values increase the amount of zero-padding 
+          and thus the simulation time and memory usage. The number of padding timepoints is 
+          given by -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value of ``1`` at t=0 
+          wraps around to a value of ``fft_pad_tol`` at t=``nt``-1. 
+        - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
+        For more details, see
         https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     n_jobs : int, optional
         Number of threads to use for speeding up computation.
@@ -727,7 +757,7 @@ def _model_wave_fourier(
     -------
     out : ndarray
         The real part of the time-domain response of all modes at the specified time points, with
-        shape ``(n_modes, nt)``.    
+        shape ``(n_modes, nt)``.
     """
     nt = input_coeffs.shape[1]
 
@@ -741,18 +771,18 @@ def _model_wave_fourier(
 
     # Get frequencies (rad/s)
     # Negative sign in front of omega matches the physics convention of e^(iwt)
-    omega = -2 * np.pi * scipy.fft.rfftfreq(n_pad + nt, d=dt)
+    omega = -2 * np.pi * rfftfreq(n_pad + nt, d=dt)
 
     # Compute NFT transfer function
     tfunc = gamma**2 / (-omega**2 - 2j * omega * gamma + gamma**2 * (1 + r**2 * evals[:, None]))
 
     # Fourier transform, apply transfer function, and inverse transform to time domain
     # Faster to use `rfft` here than `fftshift(ifft)` (original implementation)
-    input_coeffs_f = scipy.fft.rfft(input_coeffs_padded, axis=1, overwrite_x=True, workers=n_jobs)
+    input_coeffs_f = rfft(input_coeffs_padded, axis=1, overwrite_x=True, workers=n_jobs)
 
     out_fft = tfunc * input_coeffs_f
 
-    out_full = scipy.fft.irfft(out_fft, n=n_pad+nt, axis=1, overwrite_x=True, workers=n_jobs)
+    out_full = irfft(out_fft, n=n_pad+nt, axis=1, overwrite_x=True, workers=n_jobs)
 
     # Return only the non-negative time part (t >= 0)
     return out_full[:, n_pad:]
@@ -798,13 +828,7 @@ def _model_wave_ode(
     n_modes, nt = input_coeffs.shape
     t_vec = np.linspace(0, dt * (nt - 1), nt)
     
-    # Create interpolator for input, as solver may need intermediate timepoints.
-    # Linear interpolation creates sharp corners, leading to high-frequency artefacts and numerical
-    # instabilities in the solver.
-    # Cubic splining is better but can overshoot/undershoot and create phantom preceding inputs.
-    # Piecewise Cubic Hermite Interpolating Polynomials (PCHIPs) are smooth and monotonic.
-    # Another option is sinc interpolation, which bandlimits and thus matches the Fourier method,
-    # but this is demanding on time/memory and not implemented by numpy/scipy.
+    # Create interpolator for input, as solver may need intermediate timepoints
     input_interp = PchipInterpolator(t_vec, input_coeffs, axis=1, extrapolate=False)
 
     # Define ODE system, needed for solve_ivp
@@ -873,15 +897,31 @@ def _model_wave_fem(
     gamma : float
         Damping rate of wave propagation in seconds^(-1).
     fft_pad_tol : float
-        Tolerance for Fourier wrap-around artifacts, between ``0`` and ``1``. Lower values increase
-        the amount of zero-padding and thus the simulation time and memory usage. The number of
-        padding timepoints is given by -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value
-        of ``1`` at t=0 wraps around to a value of ``fft_pad_tol`` at t=nt-1.
+        Tolerance for Fourier wrap-around artifacts. Must be either:
+        - a float in the interval ``(0,1]``. Lower values increase the amount of zero-padding 
+          and thus the simulation time and memory usage. The number of padding timepoints is 
+          given by -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value of ``1`` at 
+          t=0 wraps around to a value of ``fft_pad_tol`` at t=nt-1. 
+        - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
+        For more details, see
+        https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     n_jobs : int
         Number of parallel jobs to run. If not ``1``, ``joblib`` must be installed.
     verbose : int
         Verbosity level for parallel execution.
+
+    Returns
+    -------
+    np.ndarray
+        The real part of the time-domain response of all vertices at the specified time points, with
+        shape ``(n_verts, nt)``.
     """
+    if n_jobs == -1:
+        from joblib import cpu_count
+        n_jobs = cpu_count()
+    elif n_jobs < -1:
+        raise ValueError("n_jobs must be a positive integer or -1")
+    
     nt = input_w.shape[1]
 
     # Pad input with zeros to mitigate wrap-around artifacts
@@ -894,14 +934,14 @@ def _model_wave_fem(
 
     # Get frequencies
     # Negative sign in front of omega matches the physics convention of e^(iwt)
-    omega = -2 * np.pi * scipy.fft.rfftfreq(nt+n_pad, dt)
+    omega = -2 * np.pi * rfftfreq(nt+n_pad, dt)
 
     # Compute components of NFT operator
     spatial = r**2 * stiffness
     temporal = -omega**2 / gamma**2 - 2j * omega / gamma + 1
 
     # Apply Fourier transform to get frequency-domain representation of the causal signal.
-    input_padded_freqs = scipy.fft.rfft(input_padded, axis=1, overwrite_x=True, workers=n_jobs)
+    input_padded_freqs = rfft(input_padded, axis=1, overwrite_x=True, workers=n_jobs)
 
     # Compute activity at each frequency (TODO: consider memory usage, if fine then vectorise)
     eqns = (
@@ -921,7 +961,7 @@ def _model_wave_fem(
             ).solve(input)  
 
     phi_freqs = None # stops it being unbound and keeps pyright happy
-    if n_jobs > 1 or n_jobs == -1:
+    if n_jobs > 1:
         from joblib import Parallel, delayed
         phi_freqs = Parallel(n_jobs=n_jobs, verbose=verbose, prefer="threads")(
             delayed(_solve_fem_freq)(op, inp) for op, inp in eqns
@@ -932,7 +972,7 @@ def _model_wave_fem(
     phi_freqs = np.stack(cast(list[NDArray[np.complex128]], phi_freqs), axis=1)
 
     # Inverse transform to time domain
-    phi = scipy.fft.irfft(phi_freqs, axis=1, n=nt+n_pad, overwrite_x=True, workers=n_jobs)
+    phi = irfft(phi_freqs, axis=1, n=nt+n_pad, overwrite_x=True, workers=n_jobs)
 
     # Return only the non-negative time part (t >= 0)
     return phi[:, n_pad:]
@@ -965,11 +1005,14 @@ def _model_balloon_fourier(
     dt : float
         Time step in seconds.
     fft_pad_tol : float
-        Tolerance for Fourier wrap-around artifacts, between ``0`` and ``1``. Lower values increase
-        the amount of zero-padding and thus the simulation time and memory usage. The number of
-        padding timepoints is given by -ln(``fft_pad_tol``)/(``dt`` * min(``kappa``/2, 1/``tau``,
-        1/(``tau`` * ``alpha``))), meaning that a value of ``1`` at t=0 wraps around to a value of
-        approximately ``fft_pad_tol`` at t=``nt``-1. For more details, see
+        Tolerance for Fourier wrap-around artifacts. Must be either:
+        - a float in the interval ``(0,1]``. Lower values increase the amount of zero-padding 
+          and thus the simulation time and memory usage. The number of padding timepoints is 
+          given by -ln(``fft_pad_tol``)/(``dt`` * min(``kappa``/2, 1/``tau``, 
+          1/(``tau`` * ``alpha``))), meaning that a value of ``1`` at t=0 wraps around to a value 
+          of approximately ``fft_pad_tol`` at t=``nt``-1. 
+        - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
+        For more details, see
         https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     n_jobs : int
         Number of threads to use for speeding up computation.
@@ -1010,7 +1053,7 @@ def _model_balloon_fourier(
     activity_coeffs_padded = np.pad(activity_coeffs, ((0, 0), (n_pad, 0)), constant_values=0)
 
     # Get frequencies
-    omega = -2 * np.pi * scipy.fft.rfftfreq(nt+n_pad, d=dt)
+    omega = -2 * np.pi * rfftfreq(nt+n_pad, d=dt)
 
     # Calculate balloon model frequency response (Pang et al. 2016)
     # Negative sign in front of omega matches the physics convention of e^(iwt)
@@ -1023,12 +1066,13 @@ def _model_balloon_fourier(
     balloon_freq_response = phi_hat_yF * phi_hat_Fz
 
     # Fourier transform, apply transfer function, and inverse transform back to time domain
-    activity_coeffs_f = scipy.fft.rfft(activity_coeffs_padded, axis=1, overwrite_x=True,
-                                       workers=n_jobs)
+    activity_coeffs_f = rfft(
+        activity_coeffs_padded, axis=1, overwrite_x=True, workers=n_jobs
+    )
 
     out_fft = balloon_freq_response[None, :] * activity_coeffs_f
 
-    out_full = scipy.fft.irfft(out_fft, n=nt+n_pad, axis=1, overwrite_x=True, workers=n_jobs)
+    out_full = irfft(out_fft, n=nt+n_pad, axis=1, overwrite_x=True, workers=n_jobs)
 
     # Remove zero padding
     return out_full[:, n_pad:]

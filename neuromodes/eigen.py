@@ -580,6 +580,7 @@ def align_basis(
     numpy.ndarray
         The aligned basis vectors array of shape ``(n_verts, n_modes)``.
     """
+    # TODO: pass in emodes as emodes once EigenData implementation has been finalised
     emodes = EigenData(data=emodes, checks=checks).data
    
     # Flip modes where the first element is negative
@@ -725,17 +726,21 @@ class EigenData:
         # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
         if mass is not _MISSING:
             all_inputs.append('mass')
-            if mass is not None and check_shape and (
-                mass.ndim != 2 or mass.shape[0] != mass.shape[1]
-                ):
+            if (
+                mass is not None 
+                and check_shape 
+                and (mass.ndim != 2 or mass.shape[0] != mass.shape[1])
+            ):
                 raise ValueError("mass must be a square matrix.")
             _set('mass', mass)
 
         if stiffness is not _MISSING:
             all_inputs.append('stiffness')
-            if stiffness is not None and check_shape and (
-                stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]
-                ):
+            if (
+                stiffness is not None 
+                and check_shape 
+                and (stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1])
+            ):
                 raise ValueError("stiffness must be a square matrix.")
             _set('stiffness', stiffness)
 
