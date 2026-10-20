@@ -22,21 +22,21 @@ if TYPE_CHECKING:
     from scipy.spatial.distance import _MetricCallback, _MetricKind
 
 def gramw(
-    data: NDArray[np.floating],
+    data_a: NDArray[np.floating],
     data_b: NDArray[np.floating] | None = None,
     *,
     mass: spmatrix | NDArray[np.floating] | None
 ) -> NDArray[np.floating]:
     """
-    Dot product between all brain maps (pairwise), equivalent to ``data.T @ (mass @ data_b)``.
+    Dot product between all brain maps (pairwise), equivalent to ``data_a.T @ (mass @ data_b)``.
 
     Parameters
     ----------
-    data : array-like
+    data_a : array-like
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
-        function computes the Gram matrix of ``data`` with itself. Default is ``None``.
+        function computes the Gram matrix of ``data_a`` with itself. Default is ``None``.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
 
@@ -46,7 +46,7 @@ def gramw(
         The Gram matrix of shape ``(n_maps, n_maps_b)`` if ``data_b`` is provided, or
         ``(n_maps, n_maps)`` if not.
     """
-    ved = EigenData(data=(data, data_b), mass=mass)
+    ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
     mass = _process_vertex_areas(ved.mass, a.shape[0])
 
@@ -306,7 +306,7 @@ def zscorew(
     return demeanw(data, mass) / stdw(data, mass)
 
 def covw(
-    data: NDArray[np.floating],
+    data_a: NDArray[np.floating],
     data_b: NDArray[np.floating] | None = None,
     *,
     mass: spmatrix | NDArray[np.floating] | None
@@ -323,7 +323,7 @@ def covw(
 
     Parameters
     ----------
-    data : array-like
+    data_a : array-like
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
@@ -337,7 +337,7 @@ def covw(
         The mass-weighted covariance matrix, of shape ``(n_maps, n_maps_b)`` if ``data_b`` is
         provided, or ``(n_maps, n_maps)`` if not.
     """
-    a = np.asarray(data)
+    a = np.asarray(data_a)
 
     mass = _process_vertex_areas(mass, a.shape[0])
     total_area = mass.sum()
@@ -491,15 +491,16 @@ def lstsqw(
     rcond: float | None = None
 ) -> tuple[NDArray[np.floating], int, float, NDArray[np.floating]]:
     """
-    Solve the linear system Ax = b, where A and b are sets of spatial maps, by minimising the
-    mass-weighted squared L₂ norm (b-Ax)ᵀ M (b-Ax) (see Notes).
+    Solve the linear system Ax = b, where A and b are sets of spatial maps (e.g., basis maps
+    and target maps, respectively), by minimising the mass-weighted squared L₂ norm 
+    (b-Ax)ᵀ M (b-Ax) (see Notes).
 
     Parameters
     ----------
     data_a : array-like
-        The first set of spatial maps, of shape ``(n_verts, n_maps_a)``.
+        The basis maps of shape ``(n_verts, n_maps_a)``.
     data_b : array-like
-        The second set of spatial maps, of shape ``(n_verts, n_maps_b)``.
+        The target maps of shape ``(n_verts, n_maps_b)``.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     rcond : float or None, optional
