@@ -406,6 +406,7 @@ class EigenSolver(Solver):
         self._emodes = emodes
         return self
 
+    # TODO P5? users can add their own attrs kwargs and dataset kwargs?
     def write_h5(self, 
                  path: str | Path, 
                  n_modes: int | None = None,
@@ -421,7 +422,7 @@ class EigenSolver(Solver):
         n_modes : int or None, optional
             The number of modes to include in the output. If ``None``, all modes are included.
         mode : {'r+', 'w', 'x', 'w-', 'a'}, optional
-            The mode in which to open the file. Default is ``'x'``.
+            The mode in which to open the file. Default is ``'x'`` (exclusive creation).
 
         Raises
         ------
@@ -431,6 +432,7 @@ class EigenSolver(Solver):
         if n_modes is None: 
             n_modes = self.n_modes
 
+        # TODO P5 consider if more options need to be considered when writing to HDF5
         with h5py.File(path, mode) as f:
             f.create_dataset('geometry/vertices', data=self.geometry.v)
             f.create_dataset('geometry/cells', data=self.geometry.t)
@@ -462,8 +464,6 @@ class EigenSolver(Solver):
 
             f.attrs['datetime'] = str(np.datetime64('now'))
             f.attrs['neuromodes'] = version('neuromodes')
-
-        
 
     @staticmethod
     def read_h5(path: str | Path, 
@@ -526,10 +526,6 @@ class EigenSolver(Solver):
         solver._evals = evals
         solver.use_cholmod = use_cholmod
         return solver
-
-    
-
-
         
     # 1. mode_counts is None or int -> Single Array 
     @overload
