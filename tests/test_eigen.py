@@ -1,5 +1,4 @@
 from pathlib import Path
-from tempfile import TemporaryFile
 
 import numpy as np
 import pytest
@@ -214,9 +213,9 @@ def solver(presolver):
     return presolver.solve(16, hetero=presolver.hetero)
 
 def test_reading_writing_h5_all_features(solver, tmp_path):
-    tf = TemporaryFile().name
-    solver.write_h5(tf, mode='w')
-    solver2 = EigenSolver.read_h5(tf)
+    h5_path = tmp_path / "solver.h5"    
+    solver.write_h5(h5_path, mode='w')
+    solver2 = EigenSolver.read_h5(h5_path)
 
     attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
     for attr in attrs:
@@ -236,7 +235,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
     error_msg = f"Unexpected number of modes read from HDF5."
 
     # write default modes and see how many are read back
-    h5_path = TemporaryFile().name
+    h5_path = tmp_path / "solver_default.h5"
     solver.write_h5(h5_path, mode='w', n_modes=None)
     
     solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
@@ -249,7 +248,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
     np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :alln], err_msg=error_msg)
 
     # write alln modes and see how many are read back
-    h5_path = TemporaryFile().name
+    h5_path = tmp_path / "solver_all.h5"
     solver.write_h5(h5_path, mode='w', n_modes=alln)
 
     solver3 = EigenSolver.read_h5(h5_path, n_modes=None)
@@ -262,7 +261,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
     np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :alln], err_msg=error_msg)
 
     # write halfn modes and see how many are read back
-    h5_path = TemporaryFile().name
+    h5_path = tmp_path / "solver_half.h5"
     solver.write_h5(h5_path, mode='w', n_modes=halfn)
 
     solver4 = EigenSolver.read_h5(h5_path, n_modes=None)

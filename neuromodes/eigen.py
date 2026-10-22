@@ -407,11 +407,12 @@ class EigenSolver(Solver):
         return self
 
     # TODO P5? users can add their own attrs kwargs and dataset kwargs?
-    def write_h5(self, 
-                 path: str | Path, 
-                 n_modes: int | None = None,
-                 mode: Literal['r+', 'w', 'x', 'w-', 'a'] = 'x'
-                 ) -> None:
+    def write_h5(
+        self, 
+        path: str | Path, 
+        n_modes: int | None = None,
+        mode: Literal['r+', 'w', 'x', 'w-', 'a'] = 'x'
+    ) -> None:
         """
         Write the ``EigenSolver`` object to an HDF5 file.
 
@@ -423,11 +424,6 @@ class EigenSolver(Solver):
             The number of modes to include in the output. If ``None``, all modes are included.
         mode : {'r+', 'w', 'x', 'w-', 'a'}, optional
             The mode in which to open the file. Default is ``'x'`` (exclusive creation).
-
-        Raises
-        ------
-        FileExistsError
-            If the specified file already exists and ``overwrite`` is ``False``.
         """
         if n_modes is None: 
             n_modes = self.n_modes
@@ -465,9 +461,10 @@ class EigenSolver(Solver):
             f.attrs['datetime'] = str(np.datetime64('now'))
             f.attrs['neuromodes'] = version('neuromodes')
 
-    @staticmethod
-    def read_h5(path: str | Path, 
-                n_modes: int | None = None) -> EigenSolver:
+    def read_h5(
+        path: str | Path, 
+        n_modes: int | None = None
+    ) -> EigenSolver:
         """
         Read an ``EigenSolver`` object from an HDF5 file.
 
