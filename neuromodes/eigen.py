@@ -461,7 +461,9 @@ class EigenSolver(Solver):
             f.attrs['datetime'] = str(np.datetime64('now'))
             f.attrs['neuromodes'] = version('neuromodes')
 
+    @classmethod
     def read_h5(
+        cls,
         path: str | Path, 
         n_modes: int | None = None
     ) -> EigenSolver:
@@ -510,7 +512,7 @@ class EigenSolver(Solver):
                 stiffness = None
 
         # init
-        solver = EigenSolver(geometry)
+        solver = cls(geometry)
         # manually set other things
         solver.mask = mask
         solver.n_verts = n_verts
