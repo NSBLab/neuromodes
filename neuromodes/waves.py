@@ -41,7 +41,7 @@ def sim_nft_waves(
     stiffness: csc_matrix | None = None, # only used for FEM
     speed_limits: tuple[float, float] | None = (0, 150),
     hetero: NDArray[np.floating] | None = None,
-    fft_pad_tol: np.floating | Literal['nt'] = 1e-5,
+    fft_pad_tol: np.floating | Literal['nt'] = 1e-4,
     checks: _CheckKind = True,
     seed: int | None = None,
     cache_input: bool = False,
@@ -94,7 +94,7 @@ def sim_nft_waves(
           -ln(``fft_pad_tol``)/(``gamma``*``dt``), meaning that a value of ``1`` at t=0 wraps around
           to a value of ``fft_pad_tol`` at t=nt-1. 
         - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
-        Default is ``1e-5``. For more details, see
+        Default is ``1e-4``. For more details, see
         https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     checks : bool, optional
         Whether to validate the input arguments. Default is ``True``.
@@ -498,7 +498,7 @@ def balloon_model(
     k2: float = 0.527,
     k3: float = 0.48,
     method: _PDEKind = "fourier",
-    fft_pad_tol: np.floating | Literal['nt'] = 1e-5,
+    fft_pad_tol: np.floating | Literal['nt'] = 1e-4,
     mass: csc_matrix | None = None,
     checks: _CheckKind = True,
     n_jobs: int = 1
@@ -548,7 +548,7 @@ def balloon_model(
           meaning that a value of ``1`` at t=0 wraps around to a value of approximately
           ``fft_pad_tol`` at t=``nt``-1. 
         - the string ``'nt'``, which sets the number of padding timepoints to be equal to ``nt``.
-          Default is ``1e-5``. For more details, see
+          Default is ``1e-4``. For more details, see
           https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     mass : array-like, optional
         The mass matrix of shape (n_verts, n_verts), used for the decomposition of activity. Default
