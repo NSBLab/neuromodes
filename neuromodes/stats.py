@@ -598,7 +598,7 @@ def parcellate(
         If ``data`` is not 1D or 2D.
     """
     # Format / validate arguments
-    ved = EigenData(data=(data, parcellation), mass=mass)
+    ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
     data, parcellation = ved.data
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")

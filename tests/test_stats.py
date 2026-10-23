@@ -391,7 +391,7 @@ class TestParcellate:
     def test_parcellate_invalid_method(self, random_data, parcellation):
         X, _, eye, _ = random_data
         
-        with pytest.raises(ValueError, match="must be 'mean', 'sum', 'var', or 'std'; got how2say."):
+        with pytest.raises(ValueError, match="must be 'mean' or 'sum'; got how2say."):
             parcellate(X, parcellation, mass=eye, method='how2say')
     
     def test_parcellate_invalid_data_dim(self, random_data, parcellation):
