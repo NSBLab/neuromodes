@@ -139,7 +139,6 @@ API Reference
    solvew
    lstsqw
    parcellate
-   calc_homogeneity
    resample
    sigmoid_rescale
 

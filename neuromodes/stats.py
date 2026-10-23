@@ -659,46 +659,6 @@ def _create_parcellation_matrix(
     
     return parc_mat
 
-def calc_homogeneity(
-    data: NDArray[np.floating],
-    parcellation: NDArray[np.integer],
-    mass: spmatrix | NDArray[np.floating] | None
-) -> NDArray[np.floating]:
-    """
-    Calculates the parcel homogeneity of each brain map, defined as the average variance of each
-    parcel weighted by the area of each parcel.
-
-    Parameters
-    ----------
-    data : array-like
-        The spatial maps, of shape ``(n_verts, n_maps)``.
-    parcellation : array-like
-        The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
-        the parcel ID for the corresponding vertex.
-    mass : array-like
-        The mass matrix, of shape ``(n_verts, n_verts)``.
-
-    Returns
-    -------
-    np.ndarray
-        The parcel homogeneity of shape ``(n_maps,)``.
-    """
-    # Format / validate arguments
-    ved = EigenData(data=(data, parcellation), mass=mass)
-    data, parcellation = ved.data
-
-    # Get variance of each parcel
-    var_parc = parcellate(data, parcellation, mass=ved.mass, method='var', checks=False)
-
-    # Get area of each parcel (sum of vertex areas)
-    parcel_areas = np.bincount(parcellation, weights=_mass_to_areas(ved.mass, parcellation.shape[0]))
-
-    # Calculate weighted average of parcel variances
-    homogeneity = parcellate(var_parc, np.arange(len(parcel_areas)), mass=diags(parcel_areas), method='mean', checks=False)
-    # homogeneity = np.average(var_parc, axis=0, weights=parcel_areas)
-
-    return homogeneity.squeeze(axis=0) if data.ndim == 1 else homogeneity
-
 def resample(
     data_a: NDArray[np.floating],
     data_b: NDArray[np.floating],
