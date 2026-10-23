@@ -33,7 +33,7 @@ def read_vol(
     ----------
     vol : str, Path, TetMesh, or dict
         Volume mesh specified as a file path (string or Path) to a VTK (.tetra.vtk) file, an
-        instance of `lapy.TetMesh`, or a dictionary with `'vertices'` and `'faces'` keys,
+        instance of `lapy.TetMesh`, or a dictionary with `'vertices'` and `'cells'` keys,
         referencing arrays of shape (n_verts, 3) and (n_tetras, 4), respectively.
 
     Returns
@@ -45,12 +45,12 @@ def read_vol(
     ------
     TypeError
         If `vol` is not a path-like string to a valid VTK (`.tetra.vtk`) file, an instance of
-        `lapy.TetMesh`, or a dictionary with `'vertices'` and `'faces'` keys.
+        `lapy.TetMesh`, or a dictionary with `'vertices'` and `'cells'` keys.
     """
     if isinstance(vol, TetMesh):
         return vol
     elif isinstance(vol, dict):
-        return TetMesh(v=vol['vertices'], t=vol['faces'])
+        return TetMesh(v=vol['vertices'], t=vol['cells'])
     else:
         vol_str = str(vol)
         if not Path(vol_str).is_file():
@@ -59,7 +59,7 @@ def read_vol(
             # Load with lapy
             return TetMesh.read_vtk(str(vol))
     raise TypeError("`vol` must be a path-like string to a valid VTK (.tetra.vtk) file, an "
-                    "instance of `lapy.TetMesh`, or a dictionary with 'vertices' and 'faces' "
+                    "instance of `lapy.TetMesh`, or a dictionary with 'vertices' and 'cells' "
                     "keys.")
 
 def read_surf(
@@ -75,13 +75,13 @@ def read_surf(
           (``.white``, ``.pial``, ``.inflated``, ``.orig``, ``.sphere``, ``.smoothwm``,``.qsphere``,
           ``.fsaverage``)
         - an instance of either ``nibabel.GiftiImage`` or ``lapy.TriaMesh``
-        - a dictionary with ``'vertices'`` and ``'faces'`` keys, referencing arrays of shapes
+        - a dictionary with ``'vertices'`` and ``'cells'`` keys, referencing arrays of shapes
         ``(n_verts, 3)`` and ``(n_trias, 3)``, respectively.
 
     Returns
     -------
     lapy.TriaMesh
-        Surface mesh with vertices and faces.
+        Surface mesh with vertices and cells.
 
     Raises
     ------
@@ -96,10 +96,10 @@ def read_surf(
         return surf
     elif isinstance(surf, GiftiImage):
         vertices=surf.darrays[0].data
-        faces=surf.darrays[1].data
+        cells=surf.darrays[1].data
     elif isinstance(surf, dict):
         vertices=surf['vertices']
-        faces=surf['faces']
+        cells=surf['cells']
     elif isinstance(surf, (str, Path)):
         surf_str = str(surf)
         # check that file exists
@@ -121,17 +121,17 @@ def read_surf(
         raise TypeError(
             'surf must be a path (str or Path) to a valid VTK (.vtk), GIFTI (.gii), or Freesurfer'
             f'file {fs_extensions}, an instance of nibabel.GiftiImage or lapy.TriaMesh, or a '
-            "dictionary of 'faces' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
+            "dictionary of 'cells' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
             'respectively.'
             )
         
-    return TriaMesh(v=vertices, t=faces)
+    return TriaMesh(v=vertices, t=cells)
 
 def fetch_example_surf(
+    structure: Literal['midthickness'] = 'midthickness',
     species: Literal['human', 'macaque', 'marmoset'] = 'human',
-    density: Literal['32k', '4k'] = '32k',
+    res: Literal['32k', '4k'] = '32k',
     hemi: Literal['L', 'R'] = 'L',
-    surf_type: Literal['midthickness'] = 'midthickness',
     template: Literal['fsLR'] = 'fsLR'
 ) -> tuple[TriaMesh, NDArray[np.floating]]:
     """
@@ -141,18 +141,18 @@ def fetch_example_surf(
 
     Parameters
     ----------
+    structure : str, optional
+        Brain structure to load. Currently supports ``'midthickness'`` for all species as well as
+        ``'sphere'`` for ``'human'``. Default is ``'midthickness'``.
     species : str, optional
         Species of the surface mesh. Options include ``'human'``, ``'macaque'``, and ``'marmoset'``.
         Default is ``'human'``.
-    density : str, optional
-        Density of the surface mesh. Options include ``'32k'`` for all species, and ``'4k'`` for
+    res : str, optional
+        Resolution of the surface mesh. Options include ``'32k'`` for all species, as well as ``'4k'`` for
         human. Default is ``'32k'``.
     hemi : str, optional
-        Hemisphere of the surface mesh. Options are ``'L'`` for all species, and ``'R'`` for human.
+        Hemisphere of the surface mesh. Options are ``'L'`` for all species, as well as ``'R'`` for human.
         Default is ``'L'``.
-    surf_type : str, optional
-        Surface type to load. Currently only supports ``'midthickness'``. Default is
-        ``'midthickness'``.
     template : str, optional
         Template of the surface mesh. Currently only supports ``'fsLR'``. Default is ``'fsLR'``.
     
@@ -169,8 +169,8 @@ def fetch_example_surf(
         If the specified surface data is not found in the ``neuromodes/data`` directory.
     """
     data_dir = files('neuromodes.data')
-    surf_name = f'sp-{species}_tpl-{template}_den-{density}_hemi-{hemi}_{surf_type}.surf.gii'
-    mask_name = f'sp-{species}_tpl-{template}_den-{density}_hemi-{hemi}_medmask.label.gii'
+    surf_name = f'sp-{species}_tpl-{template}_den-{res}_hemi-{hemi}_{structure}.surf.gii'
+    mask_name = f'sp-{species}_tpl-{template}_den-{res}_hemi-{hemi}_medmask.label.gii'
 
     try:
         with as_file(data_dir / surf_name) as fpath:
@@ -187,10 +187,11 @@ def fetch_example_surf(
             )
 
 def fetch_example_vol(
-    structure: Literal['thalamus', 'striatum', 'hippocampus'] = 'thalamus',
-    species: Literal['human', 'macaque', 'marmoset'] = 'human',
+    structure: Literal['thalamus', 'striatum', 'hippocampus', 'isocortex', '315'] = 'thalamus',
+    species: Literal['human', 'mouse'] = 'human',
+    res: Literal['2mm', '200um'] = '2mm',
     hemi: Literal['L', 'R'] = 'L',
-    template: Literal['MNI152'] = 'MNI152',
+    template: Literal['MNI152', 'AMBA'] = 'MNI152',
 ) -> TetMesh:
     """
     Load a tetrahedral volume mesh from neuromodes data directory. For a list of available volumes,
@@ -198,14 +199,20 @@ def fetch_example_vol(
 
     Parameters
     ----------
-    structure : str
-        Brain structure to load. Options include `'thalamus'`, `'striatum'`, and `'hippocampus'`.
-    species : {'human', 'macaque', 'marmoset'}, optional
-        Species of the volume mesh. Currently only supports `'human'`. Default is `'human'`.
+    structure : {'thalamus', 'striatum', 'hippocampus', 'isocortex', '315'}, optional
+        Brain structure to load. Options include ``'thalamus'``, ``'striatum'``, and ``'hippocampus'`` for
+        human and ``'isocortex'`` (alias for ``'315'``, the Allen Mouse Brain Atlas ID) for mouse.
+    species : {'human', 'mouse'}, optional
+        Species of the volume mesh. Currently only supports ``'human'`` and ``'mouse'``. Default is
+        ``'human'``.
+    res : {'2mm', '200um'}, optional
+        Resolution of the volume mesh. Options include ``'2mm'`` for human and ``'200um'`` for mouse.
+        Default is ``'2mm'``.
     hemi : {'L', 'R'}, optional
-        Hemisphere of the volume mesh. Options are `'L'` and `'R'`. Default is `'L'`.
-    template : str, optional
-        Template of the volume mesh. Currently only supports `'MNI152'`. Default is `'MNI152'`.
+        Hemisphere of the volume mesh. Options are ``'L'`` and ``'R'``. Default is ``'L'``.
+    template : {'MNI152', 'AMBA'}, optional
+        Template of the volume mesh. Currently only supports ``'MNI152'`` and ``'AMBA'``. Default is
+        ``'MNI152'``.
 
     Returns
     -------
@@ -213,11 +220,9 @@ def fetch_example_vol(
         The loaded volume mesh.
     """
     data_dir = files('neuromodes.data')
-    file_name = f'sp-{species}_tpl-{template}_hemi-{hemi}_{structure}.tetra.vtk'
-
-    # TODO: make this infinitely less ugly after cleaning up all file names
-    if structure == 'cortex' and species == 'mouse' and template == 'AMBA':
-        file_name = f'sp-{species}_tpl-{template}_res-200um_hemi-{hemi}_315.tetra.vtk'
+    if structure == 'isocortex':
+        structure = '315'  # alias for Allen Mouse Brain Atlas ID
+    file_name = f'sp-{species}_tpl-{template}_res-{res}_hemi-{hemi}_{structure}.tetra.vtk'
 
     try:
         with as_file(data_dir / file_name) as fpath:
@@ -232,7 +237,7 @@ def fetch_example_vol(
 def fetch_example_map(
     data: Literal['fcgradient1', 'myelinmap', 'ndi', 'odi', 'thickness'],
     species: Literal['human', 'macaque', 'marmoset'] = 'human',
-    density: Literal['32k', '4k'] = '32k',
+    res: Literal['32k', '4k'] = '32k',
     hemi: Literal['L', 'R'] = 'L',
     template: Literal['fsLR'] = 'fsLR'
 ) -> NDArray:
@@ -246,14 +251,15 @@ def fetch_example_map(
     data : {'fcgradient1', 'myelinmap', 'ndi', 'odi', 'thickness'}
         Cortical map to load. Options include ``'fcgradient1'``, ``'myelinmap'``, ``'ndi'``,
         ``'odi'``, and ``'thickness'``.
-    species : {'human', 'macaque', 'marmoset'}, optional
-        Species of the surface mesh. Currently only supports ``'human'```. Default is ``'human'```.
-    density : {'32k', '4k'}, optional
-        Density of the surface mesh. Currently only supports ``'32k'```. Default is ``'32k'```.
+    species : {'human'}, optional
+        Species of the surface mesh. Currently only supports ``'human'``. Default is ``'human'``.
+    res : {'32k', '4k'}, optional
+        Resolution of the surface mesh. Currently supports ``'32k'`` for all maps as well as 
+        ``'4k'`` for ``'myelinmap'``. Default is ``'32k'``.
     hemi : {'L', 'R'}, optional
-        Hemisphere of the surface mesh. Currently only supports ``'L'```. Default is ``'L'```.
+        Hemisphere of the surface mesh. Options are ``'L'`` and ``'R'``. Default is ``'L'``.
     template : {'fsLR'}, optional
-        Template of the surface mesh. Currently only supports ``'fsLR'```. Default is ``'fsLR'```.
+        Template of the surface mesh. Currently only supports ``'fsLR'``. Default is ``'fsLR'``.
 
     Returns
     -------
@@ -266,7 +272,7 @@ def fetch_example_map(
         If the specified map data is not found in the ``neuromodes/data`` directory.
     """
     data_dir = files('neuromodes.data')
-    filename = f'sp-{species}_tpl-{template}_den-{density}_hemi-{hemi}_{data}.func.gii'
+    filename = f'sp-{species}_tpl-{template}_den-{res}_hemi-{hemi}_{data}.func.gii'
 
     try:
         with as_file(data_dir / filename) as fpath:

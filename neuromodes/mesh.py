@@ -44,8 +44,8 @@ def is_vol(
     ValueError
         If the geometry is a path-like string with an unrecognized file extension.
     ValueError
-        If the geometry is a dictionary that does not have keys 'vertices' and 'faces', or if
-        'faces' does not reference an array with shape (n_tetras, 4) for volumes or (n_trias, 3) for
+        If the geometry is a dictionary that does not have keys 'vertices' and 'cells', or if
+        'cells' does not reference an array with shape (n_tetras, 4) for volumes or (n_trias, 3) for
         surfaces.
     """
     # Instances
@@ -68,13 +68,13 @@ def is_vol(
     # Dictionary
     if isinstance(geometry, dict):
         err_str = ('Received an invalid dictionary for `geometry`. `vertices` key should reference '
-                   'an array of shape (n_verts, 3) and `faces` key should reference an array of '
-                   'shape (n_tetras, 4) for volumes or (n_trias, 3) for surfaces.')
+                   'an array of shape (n_verts, 3) and `cells` key should reference an array of '
+                   'shape (n_tetras, 4) for volumes or (n_trias, 3) for surcells.')
         if 'vertices' not in geometry:
             raise ValueError(err_str)
         try:
-            verts_per_face = np.asarray(geometry['faces']).shape[1]
-        except Exception:
+            verts_per_face = np.asarray(geometry['cells']).shape[1]
+        except (ValueError, KeyError, IndexError):
             raise ValueError(err_str)
         if verts_per_face == 4:
             return True
@@ -87,7 +87,7 @@ def mask_mesh(
     mask: NDArray[np.bool_]
 ) -> TriaMesh:
     """
-    Remove specified vertices and corresponding faces from a triangular surface mesh. Note that this
+    Remove specified vertices and corresponding cells from a triangular surface mesh. Note that this
     may produce a non-contiguous mesh with unreferenced vertices--use :func:`check_surf` to validate
     the resulting mesh.
 
@@ -196,6 +196,9 @@ def normalize_vol(
     geometry : lapy.TetMesh
         The input volume mesh, to be modified in-place.
     """
+    # Make copy to avoid in-place modification
+    geometry = TetMesh(geometry.v, geometry.t)
+
     # Get edge vectors for each tetrahedron
     t0 = geometry.t[:, 0]
     t1 = geometry.t[:, 1]
@@ -227,6 +230,8 @@ def normalize_vol(
     # Rescale to unit volume
     geometry.v /= geometry.boundary_tria().volume() ** (1/3)
 
+    return geometry
+
 def check_vol(
     vol: TetMesh
 ) -> None:
@@ -250,9 +255,9 @@ def check_vol(
         raise ValueError('Volume mesh contains unreferenced vertices (i.e., not part of any '
                          'tetrahedron).')
     
-    # Ensure volume is manifold (i.e., no faces shared by more than two tets)
+    # Ensure volume is manifold (i.e., no cells shared by more than two tets)
     if not _is_vol_manifold(vol):
-        raise ValueError('Volume mesh is not manifold: contains faces shared by more than two '
+        raise ValueError('Volume mesh is not manifold: contains cells shared by more than two '
                          'tetrahedra.')
 
     # Validate surface boundary
@@ -288,7 +293,7 @@ def check_surf(
     surf: TriaMesh
 ) -> None:
     """
-    Check if the surface mesh is contiguous with no unreferenced vertices.
+    Check if the surface mesh is contiguous, manifold, and contains no unreferenced vertices.
     
     Parameters
     ----------
@@ -302,7 +307,7 @@ def check_surf(
     ValueError
         If the surface mesh is not contiguous.
     ValueError
-        If the surface mesh is not manifold (i.e., contains edges belonging to more than two faces).
+        If the surface mesh is not manifold (i.e., contains edges belonging to more than two cells).
     """
     # Ensure surface has no unreferenced vertices
     referenced = np.zeros(len(surf.v), dtype=bool)
@@ -320,7 +325,7 @@ def check_surf(
     # Ensure surface is manifold
     if not surf.is_manifold():
         raise ValueError('Surface mesh is not manifold: contains edges belonging to more than two '
-                         'faces.')
+                         'cells.')
 
 # TODO: expose function below but remove interpolation and validate one-to-one mapping
 #
@@ -539,7 +544,7 @@ def nifti_mask_to_tetmesh(
                          "small holes and merge disconnected pieces.")
     if not surf.is_manifold():
         raise ValueError("Generated surface mesh is not manifold: contains edges belonging to more "
-                         "than two faces. Consider using `closings` to fill small holes and merge "
+                         "than two cells. Consider using `closings` to fill small holes and merge "
                          "disconnected pieces.")
         
     # Append vertices from marching cubes with voxel centers

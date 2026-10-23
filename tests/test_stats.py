@@ -322,7 +322,8 @@ def test_sigmoid_rescale():
 
 class TestParcellate:
     @pytest.fixture(scope='class')
-    def parcellation(self, random_data):
+    @classmethod  # scope='class' on non-classmethod fixtures is deprecated
+    def parcellation(cls, random_data):
         n_verts = random_data[0].shape[0]
         parc = np.zeros(n_verts, dtype=int)
         parc[n_verts//3:] = 1
