@@ -753,7 +753,7 @@ def _mult_by_cholesky(
     ----------
     data : array-like
         The spatial maps, of shape ``(n_verts, n_maps)``.
-    matrix : array-like
+    matrix : spmatrix
         The symmetric positive-definite matrix, of shape ``(n_verts, n_verts)``.
     transpose : bool, optional
         If ``True``, applies the transposed factor Fᵀ. Default is ``False``.
