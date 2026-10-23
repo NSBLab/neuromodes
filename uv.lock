@@ -952,6 +952,11 @@ dependencies = [
 cache = [
     { name = "joblib" },
 ]
+mesh = [
+    { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "tetgen" },
+]
 testing = [
     { name = "pytest" },
 ]
@@ -959,11 +964,6 @@ tutorials = [
     { name = "ipykernel" },
     { name = "matplotlib" },
     { name = "nsbutils" },
-]
-vol = [
-    { name = "scikit-image", version = "0.25.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scikit-image", version = "0.26.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "tetgen" },
 ]
 
 [package.metadata]
@@ -976,11 +976,11 @@ requires-dist = [
     { name = "nsbutils", marker = "extra == 'tutorials'", git = "https://github.com/NSBLab/nsbutils.git?rev=dev" },
     { name = "numpy", specifier = ">=1.24.4" },
     { name = "pytest", marker = "extra == 'testing'", specifier = ">=8.4.2" },
-    { name = "scikit-image", marker = "extra == 'vol'", specifier = ">=0.24.0" },
+    { name = "scikit-image", marker = "extra == 'mesh'", specifier = ">=0.24.0" },
     { name = "scipy", specifier = ">=1.10.1" },
-    { name = "tetgen", marker = "extra == 'vol'", specifier = ">=0.7.0" },
+    { name = "tetgen", marker = "extra == 'mesh'", specifier = ">=0.7.0" },
 ]
-provides-extras = ["cache", "testing", "tutorials", "vol"]
+provides-extras = ["cache", "testing", "tutorials", "mesh"]
 
 [[package]]
 name = "nibabel"

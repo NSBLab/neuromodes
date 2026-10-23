@@ -19,3 +19,4 @@ repository <https://github.com/NSBLab/neuromodes/issues>`_.
    tutorials/wave_model
    tutorials/eigenstrapping
    tutorials/GEM
+   tutorials/vol_meshing

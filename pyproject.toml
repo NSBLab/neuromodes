@@ -25,7 +25,7 @@ tutorials = [
     "matplotlib>=3.9.4",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
 ]
-vol = [
+mesh = [
     "scikit-image>=0.24.0",
     "tetgen>=0.7.0",
 ]

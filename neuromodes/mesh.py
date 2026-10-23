@@ -4,7 +4,6 @@ Module for validating and manipulating meshes of brain structures.
 
 from __future__ import annotations
 
-from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING
 from warnings import warn
@@ -17,13 +16,11 @@ from nibabel.loadsave import load
 from nibabel.nifti1 import Nifti1Image
 from scipy.interpolate import RBFInterpolator, griddata
 from scipy.ndimage import binary_closing
-from scipy.sparse.linalg import splu
 
 from neuromodes.io import fs_extensions
 
 if TYPE_CHECKING:
-    from numpy.typing import ArrayLike, NDArray
-    from scipy.sparse import csc_matrix
+    from numpy.typing import NDArray
 
 def is_vol(
     geometry: TetMesh | TriaMesh | GiftiImage | str | Path | dict
@@ -324,61 +321,68 @@ def check_surf(
     if not surf.is_manifold():
         raise ValueError('Surface mesh is not manifold: contains edges belonging to more than two '
                          'faces.')
+
+# TODO: expose function below but remove interpolation and validate one-to-one mapping
+#
+# When this is done, we can plot modes in NIFTI space in the tutorial (e.g.,
+# nilearn.plotting.plot_stat_map(mode_nifti, display_mode='ortho', cmap='seismic_r',
+# symmetric_cbar=True, title='Mode 2')
+#
+# def tetmesh_to_nifti(
+#     data: ArrayLike,
+#     tetmesh: TetMesh,
+#     nifti_mask: str | Path | Nifti1Image,
+#     method: str = 'nearest',
+#     **rbf_kwargs
+# ) -> Nifti1Image:
+#     """
+#     Project data defined on a tetrahedral mesh to a volumetric NIFTI space.
     
-def tetmesh_to_nifti(
-    data: ArrayLike,
-    tetmesh: TetMesh,
-    nifti_mask: str | Path | Nifti1Image,
-    method: str = 'nearest',
-    **rbf_kwargs
-) -> Nifti1Image:
-    """
-    Project data defined on a tetrahedral mesh to a volumetric NIFTI space.
+#     Parameters
+#     ----------
+#     nifti_mask : str, Path, or Nifti1Image
+#         Input NIFTI file path or loaded Nifti1Image object defining the target volume space.
+#     data : array-like
+#         Data values defined on the vertices of the tetmesh (shape should be (n_vertices,))
+#     tetmesh : lapy.TetMesh
+#         The tetrahedral mesh on which the data is defined. Must have vertex coordinates similar to
+#         the NIFTI space, after applying the appropriate affine transformation.
+#     """
+#     # Format / validate arguments
+#     data = np.asarray_chkfinite(data)
+#     if data.shape != (tetmesh.v.shape[0],):
+#         raise ValueError(f"data must have shape ({tetmesh.v.shape[0]},), got {data.shape}.")
+#     if not isinstance(tetmesh, TetMesh):
+#         raise TypeError("tetmesh must be an instance of lapy.TetMesh.")
+#     if isinstance(nifti_mask, (str, Path)):
+#         nifti_mask = load(nifti_mask)
+#     elif not isinstance(nifti_mask, Nifti1Image):
+#         raise TypeError("nifti_mask must be a Nifti1Image object or a path-like string to a valid "
+#                          "`.nii` or `.nii.gz` file.")
     
-    Parameters
-    ----------
-    nifti_mask : str, Path, or Nifti1Image
-        Input NIFTI file path or loaded Nifti1Image object defining the target volume space.
-    data : array-like
-        Data values defined on the vertices of the tetmesh (shape should be (n_vertices,))
-    tetmesh : lapy.TetMesh
-        The tetrahedral mesh on which the data is defined. Must have vertex coordinates similar to
-        the NIFTI space, after applying the appropriate affine transformation.
-    """
-    # Format / validate arguments
-    data = np.asarray_chkfinite(data)
-    if data.shape != (tetmesh.v.shape[0],):
-        raise ValueError(f"data must have shape ({tetmesh.v.shape[0]},), got {data.shape}.")
-    if not isinstance(tetmesh, TetMesh):
-        raise TypeError("tetmesh must be an instance of lapy.TetMesh.")
-    if isinstance(nifti_mask, (str, Path)):
-        nifti_mask = load(nifti_mask)
-    elif not isinstance(nifti_mask, Nifti1Image):
-        raise TypeError("nifti_mask must be a Nifti1Image object or a path-like string to a valid "
-                         "`.nii` or `.nii.gz` file.")
-    
-    # Get coordinates of nonzero voxels in physical space
-    x, y, z = np.asarray(nifti_mask.get_fdata() > 0).nonzero()
-    vox_coords = np.column_stack([x, y, z])
-    vox_coords = apply_affine(nifti_mask.affine, vox_coords)
+#     # Get coordinates of nonzero voxels in physical space
+#     x, y, z = np.asarray(nifti_mask.get_fdata() != 0).nonzero()
+#     vox_coords = np.column_stack([x, y, z])
+#     vox_coords = apply_affine(nifti_mask.affine, vox_coords)
 
-    # Initialise NIFTI array
-    interp_data = np.zeros(nifti_mask.shape, dtype=np.result_type(data, np.float32))
+#     # Initialise NIFTI array
+#     interp_data = np.zeros(nifti_mask.shape, dtype=np.result_type(data, np.float32))
 
-    # Linear interpolation within convex hull of vertices, store at ROI coordinates
-    interp_data[x, y, z] = griddata(tetmesh.v, data, vox_coords, method=method)
+#     # Linear interpolation within convex hull of vertices, store at ROI coordinates
+#     interp_data[x, y, z] = griddata(tetmesh.v, data, vox_coords, method=method)
 
-    # Use Rbf to interpolate at any voxels outside the convex hull (griddata returns NaNs)
-    nan_mask = np.isnan(interp_data)
-    if np.any(nan_mask):
-        rbf = RBFInterpolator(tetmesh.v, data, **rbf_kwargs)
-        interp_data[nan_mask] = rbf(vox_coords[nan_mask])
+#     # Use Rbf to interpolate at any voxels outside the convex hull (griddata returns NaNs)
+#     nan_mask = np.isnan(interp_data)
+#     if np.any(nan_mask):
+#         rbf = RBFInterpolator(tetmesh.v, data, **rbf_kwargs)
+#         interp_data[nan_mask] = rbf(vox_coords[nan_mask])
 
-    # Create a new NIFTI image with the interpolated values
-    header = nifti_mask.header.copy().set_data_dtype(interp_data.dtype)
-    return Nifti1Image(interp_data, nifti_mask.affine, header=header)
+#     # Create a new NIFTI image with the interpolated values
+#     header = nifti_mask.header.copy().set_data_dtype(interp_data.dtype)
+#     return Nifti1Image(interp_data, nifti_mask.affine, header=header)
 
-def nifti_to_tetmesh(
+# TODO: consider replacing linear interpolation and RBF with biharmonic inpainting
+def nifti_data_to_tetmesh(
     nifti_data: str | Path | Nifti1Image,
     tetmesh: TetMesh,
     nifti_mask: str | Path | Nifti1Image | None = None,
@@ -392,18 +396,18 @@ def nifti_to_tetmesh(
     ----------
     nifti_data : str, Path, or Nifti1Image
         Input NIFTI file path or loaded ``Nifti1Image`` object.
+    tetmesh : lapy.TetMesh
+        The tetrahedral mesh to which data is projected.
     nifti_mask : str, Path, or Nifti1Image or None
         Optional mask to define the region of interest. If ``None``, nonzero voxels are used.
         Default is ``None``.
-    tetmesh : lapy.TetMesh
-        The tetrahedral mesh to which data is projected.
     **rbf_kwargs
         Additional keyword arguments to pass to ``scipy.interpolate.RBFInterpolator``, such as 
         ``function`` and ``smooth``.
     
     Returns
     -------
-    interp_data : ndarray
+    ndarray
         Data interpolated at mesh vertices, shape (n_vertices,).
     """
     # Load NIFTI if needed
@@ -415,11 +419,11 @@ def nifti_to_tetmesh(
     # Get mask
     data = nifti_data.get_fdata()
     if nifti_mask is None:
-        mask = data > 0
+        mask = data != 0
     else:
         if isinstance(nifti_mask, (str, Path)):
             nifti_mask = load(nifti_mask)
-        mask = nifti_mask.get_fdata() > 0
+        mask = nifti_mask.get_fdata() != 0
     
     # Get voxel coordinates and values
     x, y, z = np.where(mask)
@@ -437,19 +441,20 @@ def nifti_to_tetmesh(
 
     return interp_data
 
-def make_vol_mesh(
-    vol: str | Path | Nifti1Image,
+def nifti_mask_to_tetmesh(
+    nifti_mask: str | Path | Nifti1Image,
     closings: int = 0,
     discard_components: bool = False,
     **tetgen_kwargs
 ) -> TetMesh:
     """
     Tetrahedral meshing from a binary voxel mask NIFTI via marching cubes and Delaunay
-    tetrahedralization.
+    tetrahedralization. Note that mesh quality may be poor when the NIFTI has nighly anisotropic
+    voxel dimensions. 
 
     Parameters
     ----------
-    vol : str, Path, or Nifti1Image
+    nifti_mask : str, Path, or Nifti1Image
         Input NIFTI file path or loaded Nifti1Image object containing a binary mask of the region of
         interest (ROI).
     closings : int, optional
@@ -472,41 +477,42 @@ def make_vol_mesh(
     ImportError
         If the required packages `skimage` and `tetgen` are not installed.
     TypeError
-        If ``vol`` is not a Nifti1Image object or a path-like string to a valid `.nii` or `.nii.gz`
+        If ``nifti_mask`` is not a Nifti1Image object or a path-like string to a valid ``.nii`` or
+        ``.nii.gz``.
         file.
     ValueError
         If ``closings`` is not a non-negative integer.
     ValueError
         If the generated surface mesh from marching cubes is not closed.
     ValueError
-        If the generated surface mesh from marching cubes is not manifold.
-        
+        If the generated surface mesh from marching cubes is not manifold. 
     """
-    # Import optional dependencies
-    if find_spec("skimage.measure") is None or find_spec("tetgen") is None:
+    # Handle optional dependencies EAFP style
+    try:
+        from skimage.measure import marching_cubes
+        from tetgen import TetGen
+    except ImportError as e:
         raise ImportError("The `skimage` and `tetgen` packages are required for this function. "
                           "Please ensure they are installed in your environment (e.g., pip install "
-                          "neuromodes[vol]).")
-    from skimage.measure import marching_cubes
-    from tetgen import TetGen
+                          "neuromodes[vol]).") from e
 
     # Format / validate arguments
-    if isinstance(vol, (str, Path)):
-        vol = load(vol)
-    elif not isinstance(vol, Nifti1Image):
+    if isinstance(nifti_mask, (str, Path)):
+        nifti_mask = load(nifti_mask)
+    elif not isinstance(nifti_mask, Nifti1Image):
         raise TypeError("vol must be a Nifti1Image object or a path-like string to a valid "
                          "`.nii` or `.nii.gz` file.")
     if closings != int(closings) or closings < 0:
         raise ValueError("Parameter `closings` must be a non-negative integer.")
     
     # Get binary ROI from NIFTI
-    roi = (vol.get_fdata() > 0).astype(np.uint8)
+    roi = (nifti_mask.get_fdata() != 0).astype(np.uint8)
     if closings:
         roi = binary_closing(roi, iterations=closings)
 
     # Marching cubes to extract smoothed surface (replacing mri_mc from FreeSurfer)
     surf_verts, trias, _, _ = marching_cubes(roi, level=0.5, allow_degenerate=False)
-    surf_verts = apply_affine(vol.affine, surf_verts)
+    surf_verts = apply_affine(nifti_mask.affine, surf_verts)
     surf = TriaMesh(v=surf_verts, t=trias)
     
     # Handle disconnected components in generated surface
@@ -538,7 +544,7 @@ def make_vol_mesh(
         
     # Append vertices from marching cubes with voxel centers
     vox_coords = np.column_stack(np.nonzero(roi))
-    vox_coords = apply_affine(vol.affine, vox_coords)
+    vox_coords = apply_affine(nifti_mask.affine, vox_coords)
     init_verts = np.vstack([surf.v, vox_coords])
 
     # Generate edges to complete tetrahedral mesh
@@ -554,47 +560,3 @@ def make_vol_mesh(
     check_vol(mesh)
 
     return mesh
-
-def smooth(
-    data: NDArray[np.floating],
-    mass: csc_matrix,
-    stiffness: csc_matrix,
-    t: float,  # TODO: convert to, or add, rayleigh or FWHM
-    checks: bool = True
-) -> NDArray[np.floating]:
-    """
-    Smooth data on a surface mesh using the implicit Euler method.
-
-    Parameters
-    ----------
-    data : numpy.ndarray
-        The data to be smoothed, of shape ``(n_verts,)`` or ``(n_verts, n_maps)``. TODO: support nD
-    mass : scipy.sparse.csc_matrix
-        The mass matrix of the mesh.
-    stiffness : scipy.sparse.csc_matrix
-        The stiffness matrix of the mesh.
-    t : float
-        The time step for smoothing. Larger values will result in more smoothing.
-
-    Returns
-    -------
-    numpy.ndarray
-        The smoothed data, of the same shape as the input ``data``.
-    """
-    from neuromodes.eigen import EigenData  # avoid circular import
-
-    # Prelims
-    data = data.copy()
-    if checks is not False:
-        ved = EigenData(data=data, mass=mass, stiffness=stiffness, checks=checks)
-        data, mass, stiffness = ved.data, ved.mass, ved.stiffness
-
-    if (is_data_vec := (data.ndim == 1)):
-        data = data[:, np.newaxis]
-
-    # Smooth each map
-    # Solve (M + tS) x = M @ data for x (the smoothed map)
-    hmat = mass + stiffness * t
-    dataw = mass @ data
-    data_smooth = splu(hmat).solve(dataw)
-    return data_smooth.squeeze(axis=1) if is_data_vec else data_smooth
