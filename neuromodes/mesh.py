@@ -6,10 +6,16 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from warnings import warn
 
 import numpy as np
 from lapy import TetMesh, TriaMesh
+from nibabel.affines import apply_affine
 from nibabel.gifti.gifti import GiftiImage
+from nibabel.loadsave import load
+from nibabel.nifti1 import Nifti1Image
+from scipy.interpolate import RBFInterpolator, griddata
+from scipy.ndimage import binary_closing
 
 from neuromodes.io import fs_extensions
 
@@ -320,3 +326,308 @@ def check_surf(
     if not surf.is_manifold():
         raise ValueError('Surface mesh is not manifold: contains edges belonging to more than two '
                          'cells.')
+
+def tetmesh_data_to_nifti(
+    data: NDArray[np.floating],
+    tetmesh: TetMesh,
+    nifti_mask: str | Path | Nifti1Image,
+) -> Nifti1Image:
+    """
+    Place tetrahedral mesh data at corresponding nonzero NIFTI mask voxels. Every nonzero voxel in
+    ``nifti_mask`` must have exactly one corresponding vertex in ``tetmesh``. No interpolation is
+    performed, and extra mesh vertices are allowed. 
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Data to be placed at the corresponding NIFTI mask voxels, of shape ``(n_verts,)`` or
+        ``(n_verts, n_maps)``.
+    tetmesh : lapy.TetMesh
+        The tetrahedral mesh containing the vertices corresponding to the NIFTI mask voxels.
+    nifti_mask : str, Path, or Nifti1Image
+        Input NIFTI file path or loaded ``Nifti1Image`` object containing a binary mask of the
+        region of interest (ROI). Every nonzero voxel in this mask must correspond to exactly one
+        vertex in ``tetmesh``.
+
+    Returns
+    -------
+    Nifti1Image
+        A new NIFTI image with the same shape and affine as ``nifti_mask``. For multiple maps,
+        the NIFTI has shape ``nifti_mask.shape + (n_maps,)``.
+
+    Raises
+    ------
+    TypeError
+        If ``tetmesh`` is not an instance of ``lapy.TetMesh``.
+    ValueError
+        If ``data`` does not have shape ``(n_verts,)`` or ``(n_verts, n_maps)``.
+    TypeError
+        If ``nifti_mask`` is not a ``Nifti1Image`` object or a path-like string to a valid ``.nii``
+        or ``.nii.gz`` file.
+    ValueError
+        If any nonzero voxel in ``nifti_mask`` does not correspond to exactly one vertex in
+        ``tetmesh``.
+    """
+    # Format / validate arguments
+    if not isinstance(tetmesh, TetMesh):
+        raise TypeError("tetmesh must be an instance of lapy.TetMesh.")
+
+    data = np.asarray_chkfinite(data)
+    if data.ndim not in (1, 2) or data.shape[0] != tetmesh.v.shape[0]:
+        raise ValueError("data must have shape (n_verts,) or (n_verts, n_maps), where "
+                         f"n_verts is {tetmesh.v.shape[0]}; got {data.shape}.")
+
+    if isinstance(nifti_mask, (str, Path)):
+        nifti_mask = load(nifti_mask)
+    elif not isinstance(nifti_mask, Nifti1Image):
+        raise TypeError("nifti_mask must be a Nifti1Image object or a path-like string to a valid "
+                         "`.nii` or `.nii.gz` file.")
+
+    # Check that all nonzero voxels are represented in the mesh
+    # TODO: consider adding a mapping parameter to avoid this check
+    voxel_indices = np.column_stack(np.nonzero(nifti_mask.get_fdata()))
+    voxel_coords = apply_affine(nifti_mask.affine, voxel_indices)
+    distances = np.linalg.norm(
+        tetmesh.v[:, None, :] - voxel_coords[None, :, :],
+        axis=2,
+    )
+    nearest_vertices = np.argmin(distances, axis=0)
+    nearest_distances = distances[nearest_vertices, np.arange(voxel_coords.shape[0])]
+    if (np.any(nearest_distances > 1e-8)
+            or np.unique(nearest_vertices).size != voxel_coords.shape[0]):
+        raise ValueError("Every nonzero NIFTI mask voxel must correspond to a unique "
+                         "tetmesh vertex.")
+
+    # Construct NIFTI via direct sampling of mesh data
+    output_shape = nifti_mask.shape + data.shape[1:]
+    nifti_data = np.zeros(output_shape, dtype=data.dtype)
+    nifti_data[tuple(voxel_indices.T)] = data[nearest_vertices]
+    header = nifti_mask.header.copy()
+    header.set_data_dtype(nifti_data.dtype)
+    return Nifti1Image(nifti_data, nifti_mask.affine, header=header)
+
+# TODO: consider replacing linear interpolation and RBF with biharmonic inpainting
+def nifti_data_to_tetmesh(
+    nifti_data: str | Path | Nifti1Image,
+    tetmesh: TetMesh,
+    nifti_mask: str | Path | Nifti1Image | None = None,
+    **rbf_kwargs
+) -> NDArray[np.floating]:
+    """
+    Project one or more maps from volumetric NIFTI space to a tetrahedral mesh using linear
+    interpolation and radial basis functions for extrapolation.
+    
+    Parameters
+    ----------
+    nifti_data : str, Path, or Nifti1Image
+        Input NIFTI file path or loaded ``Nifti1Image`` object.
+    tetmesh : lapy.TetMesh
+        The tetrahedral mesh to which data is projected.
+    nifti_mask : str, Path, or Nifti1Image or None
+        Optional mask to define the region of interest. If ``None``, nonzero voxels are used.
+        Default is ``None``.
+    **rbf_kwargs
+        Additional keyword arguments to pass to ``scipy.interpolate.RBFInterpolator``, such as 
+        ``function`` and ``smooth``.
+    
+    Returns
+    -------
+    ndarray
+    Data interpolated at mesh vertices, shape ``(n_vertices,)`` for one map or
+    ``(n_vertices, n_maps)`` for a 4D NIFTI.
+
+    Raises
+    ------
+    TypeError
+        If ``nifti_data`` is not a ``Nifti1Image`` object or a path-like string to a valid ``.nii``
+        or ``.nii.gz`` file.
+    TypeError
+        If ``tetmesh`` is not an instance of ``lapy.TetMesh``.
+    TypeError
+        If ``nifti_mask`` is not a ``Nifti1Image`` object or a path-like string to a valid ``.nii``
+        or ``.nii.gz`` file.
+    ValueError
+        If the dimensions of ``nifti_mask`` do not match those of ``nifti_data``.
+    ValueError
+        If ``nifti_data`` does not contain a 3D volume or a 4D series of maps.
+    """
+    if not isinstance(tetmesh, TetMesh):
+        raise TypeError("tetmesh must be an instance of lapy.TetMesh.")
+
+    # Load NIFTI if needed
+    if isinstance(nifti_data, (str, Path)):
+        nifti_data = load(nifti_data)
+    elif not isinstance(nifti_data, Nifti1Image):
+        raise TypeError("nifti_data must be a Nifti1Image object or path to a valid `.nii` or "
+                        "`.nii.gz` file.")
+    
+    # Get mask
+    data = nifti_data.get_fdata()
+    if data.ndim not in (3, 4):
+        raise ValueError("nifti_data must contain a 3D volume or a 4D series of maps.")
+    if nifti_mask is None:
+        mask = data != 0
+        # check that nonzeros are the same across all maps if 4D
+        if data.ndim == 4:
+            if not np.all(np.all(mask, axis=3)):
+                raise ValueError(
+                    "nifti_data contains multiple maps, but nonzero voxels do not match across "
+                    "maps. Please provide a nifti_mask to define the region of interest."
+                    )
+            mask = mask[:, :, :, 0]
+    else:
+        if isinstance(nifti_mask, (str, Path)):
+            nifti_mask = load(nifti_mask)
+        if not isinstance(nifti_mask, Nifti1Image):
+            raise TypeError("nifti_mask must be a Nifti1Image object or path to a valid `.nii` or "
+                            "`.nii.gz` file.")
+        mask = nifti_mask.get_fdata() != 0
+        if mask.ndim != 3 or mask.shape != data.shape[:3]:
+            raise ValueError("nifti_mask must be a 3D image with dimensions matching nifti_data.")
+    
+    # Get voxel coordinates and values
+    x, y, z = np.where(mask)
+    vox_coords = np.column_stack([x, y, z])
+    vox_coords = apply_affine(nifti_data.affine, vox_coords)
+    
+    # Linear interpolation within convex hull of voxel coordinates
+    # TODO: consider adding a mapping parameter to use direct assignment for voxel-matching vertices
+    values = data[mask]
+    if (is_single_map := values.ndim == 1):
+        values = values[:, None]
+    interp_data = griddata(vox_coords, values, tetmesh.v, method='linear')
+    if interp_data.ndim == 1:
+        interp_data = interp_data[:, None]
+
+    # Use radial basis functions to interpolate where vertices are outside the convex hull
+    nan_rows = np.any(np.isnan(interp_data), axis=1)
+    if np.any(nan_rows):
+        rbf = RBFInterpolator(vox_coords, values, **rbf_kwargs)
+        rbf_data = rbf(tetmesh.v[nan_rows])
+        interp_data[nan_rows] = np.where(
+            np.isnan(interp_data[nan_rows]),
+            rbf_data,
+            interp_data[nan_rows],
+        )
+
+    return interp_data[:, 0] if is_single_map else interp_data
+
+def nifti_mask_to_tetmesh(
+    nifti_mask: str | Path | Nifti1Image,
+    closings: int = 0,
+    discard_components: bool = False,
+    **tetgen_kwargs
+) -> TetMesh:
+    """
+    Tetrahedral meshing from a binary voxel mask NIFTI via marching cubes and Delaunay
+    tetrahedralization. Note that mesh quality may be poor when the NIFTI has nighly anisotropic
+    voxel dimensions. 
+
+    Parameters
+    ----------
+    nifti_mask : str, Path, or Nifti1Image
+        Input NIFTI file path or loaded Nifti1Image object containing a binary mask of the region of
+        interest (ROI).
+    closings : int, optional
+        Number of binary closing operations to perform on the ROI mask before meshing. This can help
+        fill small holes and merge disconnected pieces in the ROI. Default is ``0``.
+    discard_components : bool, optional
+        If True, only the largest connected component of the generated surface mesh will be kept, 
+        discarding the rest. This can be useful for removing small, irrelevant pieces from the mesh.
+        Default is ``False``.
+    **tetgen_kwargs
+        Additional keyword arguments to pass to the `tetgen.TetGen.tetrahedralize`.
+
+    Returns
+    -------
+    lapy.TetMesh
+        The generated tetrahedral mesh of the ROI.
+
+    Raises
+    ------
+    ImportError
+        If the required packages `skimage` and `tetgen` are not installed.
+    TypeError
+        If ``nifti_mask`` is not a Nifti1Image object or a path-like string to a valid ``.nii`` or
+        ``.nii.gz``.
+        file.
+    ValueError
+        If ``closings`` is not a non-negative integer.
+    ValueError
+        If the generated surface mesh from marching cubes is not closed.
+    ValueError
+        If the generated surface mesh from marching cubes is not manifold. 
+    """
+    # Handle optional dependencies EAFP style
+    try:
+        from skimage.measure import marching_cubes
+        from tetgen import TetGen
+    except ImportError as e:
+        raise ImportError("The `skimage` and `tetgen` packages are required for this function. "
+                          "Please ensure they are installed in your environment (e.g., pip install "
+                          "neuromodes[vol]).") from e
+
+    # Format / validate arguments
+    if isinstance(nifti_mask, (str, Path)):
+        nifti_mask = load(nifti_mask)
+    elif not isinstance(nifti_mask, Nifti1Image):
+        raise TypeError("vol must be a Nifti1Image object or a path-like string to a valid "
+                         "`.nii` or `.nii.gz` file.")
+    if closings != int(closings) or closings < 0:
+        raise ValueError("Parameter `closings` must be a non-negative integer.")
+    
+    # Get binary ROI from NIFTI
+    roi = (nifti_mask.get_fdata() != 0).astype(np.uint8)
+    if closings:
+        roi = binary_closing(roi, iterations=closings)
+
+    # Marching cubes to extract smoothed surface (replacing mri_mc from FreeSurfer)
+    surf_verts, trias, _, _ = marching_cubes(roi, level=0.5, allow_degenerate=False)
+    surf_verts = apply_affine(nifti_mask.affine, surf_verts)
+    surf = TriaMesh(v=surf_verts, t=trias)
+    
+    # Handle disconnected components in generated surface
+    n_components, labels = surf.connected_components()
+    if n_components > 1:
+        if discard_components:
+            surf.keep_largest_connected_component_()
+            print(f"Components discarded: {n_components-1}.")
+            unique, counts = np.unique(labels, return_counts=True)
+            for comp, count in zip(unique, counts):
+                if comp != np.argmax(np.bincount(labels)):
+                    print(f"    - {count} vertices.")
+        else:
+            warn(f"Generated surface has {n_components} connected components; unable to proceed "
+                 "with tetrahedral meshing. Surface mesh will be returned with labels array to "
+                 "allow visual inspection. Consider using `discard_components` to keep only the "
+                 "largest component, or `closings` to fill small holes and merge disconnected "
+                 "pieces.")
+            return surf, labels
+
+    # Ensure that surface is closed and manifold
+    if not surf.is_closed():
+        raise ValueError("Generated surface mesh is not closed. Consider using `closings` to fill "
+                         "small holes and merge disconnected pieces.")
+    if not surf.is_manifold():
+        raise ValueError("Generated surface mesh is not manifold: contains edges belonging to more "
+                         "than two cells. Consider using `closings` to fill small holes and merge "
+                         "disconnected pieces.")
+        
+    # Append vertices from marching cubes with voxel centers
+    vox_coords = np.column_stack(np.nonzero(roi))
+    vox_coords = apply_affine(nifti_mask.affine, vox_coords)
+    init_verts = np.vstack([surf.v, vox_coords])
+
+    # Generate edges to complete tetrahedral mesh
+    tetgen = TetGen(init_verts, surf.t)
+    tetgen.tetrahedralize(**tetgen_kwargs)
+    verts = tetgen.node
+    tetras = tetgen.elem
+
+    # Convert to lapy
+    mesh = TetMesh(v=verts.astype(np.float64), t=tetras.astype(np.int32))
+
+    # Ensure the generated volume mesh is valid
+    check_vol(mesh)
+
+    return mesh

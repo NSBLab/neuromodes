@@ -19,12 +19,19 @@ cache = [
     "joblib>=1.5.3",
 ]
 testing = [
+    "neuromodes[cache,mesh]",
     "pytest>=8.4.2",
 ]
 tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
+    "neuromodes[mesh]",
+    "nilearn>=0.11.1",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
+]
+mesh = [
+    "scikit-image>=0.24.0",
+    "tetgen>=0.7.0",
 ]
 
 [build-system]
