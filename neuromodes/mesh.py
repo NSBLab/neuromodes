@@ -443,6 +443,13 @@ def nifti_data_to_tetmesh(
         or ``.nii.gz`` file.
     TypeError
         If ``tetmesh`` is not an instance of ``lapy.TetMesh``.
+    TypeError
+        If ``nifti_mask`` is not a ``Nifti1Image`` object or a path-like string to a valid ``.nii``
+        or ``.nii.gz`` file.
+    ValueError
+        If the dimensions of ``nifti_mask`` do not match those of ``nifti_data``.
+    ValueError
+        If ``nifti_data`` does not contain a 3D volume or a 4D series of maps.
     """
     if not isinstance(tetmesh, TetMesh):
         raise TypeError("tetmesh must be an instance of lapy.TetMesh.")
@@ -451,39 +458,48 @@ def nifti_data_to_tetmesh(
     if isinstance(nifti_data, (str, Path)):
         nifti_data = load(nifti_data)
     elif not isinstance(nifti_data, Nifti1Image):
-        raise TypeError("nifti_data must be a Nifti1Image object or path")
+        raise TypeError("nifti_data must be a Nifti1Image object or path to a valid `.nii` or "
+                        "`.nii.gz` file.")
     
     # Get mask
     data = nifti_data.get_fdata()
     if data.ndim not in (3, 4):
         raise ValueError("nifti_data must contain a 3D volume or a 4D series of maps.")
     if nifti_mask is None:
-        mask = np.any(data != 0, axis=-1) if data.ndim == 4 else data != 0
+        mask = data != 0
+        # check that nonzeros are the same across all maps if 4D
+        if data.ndim == 4:
+            if not np.all(np.all(mask, axis=3)):
+                raise ValueError(
+                    "nifti_data contains multiple maps, but nonzero voxels do not match across "
+                    "maps. Please provide a nifti_mask to define the region of interest."
+                    )
+            mask = mask[:, :, :, 0]
     else:
         if isinstance(nifti_mask, (str, Path)):
             nifti_mask = load(nifti_mask)
         if not isinstance(nifti_mask, Nifti1Image):
-            raise TypeError("nifti_mask must be a Nifti1Image object or path")
+            raise TypeError("nifti_mask must be a Nifti1Image object or path to a valid `.nii` or "
+                            "`.nii.gz` file.")
         mask = nifti_mask.get_fdata() != 0
-    if mask.ndim != 3 or mask.shape != data.shape[:3]:
-        raise ValueError("nifti_mask must be a 3D image matching the spatial shape of nifti_data.")
+        if mask.ndim != 3 or mask.shape != data.shape[:3]:
+            raise ValueError("nifti_mask must be a 3D image with dimensions matching nifti_data.")
     
     # Get voxel coordinates and values
     x, y, z = np.where(mask)
     vox_coords = np.column_stack([x, y, z])
     vox_coords = apply_affine(nifti_data.affine, vox_coords)
     
-    # Linear interpolation within convex hull of ROI coordinates, store at mesh vertices.
+    # Linear interpolation within convex hull of voxel coordinates
     # TODO: consider adding a mapping parameter to use direct assignment for voxel-matching vertices
     values = data[mask]
-    is_multi_map = values.ndim == 2
-    if not is_multi_map:
+    if (is_single_map := values.ndim == 1):
         values = values[:, None]
     interp_data = griddata(vox_coords, values, tetmesh.v, method='linear')
     if interp_data.ndim == 1:
         interp_data = interp_data[:, None]
 
-    # Use RBF to interpolate at vertices where any map is outside the convex hull.
+    # Use radial basis functions to interpolate where vertices are outside the convex hull
     nan_rows = np.any(np.isnan(interp_data), axis=1)
     if np.any(nan_rows):
         rbf = RBFInterpolator(vox_coords, values, **rbf_kwargs)
@@ -494,7 +510,7 @@ def nifti_data_to_tetmesh(
             interp_data[nan_rows],
         )
 
-    return interp_data[:, 0] if not is_multi_map else interp_data
+    return interp_data[:, 0] if is_single_map else interp_data
 
 def nifti_mask_to_tetmesh(
     nifti_mask: str | Path | Nifti1Image,
