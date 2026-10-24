@@ -19,10 +19,12 @@ cache = [
 ]
 testing = [
     "pytest>=8.4.2",
+    "neuromodes[cache,mesh]",
 ]
 tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
+    "nilearn>=0.11.1",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
 ]
 mesh = [

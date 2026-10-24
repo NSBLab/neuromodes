@@ -163,6 +163,7 @@ API Reference
    neuromodes.mesh.check_vol
    neuromodes.mesh.check_surf
    neuromodes.mesh.nifti_data_to_tetmesh
+   neuromodes.mesh.tetmesh_data_to_nifti
    neuromodes.mesh.nifti_mask_to_tetmesh
 
 .. _ref_nulls:
