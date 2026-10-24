@@ -36,6 +36,8 @@ API Reference
 
    compute_lbo
    solve
+   write_h5
+   read_h5
    decompose
    reconstruct
    calc_recon_error

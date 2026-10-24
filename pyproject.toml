@@ -7,6 +7,7 @@ requires-python = ">=3.10"
 keywords = ["python", "modelling", "neuroimaging", "eigenmodes", "brain-mapping"]
 
 dependencies = [
+    "h5py>=3.16.0",
     "lapy>=1.6.0",
     "nibabel>=5.2.1",
     "numpy>=1.24.4",
@@ -18,12 +19,13 @@ cache = [
     "joblib>=1.5.3",
 ]
 testing = [
-    "pytest>=8.4.2",
     "neuromodes[cache,mesh]",
+    "pytest>=8.4.2",
 ]
 tutorials = [
     "ipykernel>=6.31.0",
     "matplotlib>=3.9.4",
+    "neuromodes[mesh]",
     "nilearn>=0.11.1",
     "nsbutils @ git+https://github.com/NSBLab/nsbutils.git@dev",
 ]

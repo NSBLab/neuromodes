@@ -69,7 +69,7 @@ def is_vol(
     if isinstance(geometry, dict):
         err_str = ('Received an invalid dictionary for `geometry`. `vertices` key should reference '
                    'an array of shape (n_verts, 3) and `cells` key should reference an array of '
-                   'shape (n_tetras, 4) for volumes or (n_trias, 3) for surcells.')
+                   'shape (n_tetras, 4) for volumes or (n_trias, 3) for surfaces.')
         if 'vertices' not in geometry:
             raise ValueError(err_str)
         try:
