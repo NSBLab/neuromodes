@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 from scipy.spatial.distance import cdist, pdist
-from scipy.stats import zscore
+from scipy.stats import shapiro, zscore
 
 from neuromodes.stats import (
     cdistw,
@@ -14,6 +14,7 @@ from neuromodes.stats import (
     meanw,
     parcellate,
     pdistw,
+    resample,
     sigmoid_rescale,
     solvew,
     ssqw,
@@ -31,8 +32,8 @@ def random_data():
     n_verts = 10
     n_maps = 3
 
-    X = rng.standard_normal(size=(n_verts, n_maps))
-    Y = rng.standard_normal(size=(n_verts, n_maps))
+    X = np.hstack([rng.normal(loc=i, scale=i+1, size=(n_verts, n_maps)) for i in range(n_maps)])
+    Y = np.hstack([rng.normal(loc=i*9, scale=i*5+1, size=(n_verts, n_maps)) for i in range(n_maps)])
 
     eye = sparse.eye(n_verts)  # identity mass for testing
     noneye = sparse.diags(np.arange(1, n_verts + 1), dtype=np.float64)
@@ -390,7 +391,7 @@ class TestParcellate:
     def test_parcellate_invalid_method(self, random_data, parcellation):
         X, _, eye, _ = random_data
         
-        with pytest.raises(ValueError, match="method must be 'mean' or 'sum'"):
+        with pytest.raises(ValueError, match="must be 'mean' or 'sum'; got how2say."):
             parcellate(X, parcellation, mass=eye, method='how2say')
     
     def test_parcellate_invalid_data_dim(self, random_data, parcellation):
@@ -410,3 +411,376 @@ class TestParcellate:
     # TODO: add something similar to MGH's example where a simple function is irregularly sampled
     # but accounted for by the mass matrix, and check that parcellation recovers the expected values
     # in each parcel.
+
+def test_resample_exact(random_data):
+    X, Y, _, _ = random_data
+
+    X_resampled = resample(X[:, 0], Y[:, 0], method='exact')
+    
+    # Check that the resampled data has the exact same values as original data (just reordered)
+    assert np.allclose(np.sort(X_resampled), np.sort(Y[:, 0])), \
+        "Resampled data doesn't preserve original data distribution"
+
+def test_resample_mean(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X[:, 0], Y[:, 0], method='mean', mass=noneye)
+    
+    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
+        "Resampled data mean is not close to original data mean"
+    assert not np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
+        "Resampled data std should not be close to original data std when using 'mean'"
+
+def test_resample_affine(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X[:, 0], Y[:, 0], method='affine', mass=noneye)
+    
+    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
+        "Resampled data mean is not close to original data mean"
+    assert np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
+        "Resampled data std is not close to original data std"
+
+def test_resample_range(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X[:, 0], Y[:, 0], method='range', mass=noneye)
+
+    assert np.isclose(np.min(X_resampled), np.min(Y[:, 0])), \
+        "Resampled data min is not close to original data min"
+    assert np.isclose(np.max(X_resampled), np.max(Y[:, 0])), \
+        "Resampled data max is not close to original data max"
+
+def test_resample_qnorm(random_data):
+    X, Y, _, noneye = random_data
+
+    X_mod = X[:, 0]**10
+    assert shapiro(X_mod)[1] < 1e-6, "X_mod should not be normally distributed"
+
+    X_resampled = resample(X_mod, Y[:, 0], method='qnorm', mass=noneye)
+    assert shapiro(X_resampled)[1] > 0.99, "X_resampled should be normally distributed"
+
+    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
+        "Resampled data mean is not close to original data mean"
+    assert np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
+        "Resampled data std is not close to original data std"
+
+def test_resample_exact_a2d(random_data):
+    X, Y, _, _ = random_data
+
+    X_resampled = resample(X, Y[:, 0], method='exact')
+
+    Y_sorted = np.sort(Y[:, 0])
+    X_sorted = np.sort(X_resampled, axis=0)
+    for i in range(X.shape[1]):
+        assert np.allclose(X_sorted[:, i], Y_sorted), \
+            f"Resampled data for map {i} doesn't preserve original data distribution"
+
+def test_resample_mean_a2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y[:, 0], method='mean', mass=noneye)
+
+    Y_mean = meanw(Y[:, 0], noneye)
+    X_means = meanw(X_resampled, noneye)
+    for i in range(X.shape[1]):
+        assert np.isclose(X_means[i], Y_mean), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+
+def test_resample_affine_a2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y[:, 0], method='affine', mass=noneye)
+
+    Y_mean = meanw(Y[:, 0], noneye)
+    Y_std = stdw(Y[:, 0], noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X.shape[1]):
+        assert np.isclose(X_means[i], Y_mean), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+        assert np.isclose(X_stds[i], Y_std), \
+            f"Resampled data std for map {i} is not close to original data std"
+
+def test_resample_range_a2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y[:, 0], method='range', mass=noneye)
+
+    X_mins = np.min(X_resampled, axis=0)
+    Y_min = np.min(Y[:, 0], axis=0)
+    X_maxs = np.max(X_resampled, axis=0)
+    Y_max = np.max(Y[:, 0], axis=0)
+
+    for i in range(X.shape[1]):
+        assert np.isclose(X_mins[i], Y_min), \
+            f"Resampled data min for map {i} is not close to original data min"
+        assert np.isclose(X_maxs[i], Y_max), \
+            f"Resampled data max for map {i} is not close to original data max"
+
+def test_resample_qnorm_a2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_mod = X**10
+    X_resampled = resample(X_mod, Y[:, 0], method='qnorm', mass=noneye)
+
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    Y_mean = meanw(Y[:, 0], noneye)
+    Y_std = stdw(Y[:, 0], noneye)
+    for i in range(X.shape[1]):
+        assert shapiro(X_resampled[:, i])[1] > 0.99, "X_resampled should be normally distributed"
+        assert np.isclose(X_means[i], Y_mean), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+        assert np.isclose(X_stds[i], Y_std), \
+            f"Resampled data std for map {i} is not close to original data std"
+
+def test_resample_exact_ab2d(random_data):
+    X, Y, _, _ = random_data
+
+    X_resampled = resample(X, Y, method='exact')
+
+    Y_sorted = np.sort(Y, axis=0)
+    X_sorted = np.sort(X_resampled, axis=0)
+    for i in range(X.shape[1]):
+        assert np.allclose(X_sorted[:, i], Y_sorted[:, i]), \
+            f"Resampled data for map {i} doesn't preserve original data distribution"
+
+def test_resample_mean_ab2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y, method='mean', mass=noneye)
+
+    Y_means = meanw(Y, noneye)
+    X_means = meanw(X_resampled, noneye)
+    for i in range(X.shape[1]):
+        assert np.isclose(X_means[i], Y_means[i]), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+
+def test_resample_affine_ab2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y, method='affine', mass=noneye)
+
+    Y_means = meanw(Y, noneye)
+    Y_stds = stdw(Y, noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X.shape[1]):
+        assert np.isclose(X_means[i], Y_means[i]), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+        assert np.isclose(X_stds[i], Y_stds[i]), \
+            f"Resampled data std for map {i} is not close to original data std"
+
+def test_resample_range_ab2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_resampled = resample(X, Y, method='range', mass=noneye)
+
+    X_mins = np.min(X_resampled, axis=0)
+    Y_mins = np.min(Y, axis=0)
+    X_maxs = np.max(X_resampled, axis=0)
+    Y_maxs = np.max(Y, axis=0)
+
+    for i in range(X.shape[1]):
+        assert np.isclose(X_mins[i], Y_mins[i]), \
+            f"Resampled data min for map {i} is not close to original data min"
+        assert np.isclose(X_maxs[i], Y_maxs[i]), \
+            f"Resampled data max for map {i} is not close to original data max"
+
+def test_resample_qnorm_ab2d(random_data):
+    X, Y, _, noneye = random_data
+
+    X_mod = X**10
+    X_resampled = resample(X_mod, Y, method='qnorm', mass=noneye)
+
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    Y_means = meanw(Y, noneye)
+    Y_stds = stdw(Y, noneye)
+    for i in range(X.shape[1]):
+        assert shapiro(X_resampled[:, i])[1] > 0.99, "X_resampled should be normally distributed"
+        assert np.isclose(X_means[i], Y_means[i]), \
+            f"Resampled data mean for map {i} is not close to original data mean"
+        assert np.isclose(X_stds[i], Y_stds[i]), \
+            f"Resampled data std for map {i} is not close to original data std"
+
+def test_resample_exact_a3d(random_data):
+    X, Y, _, _ = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, X**2], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='exact')
+
+    Y_sorted = np.sort(Y, axis=0)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.allclose(np.sort(X_resampled[:, j, i]), Y_sorted[:, i]), \
+                f"Resampled data for map {i} (slice {j}) doesn't preserve original data distribution"
+
+def test_resample_mean_a3d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y[:, 0], method='mean', mass=noneye)
+
+    Y_mean = meanw(Y[:, 0], noneye)
+    X_means = meanw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_means[j, i], Y_mean), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+
+def test_resample_affine_a3d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y[:, 0], method='affine', mass=noneye)
+
+    Y_mean = meanw(Y[:, 0], noneye)
+    Y_std = stdw(Y[:, 0], noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_means[j, i], Y_mean), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+            assert np.isclose(X_stds[j, i], Y_std), \
+                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
+
+def test_resample_range_a3d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y[:, 0], method='range', mass=noneye)
+
+    X_mins = np.min(X_resampled, axis=0)
+    Y_min = np.min(Y[:, 0])
+    X_maxs = np.max(X_resampled, axis=0)
+    Y_max = np.max(Y[:, 0])
+
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_mins[j, i], Y_min), \
+                f"Resampled data min for map {i} (slice {j}) is not close to original data min"
+            assert np.isclose(X_maxs[j, i], Y_max), \
+                f"Resampled data max for map {i} (slice {j}) is not close to original data max"
+
+def test_resample_qnorm_a3d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X**10, X**10 + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y[:, 0], method='qnorm', mass=noneye)
+
+    Y_mean = meanw(Y[:, 0], noneye)
+    Y_std = stdw(Y[:, 0], noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert shapiro(X_resampled[:, j, i])[1] > 0.99, \
+                f"Resampled data for map {i} (slice {j}) should be normally distributed"
+            assert np.isclose(X_means[j, i], Y_mean), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+            assert np.isclose(X_stds[j, i], Y_std), \
+                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
+
+def test_resample_exact_a3b2d(random_data):
+    X, Y, _, _ = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, X**2], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='exact')
+
+    Y_sorted = np.sort(Y, axis=0)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.allclose(np.sort(X_resampled[:, j, i]), Y_sorted[:, i]), \
+                f"Resampled data for map {i} (slice {j}) doesn't preserve original data distribution"
+
+def test_resample_mean_a3b2d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='mean', mass=noneye)
+
+    Y_means = meanw(Y, noneye)
+    X_means = meanw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_means[j, i], Y_means[i]), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+
+def test_resample_affine_a3b2d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='affine', mass=noneye)
+
+    Y_means = meanw(Y, noneye)
+    Y_stds = stdw(Y, noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_means[j, i], Y_means[i]), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+            assert np.isclose(X_stds[j, i], Y_stds[i]), \
+                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
+
+def test_resample_range_a3b2d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='range', mass=noneye)
+
+    X_mins = np.min(X_resampled, axis=0)
+    Y_mins = np.min(Y, axis=0)
+    X_maxs = np.max(X_resampled, axis=0)
+    Y_maxs = np.max(Y, axis=0)
+
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert np.isclose(X_mins[j, i], Y_mins[i]), \
+                f"Resampled data min for map {i} (slice {j}) is not close to original data min"
+            assert np.isclose(X_maxs[j, i], Y_maxs[i]), \
+                f"Resampled data max for map {i} (slice {j}) is not close to original data max"
+
+def test_resample_qnorm_a3b2d(random_data):
+    X, Y, _, noneye = random_data
+
+    # Create 3D data by stacking along a new axis
+    X_3d = np.stack([X**10, X**10 + 100], axis=1)  # shape (n_verts, 2, n_maps)
+
+    X_resampled = resample(X_3d, Y, method='qnorm', mass=noneye)
+
+    Y_means = meanw(Y, noneye)
+    Y_stds = stdw(Y, noneye)
+    X_means = meanw(X_resampled, noneye)
+    X_stds = stdw(X_resampled, noneye)
+    for i in range(X_3d.shape[2]):
+        for j in range(X_3d.shape[1]):
+            assert shapiro(X_resampled[:, j, i])[1] > 0.99, \
+                f"Resampled data for map {i} (slice {j}) should be normally distributed"
+            assert np.isclose(X_means[j, i], Y_means[i]), \
+                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
+            assert np.isclose(X_stds[j, i], Y_stds[i]), \
+                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
+            
+# TODO: test resample for a4d, a4b2d

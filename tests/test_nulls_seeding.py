@@ -8,6 +8,7 @@ from scipy.sparse import csc_matrix, eye
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.nulls import eigenstrap
+from neuromodes.stats import resample
 
 # Params
 res = '4k'
@@ -20,7 +21,7 @@ n_nulls = 20
 rotation_options = ['qr', 'scipy']
 randomize_options = [True, False]
 residual_options = [None, 'permute'] # skip add for convenience as it has no randomisation
-# Skip resample and decomp method as they are not related to seeding
+# Skip decomp method as it is not related to seeding
 
 @pytest.fixture(scope='module')
 def solver(seed=None):
@@ -105,8 +106,8 @@ def test_seed_none(solver, test_data, rotation_method, randomize, residual):
 @pytest.mark.parametrize("rotation_method", rotation_options)
 @pytest.mark.parametrize("randomize", randomize_options)
 @pytest.mark.parametrize("residual", residual_options) 
-def test_randomize_resample(solver, rotation_method, randomize, residual):
-    """Test that the rotation matrices are not affected by randomizing/resampling"""
+def test_randomize_randomize(solver, rotation_method, randomize, residual):
+    """Test that the rotation matrices are not affected by randomizing/residuals"""
     # Generate beta coeffs at the group level so that they are not affected by randomization
     group_indices = np.floor(np.sqrt(np.arange(solver.n_modes))).astype(int)
     beta0_group = np.random.default_rng(None).normal(loc=1, size=(max(group_indices)+1, n_maps))
@@ -287,10 +288,11 @@ def test_compared_to_original_seed_outside(nulls_orig):
         checks=False,               # skip checks to match original implementation which doesn't have these checks
         mass=csc_matrix(eye(solver.n_verts)),# matches original which doesn't account for vertex areal differences
         residual=None,              # matches original add_res=False and permute=False
-        resample="range",           # matches original resample=False
         decomp_method="regress",    # matches original decomp_method='matrix'
         rotation_method="scipy",    # matches original rotations.indirect_method (called by geometry.gen_eigensamples)
     )
+
+    nulls_neuromodes = resample(nulls_neuromodes, map, 'range')  # matches original resample=False
 
     # Compare (on diagonal near 1, off diagonal near 0)
     null_corrs = np.corrcoef(nulls_neuromodes.T, nulls_orig.T)[:n_nulls, n_nulls:]
@@ -333,10 +335,11 @@ def test_compared_to_original_seed_inside(nulls_orig):
         mass=csc_matrix(eye(solver.n_verts)), # matches original which doesn't account for vertex areal differences
         seed=seed,                  # matches original seed=seed 
         residual=None,              # matches original add_res=False and permute=False
-        resample="range",           # matches original resample=False
         decomp_method="regress",    # matches original decomp_method='matrix'
         rotation_method="scipy",    # matches original rotations.indirect_method (called by geometry.gen_eigensamples)
     )
+
+    nulls_neuromodes = resample(nulls_neuromodes, map, 'range')  # matches original resample=False
 
     # Compare (on diagonal near 1, off diagonal near 0)
     null_corrs = np.corrcoef(nulls_neuromodes.T, nulls_orig.T)[:n_nulls, n_nulls:]

@@ -12,6 +12,7 @@ from warnings import warn
 import numpy as np
 from scipy.sparse import csc_matrix, diags, spmatrix
 from scipy.spatial.distance import cdist, squareform
+from scipy.stats import norm
 
 from neuromodes.eigen import EigenData
 
@@ -558,7 +559,8 @@ def parcellate(
     data: NDArray[np.floating],
     parcellation: NDArray[np.integer],
     mass: spmatrix | NDArray[np.floating] | None,
-    method: Literal['mean', 'sum'] = 'mean'
+    method: Literal['mean', 'sum', 'var', 'std'] = 'mean',
+    checks: bool = True
 ) -> NDArray[np.floating]:
     """
     Area-weighted parcellation of each brain map.
@@ -573,25 +575,30 @@ def parcellate(
         ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
-    method : {'mean', 'sum'}, optional
-        The method for aggregating vertex values within each parcel. If ``'mean'``, the function
-        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
-        area-weighted sum of each parcel. Default is ``'mean'``.
+    method : {'mean', 'sum', 'var', 'std'}, optional
+        The method for aggregating vertex values within each parcel. If 'mean', the function
+        computes the area-weighted mean of each parcel. If 'sum', the function computes the
+        area-weighted sum of each parcel. If 'var', the function computes the area-weighted
+        variance of each parcel. If 'std', the function computes the area-weighted standard
+        deviation of each parcel. Default is 'mean'.
+    checks : bool, optional
+        If True, the function will perform input validation and formatting. Default is True.
 
     Returns
     -------
     np.ndarray
         The parcellated spatial maps, of shape ``(n_parcels, n_maps)``.
+    TODO consider also returning the parcellation matrix
 
     Raises
     ------
     ValueError
-        If ``method`` is not ``'mean'`` or ``'sum'``.
+        If ``method`` is not ``'mean'``, ``'sum'``, ``'var'``, or ``'std'``.
     ValueError
         If ``data`` is not 1D or 2D.
     """
     # Format / validate arguments
-    ved = EigenData(data=(data, parcellation), mass=mass)
+    ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
     data, parcellation = ved.data
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")
@@ -651,6 +658,109 @@ def _create_parcellation_matrix(
         )
     
     return parc_mat
+
+def resample(
+    data_a: NDArray[np.floating],
+    data_b: NDArray[np.floating],
+    method: Literal['exact', 'mean', 'range', 'affine', 'qnorm'] = 'exact',
+    mass: spmatrix | NDArray[np.floating] | None = None
+) -> NDArray[np.floating]:
+    """
+    Resamples the values of ``data_a`` to match the distribution or summary statistics of
+    ``data_b``.
+    
+    Parameters
+    ----------
+    data_a : array-like
+        The set of spatial maps to be resampled, of shape ``(n_verts,)`` or ``(n_verts, ...,
+        n_maps_b)``. For the latter case, each map in ``data_a[:, ..., i]`` will be resampled
+        according to ``data_b[:, i]``.
+    data_b : array-like
+        The set of spatial maps to match against, of shape ``(n_verts,)`` or ``(n_verts,
+        n_maps_b)``.
+    method : {'exact', 'mean', 'range', 'affine', 'qnorm'}, optional
+        The resampling method to use.
+        - ``'exact'``: Rank-matches ``data_a`` to preserve the exact distribution of ``data_b``.
+        - ``'mean'``: Adjusts the mean of ``data_a`` to match that of ``data_b``.
+        - ``'range'``: Adjusts the range of ``data_a`` to match that of ``data_b``.
+        - ``'affine'``: Adjusts both the mean and standard deviation of ``data_a`` to match those of
+        ``data_b``.
+        - ``'qnorm'``: Transforms ``data_a`` to a Gaussian distribution with the same mean and
+        standard deviation as ``data_b`` (quantile normalization).
+    mass : array-like, optional
+        The mass matrix, of shape ``(n_verts, n_verts)``.
+
+    Returns
+    -------
+    ndarray
+        The resampled data, of shape ``(n_verts,)`` or ``(n_verts, ..., n_maps_b)``.
+
+    Raises
+    ------
+    ValueError
+        If ``method`` is not one of the specified options.
+    ValueError
+        If ``data_b`` is 2D and its last axis length does not match that of ``data_a``.
+    ValueError
+        If ``data_b`` is not 1D or 2D.
+    """
+    # TODO: consider making data_b optional and add parameters for mean / std / min / max
+    # Format / validate arguments
+    ved = EigenData(data=(data_a, data_b), mass=mass)
+    data_a, data_b = ved.data[0].copy(), ved.data[1].copy()  # a bit ugly
+
+    # reshape to 3D for consistency
+    data_a_shape = data_a.shape
+    if data_a.ndim == 1:
+        data_a = data_a[:, None, None]
+    elif data_a.ndim == 2:
+        data_a = data_a[:, None, :]
+    elif data_a.ndim != 3:
+        data_a = data_a.reshape(data_a.shape[0], -1, data_a.shape[-1])
+
+    if data_b.ndim == 1:
+        data_b = data_b[:, None, None]
+    elif data_b.ndim == 2:
+        if data_b.shape[-1] != data_a.shape[-1]:
+            raise ValueError(
+                "data_b consists of multiple maps, but the length of its last axis is not equal to "
+                "that of data_a. This is required as each map in data_a[:, ..., i] will be "
+                "resampled according to data_b[:, i]."
+                )
+        data_b = data_b[:, None, :]
+    else:
+        raise ValueError("data_b must be 1D or 2D.")
+
+    # Resample according to method
+    # TODO: consider whether to support NaNs, see previous implementation at
+    # https://github.com/NSBLab/neuromodes/blob/3f1b773772ff916eff66daf5664e88324863f197/neuromodes/nulls.py#L391
+    match method:
+        case 'mean':
+            data_a = demeanw(data_a, ved.mass) + meanw(data_b, ved.mass, keepdims=True)
+        case 'affine':
+            data_a = (zscorew(data_a, ved.mass) * stdw(data_b, ved.mass, keepdims=True)
+                      + meanw(data_b, ved.mass, keepdims=True))
+        case 'range':
+            data_a_min = data_a.min(axis=0, keepdims=True)
+            data_b_min = data_b.min(axis=0, keepdims=True)
+            data_a_range = data_a.max(axis=0, keepdims=True) - data_a_min
+            data_b_range = (data_b.max(axis=0, keepdims=True) - data_b_min)
+
+            data_a = (data_a - data_a_min) / data_a_range * data_b_range + data_b_min
+        case 'exact':
+            data_b_sorted = np.sort(data_b, axis=0)
+            data_a_ranks = np.argsort(np.argsort(data_a, axis=0), axis=0)
+            data_a = np.take_along_axis(data_b_sorted, data_a_ranks, axis=0)
+        case 'qnorm':
+            data_a_ranks = np.argsort(np.argsort(data_a, axis=0), axis=0)
+            data_a_ranks = (data_a_ranks + 1) / (data_a.shape[0] + 1)  # avoids 0 and 1
+            data_a_stdnorm = norm.ppf(data_a_ranks)
+            data_a = (zscorew(data_a_stdnorm, ved.mass) * stdw(data_b, ved.mass, keepdims=True)
+                      + meanw(data_b, ved.mass, keepdims=True))
+        case _:
+            raise ValueError(f"Unknown method: {method}")
+
+    return data_a.reshape(data_a_shape) if data_a_shape != data_a.shape else data_a
 
 def sigmoid_rescale(
     data: NDArray[np.floating],
@@ -720,7 +830,7 @@ def _create_mass_matrix(
         raise ValueError("Either mass or n_verts must be provided.")
     
     elif mass is None and n_verts is not None: # appease: pyright
-        warn("Mass matrix not provided; assuming that area at each vertex is 1")
+        warn("Mass matrix not provided; setting to identity (i.e., every vertex has area 1).")
         output = diags(np.ones(n_verts), format='csc')
 
     elif isinstance(mass, (np.ndarray, list)):        

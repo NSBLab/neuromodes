@@ -14,8 +14,6 @@ from scipy.stats import special_ortho_group
 
 from neuromodes.basis import decompose
 from neuromodes.eigen import EigenData, get_eigengroup_inds
-from neuromodes.stats import meanw, stdw
-
 if TYPE_CHECKING:
     from numpy.typing import NDArray
     from scipy.sparse import csc_matrix
@@ -28,8 +26,7 @@ def eigenstrap(
     emodes: NDArray[np.floating],
     evals: NDArray[np.floating], 
     n_nulls: int = 1000,
-    resample: Literal['exact', 'affine', 'range'] | None = None,
-    residual: Literal['add', 'permute'] | None = None,
+    residual: Literal['add', 'permute'] | None = 'add',
     randomize: bool = False,
     n_groups: int | None = None,
     rotation_method: str = 'qr',
@@ -61,15 +58,10 @@ def eigenstrap(
         The eigenvalues array of shape ``(n_modes,)``.
     n_nulls : int, optional
         Number of null maps to generate per input map. Default is 1000.
-    resample : bool, optional
-        How to resample values from original data. Options are ``'exact'`` to match the sorted
-        distribution of the original data, ``'affine'`` to match the original mean and standard
-        deviation, ``'range'`` to match the minimum and maximum, or ``None`` for no resampling,
-        which by construction matches the original mean. Default is ``None``.
     residual : str, optional
         How to handle reconstruction residuals after generating null maps. Either ``None`` to
         exclude residuals, ``'add'`` to add original residuals, or ``'permute'`` to add shuffled
-        residuals. Default is ``None``. See Notes for details on which option to choose.
+        residuals. Default is ``'add'``. See Notes for details on which option to choose.
     randomize : bool, optional
         Whether to shuffle decomposition coefficients within eigengroups. This increases
         randomization but reduces spatial autocorrelation similarity to empirical data. Default is
@@ -108,8 +100,6 @@ def eigenstrap(
     ValueError
         If ``residual`` is not one of ``None``, ``'add'``, or ``'permute'``.
     ValueError
-        If ``resample`` is not one of ``None``, ``'exact'``, ``'affine'``, or ``'range'``.
-    ValueError
         If ``rotation_method`` is not one of ``'qr'`` or ``'scipy'``.
     ValueError
         If ``n_groups`` is greater than the number of eigengroups than can be formed from the number
@@ -134,11 +124,9 @@ def eigenstrap(
        of modes and nulls, and is recommended for most users. See more similarities/differences in
        the notes below.
 
-    4. ``resample``. The choice of ``resample`` will affect the distribution of values in the nulls.
-       ``'affine'`` and ``'range'`` are linear transformations, while ``'exact'`` is a non-linear
-       transformation. ``'affine'`` preserves the "relative PSD" of the distribution. In contrast,
-       ``'range'`` and ``'exact'`` do not preserve the relative PSD of the distribution, as they
-       change the location and scale of the reconstructed nulls. The choice of ``resample`` should
+    4. Resampling nulls. While each null will have a mean matching the original data, the
+       variance/range/distribution will not be preserved in general. Users can therefore consider
+       adjusting the distribution of the nulls via :func:`~neuromodes.stats.resample`. This should
        be guided by the importance of matching the original distribution of values and ultimately by
        whichever option produces the lowest false discovery rate (FDR). See ref [1]_ for an example
        of how to compute the FDR.
@@ -156,10 +144,10 @@ def eigenstrap(
        implementation of eigenstrapping in ref [1]_, which is available `here
        <https://github.com/SNG-Newy/eigenstrapping/tree/c2d8e5a5e7af47649f6358334644a6b49d22cf8e>`__.
        In this function, we have made a few changes to the implementation. These changes simplify
-       installation, increase speed, process multiple maps concurrently, implement mass-weighted
-       statistics, and facilitate reproducibility. Nonetheless, under a specific configuration, the
-       function can exactly match the default usage of the implementation (i.e. generating the same
-       nulls when the corresponding seed is set). See `this notebook
+       installation, increase speed, process multiple maps concurrently, adjust for mesh
+       irregularity, and facilitate reproducibility. Nonetheless, under a specific configuration,
+       the function can exactly match the default usage of the implementation (i.e. generating the
+       same nulls when the corresponding seed is set). See `this notebook
        <https://neuromodes.readthedocs.io/en/latest/validation/nulls_eigenstrap_orig.html>`__
        for an example.
 
@@ -199,10 +187,10 @@ def eigenstrap(
           have made to increase speed, account for mesh irregularity, and facilitate
           reproducibility. In particular, when ``randomize=False`` and ``residual=None``, the output
           of ``eigenstrap(rotation_method='scipy')`` will match the original output (see below for
-          more parameters which also need to be specified). However, if ``randomize=True``,
-          ``resample='affine'`` or ``residual='permute'``, it is not possible to match results
-          between the two implementations. This is because of changes we have made to increase
-          speed and account for mesh irregularity.
+          more parameters which also need to be specified). However, if ``randomize=True`` or
+          ``residual='permute'``, it is not possible to match results between the two
+          implementations. This is because of changes we have made to increase speed and account for
+          mesh irregularity.
 
        f. Changes to RNG. Here, we have changed to ``numpy``'s newer ``Generator`` for random number
           generation, which means that the global seed does not affect the output of the function
@@ -220,39 +208,42 @@ def eigenstrap(
           expected to input ``emodes`` and ``evals`` with the constant mode/eigenvalue removed
           (something of the form ``emodes[:, 1:]`` and ``evals[1:]``), here users are expected to
           input ``emodes`` and ``evals`` with the constant mode/eigenvalue included. This has
-          the advantage of preserving the original (mass-weighted) mean of the data without need for
-          resampling.
+          the advantage of preserving the original mean of the data without need for resampling.
 
        h. Concurrent processing of multiple maps. This function can process multiple maps at the
           same time. This was possible in the original implementation, but required users to save
           rotation matrices and reapply them to all maps.
 
-       i. Resample AND add residuals: If both resampling and adding residuals is requested, the
-          original implementation adds residuals after resampling. Here, the order of these steps is
-          swapped (i.e., add residuals and then resample). This ensures that the resampling remains
-          intact (e.g., that the surrogates and original actually have the same values). If
-          (instead) the resampling is done before the residuals are added, then neither step will
-          remain intact. This difference is only relevant if both ``resample`` and ``residual`` are
-          used.
+       i. Adding residuals: The original implementation does not add residuals of reconstruction to
+          the nulls by default. However, this modal truncation of nulls increases their spatial
+          autocorrelation, meaning that statistical inference may become overly conservative. In
+          contrast, our default is ``residual='add'``, which better preserves the spatial
+          autocorrelation of the nulls. The original default is equivalent to ``residual=None``.
 
-       j. Mass-weighted decomposition and statistics. To account for mesh irregularity, the mass
-          matrix is used when decomposing input maps into modal coefficients. In contrast, the
-          original implementation performs ordinary least-squares regression. Additionally,
-          mass-weighted means and standard deviations are used for ``resample='affine'``.
+       j. Adding residuals AND resampling: The original implementation supports resampling before
+          adding residuals. Here, we offer a separate function for resampling, meaning that the
+          order of operations is swapped (i.e., add residuals and then resample). This ensures that
+          the resampling correctly matches the final surrogates to the input map(s).
 
-       k. Syntax for exact replication. To exactly match the default version of the original
-          implementation of eigenstrapping in ref [1]_, users specify the following input parameters
-          to this function:
+       k. Mass-weighted decomposition. To account for mesh irregularity, the mass matrix is used
+          when decomposing input maps into modal coefficients. In contrast, the original
+          implementation performs ordinary least-squares regression.
 
+       l. Syntax for exact replication. To exactly match the default version of the original
+          implementation of eigenstrapping in ref [1]_, users must:
+
+          - Set ``mass`` to ``None``.
           - Ensure ``data`` has a mean of zero.
-          - Set ``mass`` to the identity matrix.
-          - Set ``seed=seed``
-          - Set ``resample="range"``
-          - Set ``decomp_method="regress"``
-          - Set ``rotation_method="scipy"``
+          - Set ``seed=seed``.
+          - Set ``decomp_method="regress"``.
+          - Set ``rotation_method="scipy"``.
+          - Set ``residual=None``.
+          - Set ``checks='maps'``.
+          - Resample the nulls using ``stats.resample(nulls, data, 'range')``.
 
-          Note that the original implementation (``eigenstrapping.SurfaceEigenstrapping``) must also
-          be run with a particular configuration to ensure reproducibility/compatibility:
+          All other parameters should be left as their defaults. Note that the original
+          implementation (``eigenstrapping.SurfaceEigenstrapping``) must also be run with a
+          particular configuration to ensure reproducibility/compatibility:
 
           - Set the global seed before running ``SurfaceEigenstrapping(...)`` (e.g.,
             ``np.random.seed(seed)``).
@@ -271,6 +262,10 @@ def eigenstrap(
         Imaging Neuroscience. https://doi.org/10.1162/IMAG.a.71
     """
     # Format / validate arguments
+    if residual not in (None, 'add', 'permute'):
+        raise ValueError(f"Invalid residual method '{residual}'; must be 'add', 'permute', or "
+                         "None.")
+
     if checks is not False:
         ved = EigenData(emodes=emodes, evals=evals, mass=mass, checks=checks)
         emodes, evals, mass = ved.emodes, ved.evals, ved.mass
@@ -294,14 +289,6 @@ def eigenstrap(
     groups = get_eigengroup_inds(n_modes)
     emodes = emodes[:, :n_modes].copy()
     evals = evals[:n_modes].copy()
-    
-    # residual and resample
-    if residual not in (None, 'add', 'permute'):
-        raise ValueError(f"Invalid residual method '{residual}'; must be 'add', 'permute', or "
-                         "None.")
-    if resample not in (None, 'exact', 'affine', 'range'):
-        raise ValueError(f"Invalid resampling method '{resample}'; must be 'exact', 'affine', "
-                         "'range', or None.")
     
     # seed : Need to ultimately generate n_nulls * 3 Generators to use for each step of the process
     # (randomize, residual, rotate). (i) If `seed` is an array of shape (n_nulls,), we use each seed
@@ -390,45 +377,7 @@ def eigenstrap(
             for i, s in enumerate(seeds_residual):
                 nulls[:, i, :] += np.random.default_rng(s).permutation(residual_data, axis=0)
 
-    # Resample values to match stats of original data (TODO: move to stats.py)
-    if resample == 'exact':
-        # check for NaNs / Infs
-        data_finite = np.isfinite(data)
-        if data_finite.all():
-            sorted_data = np.sort(data, axis=0)[:, np.newaxis, :]
-            ranks = np.argsort(np.argsort(nulls, axis=0), axis=0)
-            nulls = np.take_along_axis(sorted_data, ranks, axis=0)
-        else:
-            # Handle each pattern of non-finite values separately
-            unique_masks, mask_indices = np.unique(data_finite, axis=1, return_inverse=True)
-            for i, mask in enumerate(unique_masks.T):
-                map_idx = np.where(mask_indices == i)[0]
-                nulls_masked = nulls[mask][:, :, map_idx]
-
-                # Resample finite values
-                sorted_vals = np.sort(data[mask][:, map_idx], axis=0)[:, np.newaxis, :]
-                ranks = np.argsort(np.argsort(nulls_masked, axis=0), axis=0)
-                resampled = np.take_along_axis(sorted_vals, ranks, axis=0)
-
-                # Reinsert resampled values and preserve non-finite values
-                for j, map in enumerate(map_idx):
-                    nulls[mask, :, map] = resampled[:, :, j]
-                    nulls[~mask, :, map] = data[~mask, map][:, np.newaxis]
-    elif resample == 'affine':
-        nulls -= meanw(nulls, mass, keepdims=True)
-        nulls /= stdw(nulls, mass, keepdims=True)
-        nulls *= stdw(data, mass, keepdims=True)
-        nulls += meanw(data, mass, keepdims=True)
-    elif resample == 'range': # to match original
-        nulls -= nulls.min(axis=0, keepdims=True)
-        nulls /= nulls.max(axis=0, keepdims=True)
-        nulls *= np.nanmax(data, axis=0) - np.nanmin(data, axis=0)
-        nulls += np.nanmin(data, axis=0)
-
-    if is_vector_data:
-        nulls = nulls.squeeze(axis=2)
-
-    return nulls
+    return nulls.squeeze(axis=2) if is_vector_data else nulls
 
 def _rotate_coeffs_scipy(
     inv_coeffs: NDArray[np.floating],

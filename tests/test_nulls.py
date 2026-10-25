@@ -86,14 +86,6 @@ def test_residual_options(solver, test_data, residual):
     assert nulls.shape == (solver.n_verts, n_nulls)
     assert np.isfinite(nulls).all(), \
         f"Nulls contain non-finite values for residual method '{residual}'"
-
-@pytest.mark.parametrize("resample", ['exact', 'affine', 'range', None])
-def test_resample_options(solver, test_data, resample):
-    """Test different resample methods run without errors"""
-    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample=resample)
-    assert nulls.shape == (solver.n_verts, n_nulls)
-    assert np.isfinite(nulls).all(), \
-        f"Nulls contain non-finite values for resample method '{resample}'"
     
 @pytest.mark.parametrize("decomp_method", ['regress', 'project'])
 def test_decomp_options(solver, test_data, decomp_method):
@@ -108,9 +100,12 @@ def test_finite(nulls):
     """Output should not contain NaNs or Infs"""    
     assert np.isfinite(nulls).all(), "Nulls contain NaNs or Infs"
 
-def test_internull_corrs(nulls):
-    """Internull correlations should be centered around zero"""
-    inter_null_corrs = np.corrcoef(nulls.T)
+def test_internull_corrs(nulls, test_data, solver):
+    """Internull correlations should be centered around zero for residual=None"""
+    resid = test_data - solver.reconstruct(test_data)
+    nulls_no_resid = nulls - resid[:, np.newaxis]
+
+    inter_null_corrs = np.corrcoef(nulls_no_resid.T)
     triu_inds = np.triu_indices_from(inter_null_corrs, k=1)
     mean_corr = inter_null_corrs[triu_inds].mean()
     assert np.abs(mean_corr) < 0.01, \
@@ -149,93 +144,12 @@ def test_residual_permute(solver, test_data):
     assert np.allclose(np.sort(nulls_residuals, axis=0), np.sort(data_residuals)[:, np.newaxis]), \
         "Nulls should have permuted residuals added when residual='permute'"
     
-def test_resample_none(solver, test_data, nulls):
-    """Nulls should preserve area-weighted mean of original data even without using resample='mean'"""
+def test_null_means(solver, test_data, nulls):
+    """Nulls should preserve area-weighted mean of original data"""
     data_mean = meanw(test_data, solver.mass)
     null_means = meanw(nulls, solver.mass)
     assert np.allclose(null_means, data_mean, atol=1e-10), \
         f"Null means are not close to data mean {data_mean}"
-
-def test_resample_exact(solver, test_data):
-    """With resample=True, nulls should have same values as original data"""
-    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="exact")
-    
-    # Check that each null has the exact same values as original data (just reordered)
-    for i in range(nulls.shape[1]):
-        null_sorted = np.sort(nulls[:, i])
-        data_sorted = np.sort(test_data)
-        assert np.allclose(null_sorted, data_sorted), \
-            f"Null {i} doesn't preserve data distribution"
-
-# ignore warning from decompose()
-@pytest.mark.filterwarnings("ignore:data contains NaNs")
-def test_resample_exact_nan_mask_preserved_1d(solver, test_data):
-    """With resample='exact', NaN locations should be preserved and finite values rank-matched."""
-    test_data_nan = test_data.copy()
-    test_data_nan[::19] = np.nan
-    nulls = solver.eigenstrap(test_data_nan, n_nulls=n_nulls, resample="exact", decomp_method='regress')
-
-    nan_mask = np.isnan(test_data_nan)
-    valid_mask = ~nan_mask
-    expected_sorted = np.sort(test_data_nan[valid_mask])
-
-    assert np.isnan(nulls[nan_mask, :]).all(), "NaN locations should be preserved across nulls"
-    assert np.isfinite(nulls[valid_mask, :]).all(), "Valid locations should remain finite"
-
-    for i in range(nulls.shape[1]):
-        null_sorted = np.sort(nulls[valid_mask, i])
-        assert np.allclose(null_sorted, expected_sorted), \
-            f"Null {i} doesn't preserve finite-value distribution with NaNs present"
-
-@pytest.mark.filterwarnings("ignore:data contains NaNs")
-def test_resample_exact_nan_mask_preserved_2d(solver, test_data_2d):
-    """With resample='exact', each map should preserve its own NaN mask and finite distribution."""
-    test_data = test_data_2d.copy()
-
-    # add nans
-    test_data[::17, 0] = np.nan
-    test_data[5::19, 1] = np.nan
-    test_data[5::19, 2] = np.nan  # use same pattern to test efficient sorting
-
-    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="exact", decomp_method='regress')
-
-    for m in range(test_data.shape[1]):
-        nan_mask = np.isnan(test_data[:, m])
-        inf_mask = np.isinf(test_data[:, m])
-        valid_mask = ~(nan_mask | inf_mask)
-        expected_sorted = np.sort(test_data[valid_mask, m])
-
-        assert np.isnan(nulls[nan_mask, :, m]).all(), f"NaN locations should be preserved in map {m}"
-        assert np.isinf(nulls[inf_mask, :, m]).all(), f"Inf locations should be preserved in map {m}"
-        assert np.isfinite(nulls[valid_mask, :, m]).all(), f"Valid locations should remain finite in map {m}"
-
-        for i in range(nulls.shape[1]):
-            null_sorted = np.sort(nulls[valid_mask, i, m])
-            assert np.allclose(null_sorted, expected_sorted), \
-                f"Null {i} in map {m} doesn't preserve finite-value distribution with NaNs/Infs present"
-
-def test_resample_affine(solver, test_data):
-    """With resample='affine', nulls should have mean and std that match the data"""
-    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="affine")
-    
-    for i in range(nulls.shape[1]):
-        mean = meanw(nulls[:, i], solver.mass)
-        std = stdw(nulls[:, i], solver.mass)
-        assert np.isclose(mean, meanw(test_data, solver.mass)), f"Null {i} mean is not close to data mean"
-        assert np.isclose(std, stdw(test_data, solver.mass)), f"Null {i} std is not close to data std"
-
-def test_resample_range(solver, test_data):
-    """With resample='range', nulls should have same min and max as original data"""
-    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="range")
-    
-    data_min = np.min(test_data)
-    data_max = np.max(test_data)
-    
-    for i in range(nulls.shape[1]):
-        null_min = np.min(nulls[:, i])
-        null_max = np.max(nulls[:, i])
-        assert np.isclose(null_min, data_min), f"Null {i} min is not close to data min"
-        assert np.isclose(null_max, data_max), f"Null {i} max is not close to data max"
 
 @pytest.fixture
 def test_data_2d(solver):
@@ -278,14 +192,6 @@ def test_residual_options_2d(solver, test_data_2d, residual):
     assert np.isfinite(nulls).all(), \
         f"Nulls contain non-finite values for `residual='{residual}'`"
     
-@pytest.mark.parametrize("resample", ['exact', 'affine', 'range', None])    
-def test_resample_options_2d(solver, test_data_2d, resample):
-    """Test different resample methods run without errors"""
-    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample=resample)
-    assert nulls.shape == (solver.n_verts, n_nulls, test_data_2d.shape[1])
-    assert np.isfinite(nulls).all(), \
-        f"Nulls contain non-finite values for `resample='{resample}'`"
-    
 @pytest.mark.parametrize("decomp_method", ['regress', 'project'])
 def test_decomp_options_2d(solver, test_data_2d, decomp_method):
     """Test different decomp methods run without errors"""
@@ -316,50 +222,3 @@ def test_different_maps(solver, test_data_2d):
         for j in range(i): 
             assert not np.allclose(nulls[:,i,:], nulls[:,j,:]), \
                 f"Nulls {i} should be different to nulls {j}"
-
-def test_resample_none_2d(solver, test_data_2d):
-    """Nulls should preserve area-weighted mean of original data even without using resample='mean'"""
-    data_means = meanw(test_data_2d, solver.mass)
-    null_means = meanw(solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample=None), solver.mass)
-
-    assert np.allclose(null_means, data_means, atol=1e-10), \
-        f"Null means are not close to data means {data_means}"
-
-def test_resample_exact_2d(solver, test_data_2d):
-    """With resample=True, nulls should have same values as original data"""
-    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="exact")
-    
-    # Check that each null has the exact same values as original data (just reordered)
-    # TODO: vectorise if slow?
-    for j in range(test_data_2d.shape[1]):
-        for i in range(nulls.shape[1]):
-            null_sorted = np.sort(nulls[:, i, j])
-            data_sorted = np.sort(test_data_2d[:, j])
-            assert np.allclose(null_sorted, data_sorted), \
-                f"Null {i} doesn't preserve data distribution for map {j}"
-
-def test_resample_affine_2d(solver, test_data_2d):
-    """With resample='affine', nulls should have mean and std that match the data"""
-    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="affine")
-    
-    for j in range(test_data_2d.shape[1]):
-        for i in range(nulls.shape[1]):
-            mean = meanw(nulls[:, i, j], solver.mass)
-            std = stdw(nulls[:, i, j], solver.mass)
-            data_mean = meanw(test_data_2d[:, j], solver.mass)
-            data_std = stdw(test_data_2d[:, j], solver.mass)
-            assert np.isclose(mean, data_mean), f"Null {i} map {j} mean is not close to data mean"
-            assert np.isclose(std, data_std), f"Null {i} map {j} std is not close to data std"
-
-def test_resample_range_2d(solver, test_data_2d):
-    """With resample='range', nulls should have same min and max as original data"""
-    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="range")
-    
-    for j in range(test_data_2d.shape[1]):
-        data_min = np.min(test_data_2d[:, j])
-        data_max = np.max(test_data_2d[:, j])
-        for i in range(nulls.shape[1]):
-            null_min = np.min(nulls[:, i, j])
-            null_max = np.max(nulls[:, i, j])
-            assert np.isclose(null_min, data_min), f"Null {i} map {j} min is not close to data min"
-            assert np.isclose(null_max, data_max), f"Null {i} map {j} max is not close to data max"
