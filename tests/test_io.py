@@ -18,7 +18,6 @@ from neuromodes.io import (
 from neuromodes.mesh import check_surf, check_vol, is_vol
 
 
-
 def test_fetch_example_surf():
     for hemi in ['L', 'R']:
         for species in ['human', 'macaque', 'marmoset']:
