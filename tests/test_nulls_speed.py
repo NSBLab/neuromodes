@@ -11,7 +11,7 @@ from neuromodes.io import fetch_example_surf
 # Params
 # These will be used for the bulk of the profiling, in the `test_all` function. 
 # A smaller set of tests on the 32k mesh is below. 
-density = '4k'
+res = '4k'
 n_groups = (10,15,20)
 n_maps = (1,10,100)
 n_nulls = (1,10,100)
@@ -19,8 +19,8 @@ n_nulls = (1,10,100)
 @pytest.fixture(scope='module')
 def solver():
     """Initialise solver and solve for eigenmodes, which will be used for all tests."""
-    mesh, medmask = fetch_example_surf(density=density)
-    print(f"\nInitilising mesh with {density} vertices and {max(n_groups)**2} modes.")
+    mesh, medmask = fetch_example_surf(res=res)
+    print(f"\nInitilising mesh with {res} vertices and {max(n_groups)**2} modes.")
     tic = time.time()
     s = EigenSolver(mesh, mask=medmask).solve(n_modes=max(n_groups)**2)
     print(f"Time to solve eigenmodes: {time.time() - tic:.5f} seconds.\n")
@@ -86,14 +86,14 @@ def test_all(solver, test_data):
               
 def test_32k():
     """Test on 32k mesh with specific number of nulls/maps/modes."""
-    density='32k'
+    res='32k'
     n_modes = 100 # should be square number
     n_maps = 10
     n_nulls = 1000
 
-    print(f"\nInitialising mesh with {density} vertices and {n_modes} modes.")
+    print(f"\nInitialising mesh with {res} vertices and {n_modes} modes.")
     tic = time.time()
-    solver = EigenSolver(fetch_example_surf(density=density)[0]).solve(n_modes=n_modes)
+    solver = EigenSolver(fetch_example_surf(res=res)[0]).solve(n_modes=n_modes)
     print(f"Time to solve eigenmodes: {time.time() - tic:.5f} seconds.")
 
     test_data = np.random.default_rng().normal(size=(solver.n_verts, n_maps))

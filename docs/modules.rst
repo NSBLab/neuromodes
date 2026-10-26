@@ -36,9 +36,11 @@ API Reference
 
    compute_lbo
    solve
+   write_h5
+   read_h5
    decompose
    reconstruct
-   recon_error
+   calc_recon_error
    sim_nft_waves
    balloon_model
    compute_gem
@@ -70,7 +72,7 @@ API Reference
 
    decompose
    reconstruct
-   recon_error
+   calc_recon_error
 
 .. _ref_waves:
 
@@ -158,9 +160,12 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   mask_mesh
-   unmask_data
-   check_surf
+   neuromodes.mesh.is_vol
+   neuromodes.mesh.mask_mesh
+   neuromodes.mesh.unmask_data
+   neuromodes.mesh.normalize_vol
+   neuromodes.mesh.check_vol
+   neuromodes.mesh.check_surf
 
 .. _ref_nulls:
 
@@ -195,5 +200,7 @@ API Reference
    :toctree: generated/
 
    read_surf
+   read_vol
    fetch_example_surf
+   fetch_example_vol
    fetch_example_map
