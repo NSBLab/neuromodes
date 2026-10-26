@@ -26,8 +26,8 @@ if TYPE_CHECKING:
     from numpy.random import Generator
     from numpy.typing import NDArray
 
-    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
     from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
+    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
 
 class EigenSolver(Solver):
     """
@@ -735,10 +735,11 @@ def align_basis(
     numpy.ndarray
         The aligned basis vectors array of shape ``(n_verts, n_modes)``.
     """
-    emodes = EigenData(emodes=emodes, checks=checks).emodes
+    # TODO: pass in emodes as emodes once EigenData implementation has been finalised
+    emodes = EigenData(data=emodes, checks=checks).data
    
     # Flip modes where the first element is negative
-    return emodes * np.copysign(1, np.sign(np.asarray(emodes)[0, :]))
+    return emodes * np.copysign(1, np.sign(emodes[0, :]))
 
 def is_orthonormal_basis(
     emodes: NDArray[np.floating],
@@ -1020,13 +1021,21 @@ class EigenData:
         # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
         if mass is not _MISSING:
             all_inputs.append('mass')
-            if mass is not None and check_shape and (mass.ndim != 2 or mass.shape[0] != mass.shape[1]):
+            if (
+                mass is not None 
+                and check_shape 
+                and (mass.ndim != 2 or mass.shape[0] != mass.shape[1])
+            ):
                 raise ValueError("mass must be a square matrix.")
             _set('mass', mass)
 
         if stiffness is not _MISSING:
             all_inputs.append('stiffness')
-            if stiffness is not None and check_shape and (stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]):
+            if (
+                stiffness is not None 
+                and check_shape 
+                and (stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1])
+            ):
                 raise ValueError("stiffness must be a square matrix.")
             _set('stiffness', stiffness)
 

@@ -242,6 +242,8 @@ def test_cache_output_caches_result(tmp_path):
 
 def test_caching_no_joblib():
     # Mock the import of joblib to raise ImportError
-    with (patch.dict('sys.modules', {'joblib': None}),
-          raises(ImportError, match="joblib is required for caching")):
+    with (
+        patch.dict('sys.modules', {'joblib': None}),
+        raises(ImportError, match="joblib is required for caching")
+    ):
         _cache_output(lambda x: x)
