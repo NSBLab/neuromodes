@@ -12,7 +12,6 @@ from warnings import warn
 import numpy as np
 from scipy.sparse import csc_matrix, diags, spmatrix
 from scipy.spatial.distance import cdist, squareform
-from scipy.stats import norm
 
 from neuromodes.eigen import EigenData
 
@@ -662,7 +661,7 @@ def _create_parcellation_matrix(
 def resample(
     data_a: NDArray[np.floating],
     data_b: NDArray[np.floating],
-    method: Literal['exact', 'mean', 'range', 'affine', 'qnorm'] = 'exact',
+    method: Literal['exact', 'mean', 'range', 'affine'] = 'exact', # TODO: consider readding 'qnorm'
     mass: spmatrix | NDArray[np.floating] | None = None
 ) -> NDArray[np.floating]:
     """
@@ -678,15 +677,13 @@ def resample(
     data_b : array-like
         The set of spatial maps to match against, of shape ``(n_verts,)`` or ``(n_verts,
         n_maps_b)``.
-    method : {'exact', 'mean', 'range', 'affine', 'qnorm'}, optional
+    method : {'exact', 'mean', 'range', 'affine'}, optional
         The resampling method to use.
         - ``'exact'``: Rank-matches ``data_a`` to preserve the exact distribution of ``data_b``.
         - ``'mean'``: Adjusts the mean of ``data_a`` to match that of ``data_b``.
         - ``'range'``: Adjusts the range of ``data_a`` to match that of ``data_b``.
         - ``'affine'``: Adjusts both the mean and standard deviation of ``data_a`` to match those of
         ``data_b``.
-        - ``'qnorm'``: Transforms ``data_a`` to a Gaussian distribution with the same mean and
-        standard deviation as ``data_b`` (quantile normalization).
     mass : array-like, optional
         The mass matrix, of shape ``(n_verts, n_verts)``.
 
@@ -751,12 +748,6 @@ def resample(
             data_b_sorted = np.sort(data_b, axis=0)
             data_a_ranks = np.argsort(np.argsort(data_a, axis=0), axis=0)
             data_a = np.take_along_axis(data_b_sorted, data_a_ranks, axis=0)
-        case 'qnorm':
-            data_a_ranks = np.argsort(np.argsort(data_a, axis=0), axis=0)
-            data_a_ranks = (data_a_ranks + 1) / (data_a.shape[0] + 1)  # avoids 0 and 1
-            data_a_stdnorm = norm.ppf(data_a_ranks)
-            data_a = (zscorew(data_a_stdnorm, ved.mass) * stdw(data_b, ved.mass, keepdims=True)
-                      + meanw(data_b, ved.mass, keepdims=True))
         case _:
             raise ValueError(f"Unknown method: {method}")
 

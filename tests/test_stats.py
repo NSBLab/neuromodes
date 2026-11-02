@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy import sparse
 from scipy.spatial.distance import cdist, pdist
-from scipy.stats import shapiro, zscore
+from scipy.stats import zscore
 
 from neuromodes.stats import (
     cdistw,
@@ -323,7 +323,8 @@ def test_sigmoid_rescale():
 
 class TestParcellate:
     @pytest.fixture(scope='class')
-    def parcellation(self, random_data):
+    @classmethod
+    def parcellation(cls, random_data):
         n_verts = random_data[0].shape[0]
         parc = np.zeros(n_verts, dtype=int)
         parc[n_verts//3:] = 1
@@ -451,20 +452,6 @@ def test_resample_range(random_data):
     assert np.isclose(np.max(X_resampled), np.max(Y[:, 0])), \
         "Resampled data max is not close to original data max"
 
-def test_resample_qnorm(random_data):
-    X, Y, _, noneye = random_data
-
-    X_mod = X[:, 0]**10
-    assert shapiro(X_mod)[1] < 1e-6, "X_mod should not be normally distributed"
-
-    X_resampled = resample(X_mod, Y[:, 0], method='qnorm', mass=noneye)
-    assert shapiro(X_resampled)[1] > 0.99, "X_resampled should be normally distributed"
-
-    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
-        "Resampled data mean is not close to original data mean"
-    assert np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
-        "Resampled data std is not close to original data std"
-
 def test_resample_exact_a2d(random_data):
     X, Y, _, _ = random_data
 
@@ -518,23 +505,6 @@ def test_resample_range_a2d(random_data):
         assert np.isclose(X_maxs[i], Y_max), \
             f"Resampled data max for map {i} is not close to original data max"
 
-def test_resample_qnorm_a2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_mod = X**10
-    X_resampled = resample(X_mod, Y[:, 0], method='qnorm', mass=noneye)
-
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    Y_mean = meanw(Y[:, 0], noneye)
-    Y_std = stdw(Y[:, 0], noneye)
-    for i in range(X.shape[1]):
-        assert shapiro(X_resampled[:, i])[1] > 0.99, "X_resampled should be normally distributed"
-        assert np.isclose(X_means[i], Y_mean), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-        assert np.isclose(X_stds[i], Y_std), \
-            f"Resampled data std for map {i} is not close to original data std"
-
 def test_resample_exact_ab2d(random_data):
     X, Y, _, _ = random_data
 
@@ -587,23 +557,6 @@ def test_resample_range_ab2d(random_data):
             f"Resampled data min for map {i} is not close to original data min"
         assert np.isclose(X_maxs[i], Y_maxs[i]), \
             f"Resampled data max for map {i} is not close to original data max"
-
-def test_resample_qnorm_ab2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_mod = X**10
-    X_resampled = resample(X_mod, Y, method='qnorm', mass=noneye)
-
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    Y_means = meanw(Y, noneye)
-    Y_stds = stdw(Y, noneye)
-    for i in range(X.shape[1]):
-        assert shapiro(X_resampled[:, i])[1] > 0.99, "X_resampled should be normally distributed"
-        assert np.isclose(X_means[i], Y_means[i]), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-        assert np.isclose(X_stds[i], Y_stds[i]), \
-            f"Resampled data std for map {i} is not close to original data std"
 
 def test_resample_exact_a3d(random_data):
     X, Y, _, _ = random_data
@@ -673,27 +626,6 @@ def test_resample_range_a3d(random_data):
             assert np.isclose(X_maxs[j, i], Y_max), \
                 f"Resampled data max for map {i} (slice {j}) is not close to original data max"
 
-def test_resample_qnorm_a3d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X**10, X**10 + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y[:, 0], method='qnorm', mass=noneye)
-
-    Y_mean = meanw(Y[:, 0], noneye)
-    Y_std = stdw(Y[:, 0], noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert shapiro(X_resampled[:, j, i])[1] > 0.99, \
-                f"Resampled data for map {i} (slice {j}) should be normally distributed"
-            assert np.isclose(X_means[j, i], Y_mean), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-            assert np.isclose(X_stds[j, i], Y_std), \
-                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
-
 def test_resample_exact_a3b2d(random_data):
     X, Y, _, _ = random_data
 
@@ -761,26 +693,5 @@ def test_resample_range_a3b2d(random_data):
                 f"Resampled data min for map {i} (slice {j}) is not close to original data min"
             assert np.isclose(X_maxs[j, i], Y_maxs[i]), \
                 f"Resampled data max for map {i} (slice {j}) is not close to original data max"
-
-def test_resample_qnorm_a3b2d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X**10, X**10 + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='qnorm', mass=noneye)
-
-    Y_means = meanw(Y, noneye)
-    Y_stds = stdw(Y, noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert shapiro(X_resampled[:, j, i])[1] > 0.99, \
-                f"Resampled data for map {i} (slice {j}) should be normally distributed"
-            assert np.isclose(X_means[j, i], Y_means[i]), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-            assert np.isclose(X_stds[j, i], Y_stds[i]), \
-                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
             
 # TODO: test resample for a4d, a4b2d
