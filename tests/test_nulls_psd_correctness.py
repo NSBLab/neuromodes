@@ -15,7 +15,7 @@ n_nulls = 20
 def solver():
     """Initialise solver and solve for eigenmodes, which will be used for all tests."""
     mesh, _ = fetch_example_surf(structure='sphere', res=res, hemi=hemi)
-    return EigenSolver(mesh).solve(n_modes=n_modes)
+    return EigenSolver(mesh).eigs(n_modes=n_modes)
 
 # These are the main parameters which will exactly preserve PSD.
 @pytest.mark.parametrize("rotation_method", ['scipy', 'qr'])

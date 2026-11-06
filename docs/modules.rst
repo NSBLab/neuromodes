@@ -34,8 +34,7 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   compute_lbo
-   solve
+   eigs
    decompose
    reconstruct
    calc_recon_error

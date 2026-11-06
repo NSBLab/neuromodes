@@ -29,10 +29,10 @@ if TYPE_CHECKING:
 
 class EigenSolver(Solver):
     """
-    Class for computing and using eigenmodes and eigenvalues of a brain structure mesh [1]_ via the
-    Finite Element Method, which discretizes the Laplace-Beltrami eigenvalue problem using mass and
-    stiffness matrices [2]_ [3]_. Spatial heterogeneity can be optionally incorporated, modifying
-    the stiffness matrix via an isotropic diffusion tensor [4]_. After calling :meth:`solve` to
+    Class for computing and using Laplace-Beltrami eigenmodes and eigenvalues of a brain structure
+    mesh [1]_ via the Finite Element Method, which discretizes the eigenvalue problem using mass and
+    stiffness matrices [2]_ [3]_. Spatial heterogeneity can be optionally incorporated (provide a
+    map to :attr:`hetero`), modifying the stiffness matrix [4]_. After calling :meth:`eigs` to
     compute modes, a range of analysis methods can be called (:meth:`decompose`,
     :meth:`reconstruct`, :meth:`reconstruct_timeseries`, :meth:`sim_nft_waves`,
     :meth:`balloon_model`, :meth:`compute_gem`).
@@ -89,75 +89,143 @@ class EigenSolver(Solver):
         else:
             check_surf(geometry)
 
-        # Assign attributes
-        self.geometry = geometry
+        # Assign attributes and cache states
+        self._geometry = geometry
         self.n_verts = geometry.v.shape[0]  # Nicety
-        self.mask = mask
-        self.use_cholmod = False  # Permit lapy.eigs()
+        self._mask = mask
 
-        # Configuration states
         self._lump = False
         self._hetero = None
-
-        # Internal caches
-        self._mass = None
-        self._stiffness = None
+        self._n_modes = None
         self._emodes = None
         self._evals = None
-        self._n_modes = None
+
+        # LaPy's init sets self.mass and self.stiffness, so we need our own _initializing attribute
+        # to bypass our ban on setting these matrices (see comment on properties below)
+        self._initializing = True
+        super().__init__(geometry)
+        self._initializing = False
+
+    # Properties are needed to disallow users from modifying attributes and creating invalid states
+    @property
+    def geometry(self) -> TriaMesh | TetMesh:
+        """
+        The surface (:class:`lapy.TriaMesh`) or volume (:class:`lapy.TetMesh`) mesh representing a
+        brain structure (optionally masked).
+        """
+        return self._geometry
+
+    # TODO: consider allowing setting, apply cache invalidation, but need to store unmasked geometry
+    @property
+    def mask(self) -> NDArray[np.bool_] | None:
+        """The vertex mask applied to the mesh, or ``None`` if not used."""
+        return self._mask
 
     @property
     def lump(self) -> bool:
         """
-        Whether the mass matrix is lumped (i.e., diagonal) or consistent.
+        Whether the mass matrix is consistent or lumped. If lumped, :attr:`mass` is diagonal with
+        entries equal to vertex areas.
         """
         return self._lump
+
+    # Lump and hetero need setters for cache invalidation
+    @lump.setter
+    def lump(self, value: bool) -> None:
+        if not isinstance(value, bool):
+            raise TypeError("lump must be True or False.")
+
+        if value == self._lump:
+            return
+        
+        self._lump = value
+        self._emodes = None
+        self._evals = None
+        self._n_modes = None
+        # stiffness remains the same but LaPy only has Solver.fem_tria_mass() (no TetMesh equiv yet)
+        self._compute_lbo()
     
     @property
     def hetero(self) -> NDArray[np.floating] | None:
         """
-        The spatial heterogeneity map used to modify the stiffness matrix, or ``None`` if not used.
+        The spatial heterogeneity map used as an isotropic diffusion tensor to modify the stiffness
+        matrix (:attr:`stiffness`), or ``None`` if not used (equivalent to a heterogeneity map of
+        all ones).
         """
         return self._hetero
+
+    @hetero.setter
+    def hetero(self, vec: NDArray[np.floating] | None) -> None:
+        if vec is not None:
+            vec = np.asarray_chkfinite(vec)
+            if vec.shape != (self.n_verts,):
+                raise ValueError(f"hetero must have shape (n_verts,) = ({self.n_verts},).")
+            if np.any(vec < 0):
+                warn("hetero contains negative values, which may result in negative "
+                     "Laplace-Beltrami eigenvalues. It is recommended that heterogeneity maps are "
+                     "first rescaled (e.g., via zscorew then sigmoid_rescale from "
+                     "neuromodes.stats) to be non-negative.")
+                
+        if np.array_equal(vec, self._hetero):
+            return
+
+        self._hetero = vec
+
+        # Invalidate cache
+        self._emodes = None
+        self._evals = None
+        self._n_modes = None
+        # mass remains the same but LaPy has no method to compute stiffness only
+        self._compute_lbo()
     
     @property
     def mass(self) -> csc_matrix:
         """
-        The sparse mass matrix of the mesh.
+        The sparse mass matrix of the mesh. Can be either consistent or lumped (i.e., diagonal, with
+        entries equal to vertex areas). Mass is consistent by default, but can be lumped by setting
+        :attr:`lump` to ``True``.
         """
-        if self._mass is None:
-            # Compute mass (consistent or lumped) for surface or volume mesh
-            self._mass = (
-                self._fem_tetra(self.geometry, self._lump)[1] if is_vol(self.geometry)
-                else self.fem_tria_mass(self.geometry, self._lump)
-                )
         return self._mass
+
+    # Mass and stiffness need setters for LaPy's initialisation
+    @mass.setter
+    def mass(self, matrix: csc_matrix) -> None:
+        if not self._initializing:
+            raise AttributeError("mass is read-only; it can only be modified via self.lump.")
+        
+        self._mass = matrix
 
     @property
     def stiffness(self) -> csc_matrix:
         """
-        The sparse stiffness matrix of the mesh.
+        The sparse stiffness matrix of the mesh. Can be modified via an isotropic diffusion tensor
+        by providing a map for :attr:`hetero`.
         """
-        if self._stiffness is None:
-            self.compute_lbo(lump=self._lump, hetero=self._hetero)
         return self._stiffness
+
+    @stiffness.setter
+    def stiffness(self, matrix: csc_matrix) -> None:
+        if not self._initializing:
+            raise AttributeError("stiffness is read-only; it can only be modified via self.hetero.")
+        
+        self._stiffness = matrix
 
     @property
     def emodes(self) -> NDArray[np.floating]:
         """
-        The geometric (i.e., Laplace-Beltrami) eigenmodes of the mesh.
+        The Laplace-Beltrami eigenmodes of the mesh.
         """
         if self._emodes is None:
-            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
+            raise ValueError("Eigenmodes not found. Please run the eigs() method first.")
         return self._emodes
     
     @property
     def evals(self) -> NDArray[np.floating]:
         """
-        The eigenvalues of the mesh.
+        The Laplace-Beltrami eigenvalues of the mesh.
         """
         if self._evals is None:
-            raise ValueError("Eigenvalues not found. Please run the solve() method first.")
+            raise ValueError("Eigenvalues not found. Please run the eigs() method first.")
         return self._evals
     
     @property
@@ -166,7 +234,7 @@ class EigenSolver(Solver):
         The number of computed eigenmodes and eigenvalues.
         """
         if self._n_modes is None:
-            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
+            raise ValueError("Eigenmodes not found. Please run the eigs() method first.")
         return self._n_modes
 
     def __str__(self) -> str:
@@ -200,35 +268,12 @@ class EigenSolver(Solver):
 
         return str_out
 
-    def compute_lbo(
-        self, 
-        lump: bool = False,
-        hetero: NDArray[np.floating] | None = None
-    ) -> EigenSolver:
+    def _compute_lbo(self) -> None:
         """
         This method computes the Laplace-Beltrami operator via the LaPy package [1]_ [2]_,
-        optionally incorporating spatial heterogeneity [3]_ [4]_. The resulting ``mass`` and
-        ``stiffness`` matrices are cached as attributes. Note that changing ``lump`` or ``hetero``
-        will invalidate any existing ``emodes`` and ``evals`` attributes, and these will be reset to
-        ``None``.
-
-        Parameters
-        ----------
-        lump : bool, optional
-            Whether to compute the lumped (i.e., diagonal) mass matrix. Note that the lumped mass
-            can be obtained from the consistent mass by simply summing either rows or columns onto
-            the diagonal. Default is ``False``.
-        hetero : array-like, optional
-            A spatial heterogeneity map of shape ``(n_verts,)`` to modify the stiffness matrix via
-            an isotropic diffusion tensor. If ``None`` or all ones, the standard homogeneous LBO is
-            computed. In line with prior work [3]_, it is recommended that ``hetero`` is in the
-            range [0, 2] (see rescaling functions :func:`~neuromodes.stats.zscorew` and
-            :func:`~neuromodes.stats.sigmoid_rescale`). Default is ``None``. 
-
-        Returns
-        -------
-        EigenSolver
-            The ``EigenSolver`` instance.
+        optionally incorporating spatial heterogeneity [3]_ [4]_. The resulting matrices are cached
+        as attributes. This is an internal helper; access the matrices through :attr:`mass` and
+        :attr:`stiffness`.
 
         References
         ----------
@@ -242,69 +287,40 @@ class EigenSolver(Solver):
         ..  [4] Andreux, M., et al. (2015). Anisotropic Laplace-Beltrami Operators for Shape
             Analysis, Computer Vision. https://doi.org/10.1007/978-3-319-16220-1_21
         """
-        # For the LBO to be SPSD, hetero must be non-negative
-        if hetero is not None and np.any(hetero < 0):
-            warn("hetero contains negative values, which may result in negative Laplace-Beltrami "
-                 "eigenvalues. It is recommended that heterogeneity maps are first rescaled (e.g., via " \
-                 "neuromodes.stats.sigmoid_rescale) to be non-negative.")
+        if is_vol(self.geometry):
+            if self.hetero is None:
+                # Compute FEM matrices under homogeneous LBO
+                stiffness, mass = self._fem_tetra(self.geometry, self._lump)
+            else:
+                # Isotropic volumetric FEM (LaPy has no Solver._fem_tetra_aniso, so use our own)
+                stiffness, mass = _fem_tetra_hetero(
+                    self.geometry, self.hetero, self._lump
+                )
+        else:  # surface
+            if self.hetero is None:
+                stiffness, mass = self._fem_tria(self.geometry, self._lump)
+            else:
+                # Get principal curvatures to define direction of anisotropy
+                # Note: change of basis into (u1, u2) is not strictly needed for our isotropic
+                # diffusion tensor, but _fem_tria_aniso performs it
+                u1, u2, _, _ = self.geometry.curvature_tria()
 
-        # Cache validation
-        if not np.array_equal(hetero, self._hetero):
-            self._stiffness = None  # hetero affects stiffness only
-            self._emodes = None
-            self._evals = None
-            self._n_modes = None
-            if hetero is not None:
-                hetero = np.asarray_chkfinite(hetero)
-                if hetero.shape != (self.n_verts,):
-                    raise ValueError(f"hetero must have shape (n_verts,) = ({self.n_verts},).")
-            self._hetero = hetero
-        
-        if lump != self._lump:
-            self._mass = None  # lump affects mass only
-            self._emodes = None
-            self._evals = None
-            self._n_modes = None
-            self._lump = lump
+                # Map hetero from vertices to triangles by averaging
+                hetero_tria = self.geometry.map_vfunc_to_tfunc(self.hetero)
 
-        # Compute LBO as mass and stiffness matrices
-        # LaPy has no method to compute only stiffness, so this recomputes mass as well
-        if self._stiffness is None:
-            if is_vol(self.geometry):
-                if self.hetero is None:
-                    # Compute FEM matrices under homogeneous LBO
-                    self._stiffness, self._mass = self._fem_tetra(self.geometry, lump)
-                else:
-                    # Isotropic volumetric FEM (LaPy has no Solver._fem_tetra_aniso, so use our own)
-                    self._stiffness, self._mass = _fem_tetra_hetero(
-                        self.geometry, self.hetero, lump
-                    )
-            else:  # surface
-                if self.hetero is None:
-                    self._stiffness, self._mass = self._fem_tria(self.geometry, lump)
-                else:
-                    # Get principal curvatures to define direction of anisotropy
-                    # Note: change of basis into (u1, u2) is not strictly needed for our isotropic
-                    # diffusion tensor, but _fem_tria_aniso performs it
-                    u1, u2, _, _ = self.geometry.curvature_tria()
+                # Construct isotropic diffusion tensor by using hetero for both u1 and u2
+                hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
 
-                    # Map hetero from vertices to triangles by averaging
-                    hetero_tria = self.geometry.map_vfunc_to_tfunc(self.hetero)
+                # Compute FEM matrices under heterogeneous LBO
+                stiffness, mass = self._fem_tria_aniso(
+                    self.geometry, u1, u2, hetero_mat, self._lump
+                )
+        self._stiffness = stiffness
+        self._mass = mass
 
-                    # Construct isotropic diffusion tensor by using hetero for both u1 and u2
-                    hetero_mat = np.stack((hetero_tria, hetero_tria), axis=1)
-
-                    # Compute FEM matrices under heterogeneous LBO
-                    self._stiffness, self._mass = self._fem_tria_aniso(
-                        self.geometry, u1, u2, hetero_mat, lump
-                    )
-        return self
-
-    def solve(
+    def eigs(
         self,
         n_modes: int,
-        hetero: NDArray[np.floating] | None = None,
-        lump: bool = False,
         set_emode1: bool = True,
         align_emodes: bool = True,
         sigma: float = -0.01, # EASIEST way is to hard-code this to LaPy default (2026/03)
@@ -312,25 +328,15 @@ class EigenSolver(Solver):
         v0: NDArray[np.floating] | None = None
     ) -> EigenSolver:
         """
-        Solves the generalized eigenvalue problem for the Laplace-Beltrami operator, optionally
-        incorporating spatial heterogeneity. Resulting ``emodes`` and ``evals`` are stored as
-        attributes.
+        Solves the generalized eigenvalue problem for the Laplace-Beltrami operator (optionally with
+        spatial heterogeneity; see :attr:`hetero`). Results are cached in :attr:`emodes`,
+        :attr:`evals`, and :attr:`n_modes`.
 
         Parameters
         ----------
         n_modes : int
             Number of eigenmodes and eigenvalues to compute. Must be a positive integer less than
             the number of vertices.
-        hetero : array-like, optional
-            A spatial heterogeneity map of shape ``(n_verts,)`` to modify the stiffness matrix via
-            an isotropic diffusion tensor. If ``None`` or all ones, the standard homogeneous LBO is
-            computed. In line with prior work [1]_, it is recommended that ``hetero`` is in the
-            range [0, 2] (see rescaling functions :func:`~neuromodes.stats.zscorew` and
-            :func:`~neuromodes.stats.sigmoid_rescale`). Default is ``None``.
-        lump: bool, optional
-            Whether to use the lumped (i.e., diagonal) mass matrix. Note that the lumped mass can be
-            obtained from the consistent mass by simply summing either rows or columns onto the
-            diagonal. Default is ``False``.
         set_emode1 : bool, optional
             Whether to set the first eigenmode to a constant ``1/sqrt(sum(mass))`` and the first
             eigenvalue to ``0``, as is expected analytically for a single connected component.
@@ -380,10 +386,8 @@ class EigenSolver(Solver):
                 raise ValueError(f"v0 must have shape (n_verts,) = {(self.n_verts,)}.")
             
         # Ensure LBO is consistent with lump/hetero config
-        self.compute_lbo(lump, hetero)
-
         # Solve the eigenvalue problem
-        evals, emodes = self.eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
+        evals, emodes = super().eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
 
         ## Post-process
         if set_emode1:
@@ -403,7 +407,7 @@ class EigenSolver(Solver):
         self._evals = evals
         self._emodes = emodes
         return self
-        
+
     # 1. mode_counts is None or int -> Single Array 
     @overload
     def decompose(

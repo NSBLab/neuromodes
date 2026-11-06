@@ -1,8 +1,9 @@
 # -- Path setup --------------------------------------------------------------
-import os
-import sys
 import importlib
 import inspect
+import os
+import sys
+
 sys.path.insert(0, os.path.abspath(".."))
 
 # -- Project information -----------------------------------------------------
@@ -81,7 +82,7 @@ def linkcode_resolve(domain, info):
         return None
 
     # Walk from the imported module to the exact object Sphinx is documenting,
-    # such as a class method like ``EigenSolver.compute_lbo``.
+    # such as a class method like ``EigenSolver.eigs``.
     obj = module
     for part in full_name.split("."):
         obj = getattr(obj, part, None)
