@@ -316,7 +316,7 @@ def _cache_output(
     ImportError
         If ``joblib`` is not installed.
     """
-    # LBYL
+    # EAFP
     try:
         from joblib import Memory
     except ImportError:

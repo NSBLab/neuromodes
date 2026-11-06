@@ -4,11 +4,7 @@ import numpy as np
 import pytest
 from lapy.shapedna import normalize_ev
 
-from neuromodes.eigen import (
-    EigenSolver,
-    get_eigengroup_inds,
-    is_orthonormal_basis,
-)
+from neuromodes.eigen import EigenSolver, get_eigengroup_inds, is_orthonormal_basis
 from neuromodes.io import fetch_example_map, fetch_example_surf, fetch_example_vol
 from neuromodes.mesh import normalize_vol
 from neuromodes.stats import sigmoid_rescale, zscorew
@@ -217,30 +213,110 @@ def test_invalid_vector_seed(solver):
                        match=r"v0 must have shape \(n_verts,\) = \(3619,\)."):
         solver.eigs(2400, v0=np.ones(10))
 
-def test_eigs_alias_and_cache_setters(solver):
+def test_reading_writing_h5_all_features(solver, tmp_path):
+    h5_path = tmp_path / "solver.h5"    
+    solver.write_h5(h5_path, mode='w')
+    solver2 = EigenSolver.read_h5(h5_path)
+
+    attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
+    for attr in attrs:
+        assert getattr(solver2, attr) == getattr(solver, attr), \
+            f"Attribute '{attr}' read from HDF5 does not match."
+
+    dense = ['hetero', 'mask', 'emodes', 'evals']
+    for d in dense:
+        assert np.allclose(getattr(solver2, d), getattr(solver, d)), \
+            f"Dataset '{d}' read from HDF5 does not match."
+
+    sparse = ['mass', 'stiffness']
+    for s in sparse:
+        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), \
+            f"Sparse dataset '{s}' read from HDF5 does not match."
+
+def test_reading_writing_h5_some_modes(solver, tmp_path):
+    alln = solver.n_modes
+    halfn = solver.n_modes // 2
+    error_msg = "Unexpected number of modes read from HDF5."
+
+    # write default modes and see how many are read back
+    h5_path = tmp_path / "solver_default.h5"
+    solver.write_h5(h5_path, mode='w', n_modes=None)
+
+    solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
+    np.testing.assert_allclose(solver2.emodes, solver.emodes, err_msg=error_msg)
+
+    solver2 = EigenSolver.read_h5(h5_path, n_modes=halfn)
+    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+
+    solver2 = EigenSolver.read_h5(h5_path, n_modes=alln)
+    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :alln], err_msg=error_msg)
+
+    # write alln modes and see how many are read back
+    h5_path = tmp_path / "solver_all.h5"
+    solver.write_h5(h5_path, mode='w', n_modes=alln)
+
+    solver3 = EigenSolver.read_h5(h5_path, n_modes=None)
+    np.testing.assert_allclose(solver3.emodes, solver.emodes, err_msg=error_msg)
+
+    solver3 = EigenSolver.read_h5(h5_path, n_modes=halfn)
+    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+
+    solver3 = EigenSolver.read_h5(h5_path, n_modes=alln)
+    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :alln], err_msg=error_msg)
+
+    # write halfn modes and see how many are read back
+    h5_path = tmp_path / "solver_half.h5"
+    solver.write_h5(h5_path, mode='w', n_modes=halfn)
+
+    solver4 = EigenSolver.read_h5(h5_path, n_modes=None)
+    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+
+    solver4 = EigenSolver.read_h5(h5_path, n_modes=halfn)
+    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+
+def test_eigs_alias_cache_setters(solver):
     solver = solver.eigs(2)
-    assert solver.n_modes == 2
 
     original_hetero = solver.hetero.copy()
     hetero = np.ones(solver.n_verts)
+
+    # Changing hetero should clear the cached eigenpairs
     solver.hetero = hetero
     with pytest.raises(ValueError, match="Eigenmodes not found"):
         _ = solver.emodes
-    assert np.array_equal(solver.hetero, hetero)
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.n_modes
+    with pytest.raises(ValueError, match="Eigenvalues not found"):
+        _ = solver.evals
 
+    solver.eigs(2)
+
+    # Supplying the same hetero should not clear the cached eigenpairs
+    solver.hetero = solver.hetero
+    assert solver.emodes is not None
+    assert solver.n_modes == 2
+    assert solver.evals is not None
+
+    # Changing lump should clear the cached eigenpairs
     solver.lump = True
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.emodes
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.n_modes
     with pytest.raises(ValueError, match="Eigenvalues not found"):
         _ = solver.evals
     solver.hetero = original_hetero
     solver.lump = False
 
-def test_invalid_hetero_setter(surf_medmask):
-    surf, medmask = surf_medmask
-    solver = EigenSolver(surf, mask=medmask)
-    with pytest.raises(ValueError, match=r"shape \(n_verts,\) = \(3619,\)"):
-        solver.hetero = np.ones(10)
+    solver.eigs(2)
 
-def test_read_only_solver_state(surf_medmask):
+    # Supplying the same lump should not clear the cached eigenpairs
+    solver.lump = solver.lump
+    assert solver.emodes is not None
+    assert solver.n_modes == 2
+    assert solver.evals is not None
+
+def test_unsettables(surf_medmask):
     surf, medmask = surf_medmask
     solver = EigenSolver(surf, mask=medmask)
 
@@ -401,5 +477,3 @@ def test_get_eigengroup_inds(solver):
     last_mode = groups[-1][-1] + 1
     assert solver.emodes[:, :last_mode].shape == solver.emodes.shape, \
         'Last eigengroup indices do not match number of modes.'
-
-# TODO: cache validation tests
