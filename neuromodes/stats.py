@@ -11,6 +11,7 @@ from warnings import warn
 
 import numpy as np
 from scipy.sparse import csc_matrix, diags, spmatrix
+from scipy.sparse.linalg import splu
 from scipy.spatial.distance import cdist, squareform
 
 from neuromodes.eigen import EigenData
@@ -26,7 +27,7 @@ def gramw(
     mass: spmatrix | NDArray[np.floating] | None
 ) -> NDArray[np.floating]:
     """
-    Dot product between all brain maps (pairwise), equivalent to ``data.T @ (mass @ data_b)``.
+    Dot product between all brain maps (pairwise), equivalent to ``data_a.T @ (mass @ data_b)``.
 
     Parameters
     ----------
@@ -34,7 +35,7 @@ def gramw(
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
-        function computes the Gram matrix of ``data`` with itself. Default is ``None``.
+        function computes the Gram matrix of ``data_a`` with itself. Default is ``None``.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
 
@@ -52,7 +53,6 @@ def gramw(
         b = a
     return a.T @ (mass @ b)
 
-# TODO: ensure that all functions support nD input, not just 1D/2D
 def dotw(
     data_a: NDArray[np.floating],
     data_b: NDArray[np.floating],
@@ -132,7 +132,7 @@ def meanw(
     keepdims: bool = False
 ) -> float:
     """
-    Area-weighted mean of each brain map, equivalent to ``sum(mass @ data) / mass.sum()``.
+    Area-weighted mean of each brain map, equivalent to ``sum(mass @ data) / sum(mass)``.
 
     Parameters
     ----------
@@ -185,9 +185,10 @@ def varw(
     keepdims: bool = False
 ) -> float:
     """
-    Mass-weighted variance of each brain map, equivalent to ``sum((data - mean) * (mass @ (data -
-    mean))) / mass.sum()``. Note that this function does not offer Bessel's correction, as mesh
-    vertices are not IID samples and maps typically display spatial autocorrelation.
+    Mass-weighted variance of each brain map, equivalent to ``sum((data - meanw(data, mass)) * (mass
+    @ (data - meanw(data, mass)))) / mass.sum()``. Note that this function does not offer Bessel's
+    correction, as mesh vertices are not IID samples and maps typically display spatial
+    autocorrelation.
 
     Parameters
     ----------
@@ -304,7 +305,7 @@ def zscorew(
     return demeanw(data, mass) / stdw(data, mass)
 
 def covw(
-    data: NDArray[np.floating],
+    data_a: NDArray[np.floating],
     data_b: NDArray[np.floating] | None = None,
     *,
     mass: spmatrix | NDArray[np.floating] | None
@@ -314,7 +315,7 @@ def covw(
 
     Parameters
     ----------
-    data : array-like
+    data_a : array-like
         The first set of spatial maps, of shape ``(n_verts, n_maps)``.
     data_b : array-like, optional
         The second set of spatial maps, of shape ``(n_verts, n_maps_b)``. If not provided, the
@@ -337,7 +338,7 @@ def covw(
     Note that this function does not offer Bessel's correction, as mesh vertices are not IID samples
     and maps typically display spatial autocorrelation.
     """
-    a = np.asarray(data)
+    a = np.asarray(data_a)
 
     mass = _create_mass_matrix(mass, a.shape[0])
     total_area = mass.sum()
@@ -492,16 +493,16 @@ def solvew(
     mass: spmatrix | NDArray[np.floating] | None
 ) -> NDArray[np.floating]:
     """
-    Solves the weighted least squares problem using the normal equations ``(aᵀMa)x = aᵀMb``, where
-    ``M`` is the mass matrix. See https://en.wikipedia.org/wiki/Weighted_least_squares#Motivation
+    Solves the weighted least squares problem using the normal equations (aᵀMa)x = aᵀMb, where
+    M is the mass matrix. See https://en.wikipedia.org/wiki/Weighted_least_squares#Motivation
     for details. Consider instead using :func:`lstsqw` for a numerically stable approximation.
 
     Parameters
     ----------
     data_a : array-like
-        The first set of spatial maps, of shape ``(n_verts, n_maps_a)``.
+        The basis maps of shape ``(n_verts, n_maps_a)``.
     data_b : array-like
-        The second set of spatial maps, of shape ``(n_verts, n_maps_b)``.
+        The target maps of shape ``(n_verts, n_maps_b)``.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
 
@@ -523,15 +524,16 @@ def lstsqw(
     rcond: float | None = None
 ) -> tuple[NDArray[np.floating], int, float, NDArray[np.floating]]:
     """
-    Solve the weighted least squares problem using the vertex areas (i.e., lumped mass matrix),
-    equivalent to the approximation ``(√(areas)a)x ≈ √(areas)b``.
+    Solve the linear system Ax = b, where A and b are sets of spatial maps (e.g., basis maps
+    and target maps, respectively), by minimising the mass-weighted squared L₂ norm 
+    (b-Ax)ᵀ M (b-Ax) (see Notes).
 
     Parameters
     ----------
     data_a : array-like
-        The first set of spatial maps, of shape ``(n_verts, n_maps_a)``.
+        The basis maps of shape ``(n_verts, n_maps_a)``.
     data_b : array-like
-        The second set of spatial maps, of shape ``(n_verts, n_maps_b)``.
+        The target maps of shape ``(n_verts, n_maps_b)``.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     rcond : float or None, optional
@@ -545,21 +547,47 @@ def lstsqw(
     np.ndarray
         Least-squares solution. Shape is ``(n_maps_a, n_maps_b)`` if ``data_b`` is 2D, or
         ``(n_maps_a,)`` if ``data_b`` is 1D.
+
+    Notes
+    -----
+    For discretized spatial maps, we want to minimize the mass-weighted L₂ norm. By leveraging the
+    Cholesky decomposition of the symmetric positive definite mass matrix (M = LLᵀ), we can
+    transform the mass-weighted norm into a typical Euclidean norm:
+    
+    ||b-Ax||₂²_mass = (b-Ax)ᵀM(b-Ax)
+                    = (b-Ax)ᵀLLᵀ(b-Ax)
+                    = (Lᵀ(b-Ax))ᵀ(Lᵀ(b-Ax))
+                    = ((Lᵀb)-(LᵀA)x)ᵀ((Lᵀb)-(LᵀA)x)
+                    = ||(Lᵀb)-(LᵀA)x||₂²_Euclidean
+    
+    The above tells us that we can still use a standard least squares solver if we simply scale the
+    data by Lᵀ. This is equivalent to using ``np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)`` but
+    is more efficient and numerically stable. Note that for lumped (diagonal) mass, L = Lᵀ = √M
+    (element-wise).
     """
     ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
 
-    va = np.sqrt(_mass_to_areas(ved.mass, a.shape[0])) # (n_verts,)
-    aw = a * va[:, np.newaxis]
-    bw = b * va[:, np.newaxis] if b.ndim != 1 else b * va
-    return np.linalg.lstsq(aw, bw, rcond=rcond)
+    # concatenate both data arrays for efficient Cholesky multiplication
+    if a.ndim == 1:
+        a = a[:, None]
+    if b.ndim == 1:
+        b = b[:, None]
+    ab = np.concatenate([a, b], axis=1)
+
+    # multiply and unpack
+    LT_ab = _mult_by_cholesky(ab, mass, transpose=True)
+    LT_a = LT_ab[:, :a.shape[1]]
+    LT_b = LT_ab[:, a.shape[1]:]
+
+    # Get results from standard least squares solver
+    return np.linalg.lstsq(LT_a, LT_b, rcond=rcond)
 
 def parcellate(
     data: NDArray[np.floating],
     parcellation: NDArray[np.integer],
     mass: spmatrix | NDArray[np.floating] | None,
-    method: Literal['mean', 'sum', 'var', 'std'] = 'mean',
-    checks: bool = True
+    method: Literal['mean', 'sum'] = 'mean'  # TODO: add 'var' (e.g., for parcel homogeneity)
 ) -> NDArray[np.floating]:
     """
     Area-weighted parcellation of each brain map.
@@ -574,30 +602,25 @@ def parcellate(
         ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
-    method : {'mean', 'sum', 'var', 'std'}, optional
-        The method for aggregating vertex values within each parcel. If 'mean', the function
-        computes the area-weighted mean of each parcel. If 'sum', the function computes the
-        area-weighted sum of each parcel. If 'var', the function computes the area-weighted
-        variance of each parcel. If 'std', the function computes the area-weighted standard
-        deviation of each parcel. Default is 'mean'.
-    checks : bool, optional
-        If True, the function will perform input validation and formatting. Default is True.
+    method : {'mean', 'sum'}, optional
+        The method for aggregating vertex values within each parcel. If ``'mean'``, the function
+        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
+        area-weighted sum of each parcel. Default is ``'mean'``.
 
     Returns
     -------
     np.ndarray
         The parcellated spatial maps, of shape ``(n_parcels, n_maps)``.
-    TODO consider also returning the parcellation matrix
 
     Raises
     ------
     ValueError
-        If ``method`` is not ``'mean'``, ``'sum'``, ``'var'``, or ``'std'``.
+        If ``method`` is not ``'mean'`` or ``'sum'``.
     ValueError
         If ``data`` is not 1D or 2D.
     """
     # Format / validate arguments
-    ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
+    ved = EigenData(data=(data, parcellation), mass=mass)
     data, parcellation = ved.data
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")
@@ -657,101 +680,6 @@ def _create_parcellation_matrix(
         )
     
     return parc_mat
-
-def resample(
-    data_a: NDArray[np.floating],
-    data_b: NDArray[np.floating],
-    method: Literal['exact', 'mean', 'range', 'affine'] = 'exact', # TODO: consider readding 'qnorm'
-    mass: spmatrix | NDArray[np.floating] | None = None
-) -> NDArray[np.floating]:
-    """
-    Resamples the values of ``data_a`` to match the distribution or summary statistics of
-    ``data_b``.
-    
-    Parameters
-    ----------
-    data_a : array-like
-        The set of spatial maps to be resampled, of shape ``(n_verts,)`` or ``(n_verts, ...,
-        n_maps_b)``. For the latter case, each map in ``data_a[:, ..., i]`` will be resampled
-        according to ``data_b[:, i]``.
-    data_b : array-like
-        The set of spatial maps to match against, of shape ``(n_verts,)`` or ``(n_verts,
-        n_maps_b)``.
-    method : {'exact', 'mean', 'range', 'affine'}, optional
-        The resampling method to use.
-        - ``'exact'``: Rank-matches ``data_a`` to preserve the exact distribution of ``data_b``.
-        - ``'mean'``: Adjusts the mean of ``data_a`` to match that of ``data_b``.
-        - ``'range'``: Adjusts the range of ``data_a`` to match that of ``data_b``.
-        - ``'affine'``: Adjusts both the mean and standard deviation of ``data_a`` to match those of
-        ``data_b``.
-    mass : array-like, optional
-        The mass matrix, of shape ``(n_verts, n_verts)``.
-
-    Returns
-    -------
-    ndarray
-        The resampled data, of shape ``(n_verts,)`` or ``(n_verts, ..., n_maps_b)``.
-
-    Raises
-    ------
-    ValueError
-        If ``method`` is not one of the specified options.
-    ValueError
-        If ``data_b`` is 2D and its last axis length does not match that of ``data_a``.
-    ValueError
-        If ``data_b`` is not 1D or 2D.
-    """
-    # TODO: consider making data_b optional and add parameters for mean / std / min / max
-    # Format / validate arguments
-    ved = EigenData(data=(data_a, data_b), mass=mass)
-    data_a, data_b = ved.data[0].copy(), ved.data[1].copy()  # a bit ugly
-
-    # reshape to 3D for consistency
-    data_a_shape = data_a.shape
-    if data_a.ndim == 1:
-        data_a = data_a[:, None, None]
-    elif data_a.ndim == 2:
-        data_a = data_a[:, None, :]
-    elif data_a.ndim != 3:
-        data_a = data_a.reshape(data_a.shape[0], -1, data_a.shape[-1])
-
-    if data_b.ndim == 1:
-        data_b = data_b[:, None, None]
-    elif data_b.ndim == 2:
-        if data_b.shape[-1] != data_a.shape[-1]:
-            raise ValueError(
-                "data_b consists of multiple maps, but the length of its last axis is not equal to "
-                "that of data_a. This is required as each map in data_a[:, ..., i] will be "
-                "resampled according to data_b[:, i]."
-                )
-        data_b = data_b[:, None, :]
-    else:
-        raise ValueError("data_b must be 1D or 2D.")
-
-    # Resample according to method
-    # TODO: consider whether to support NaNs, see previous implementation at
-    # https://github.com/NSBLab/neuromodes/blob/3f1b773772ff916eff66daf5664e88324863f197/neuromodes/nulls.py#L391
-    match method:
-        case 'mean':
-            data_a = demeanw(data_a, ved.mass) + meanw(data_b, ved.mass, keepdims=True)
-        case 'affine':
-            data_a = (zscorew(data_a, ved.mass) * stdw(data_b, ved.mass, keepdims=True)
-                      + meanw(data_b, ved.mass, keepdims=True))
-        case 'range':
-            data_a_min = data_a.min(axis=0, keepdims=True)
-            data_b_min = data_b.min(axis=0, keepdims=True)
-            data_a_range = data_a.max(axis=0, keepdims=True) - data_a_min
-            data_b_range = (data_b.max(axis=0, keepdims=True) - data_b_min)
-
-            data_a = (data_a - data_a_min) / data_a_range * data_b_range + data_b_min
-        case 'exact':
-            data_b_sorted = np.sort(data_b, axis=0)
-            data_a_ranks = np.argsort(np.argsort(data_a, axis=0), axis=0)
-            data_a = np.take_along_axis(data_b_sorted, data_a_ranks, axis=0)
-        case _:
-            raise ValueError(f"Unknown method: {method}")
-
-    return data_a.reshape(data_a_shape) if data_a_shape != data_a.shape else data_a
 
 def sigmoid_rescale(
     data: NDArray[np.floating],
@@ -819,9 +747,8 @@ def _create_mass_matrix(
     
     if mass is None and n_verts is None:
         raise ValueError("Either mass or n_verts must be provided.")
-    
     elif mass is None and n_verts is not None: # appease: pyright
-        warn("Mass matrix not provided; setting to identity (i.e., every vertex has area 1).")
+        warn("Mass matrix not provided; assuming that area at each vertex is 1")
         output = diags(np.ones(n_verts), format='csc')
 
     elif isinstance(mass, (np.ndarray, list)):        
@@ -833,7 +760,6 @@ def _create_mass_matrix(
         else: 
             raise ValueError(f"Mass matrix has invalid shape: {mass_arr.shape} (should be square "
                              "or vector).")
-
     elif isinstance(mass, spmatrix) and mass.shape is not None: # appease: pyright
         if mass.shape[0] == mass.shape[1]: 
             output = mass
@@ -842,7 +768,6 @@ def _create_mass_matrix(
         else: 
             raise ValueError(f"Sparse mass matrix has invalid shape: {mass.shape} (should be "
                              "square or vector).")
-            
     else:
         raise TypeError("mass must be a 1D array of vertex areas, a 2D mass matrix, or a sparse "
                         "matrix.")
@@ -858,3 +783,72 @@ def _create_mass_matrix(
                          f"{n_verts})).")
 
     return output
+
+def _mult_by_cholesky(
+    data: NDArray[np.floating],
+    matrix: spmatrix,
+    transpose: bool = False,
+) -> NDArray[np.floating]:
+    """
+    Multiplies ``data`` by a Cholesky-derived square-root factor of the symmetric positive-definite
+    ``matrix`` (A), or by its transpose. For a non-diagonal matrix, a fill-reducing permutation P is
+    applied first. The permuted matrix is factorized as
+
+        P A Pᵀ = L Lᵀ,
+
+    where L is triangular. The factor applied in the original ordering is
+
+        F = Pᵀ L P,
+
+    so that A = F Fᵀ. Consequently, ``transpose=False`` applies F and ``transpose=True`` applies Fᵀ.
+    F is generally not triangular because of the permutation. For a diagonal matrix, F = Fᵀ =
+    sqrt(A), applied element-wise.
+
+    Parameters
+    ----------
+    data : array-like
+        The spatial maps, of shape ``(n_verts, n_maps)``.
+    matrix : spmatrix
+        The symmetric positive-definite matrix, of shape ``(n_verts, n_verts)``.
+    transpose : bool, optional
+        If ``True``, applies the transposed factor Fᵀ. Default is ``False``.
+
+    Returns
+    -------
+    np.ndarray
+        The transformed spatial maps, of shape ``(n_verts, n_maps)``.
+    """
+
+    # Diagonal matrix: F = Fᵀ = √A
+    diag = matrix.diagonal()
+    if matrix.nnz == np.count_nonzero(diag):
+        return data * np.sqrt(diag)[:, None]
+
+    # Let SuperLU choose a fill-reducing symmetric ordering (min degree on A+Aᵀ), and force
+    # diagonal pivots: PAPᵀ = L_lu U = L_lu D L_luᵀ = (Uᵀ/√D)(Uᵀ/√D)ᵀ = LLᵀ.
+    lu = splu(
+        matrix,
+        permc_spec="MMD_AT_PLUS_A",
+        diag_pivot_thresh=0,
+        options={"SymmetricMode": True},
+    )
+
+    # Extract factors and permutation
+    U = lu.U
+    D = U.diagonal()
+    sqrt_D = np.sqrt(D)[:, None]
+    perm = lu.perm_c
+
+    # Permute and scale data
+    data_perm = np.empty_like(data)
+    data_perm[perm] = data
+
+    if transpose:
+        # Lᵀ = U/√D
+        data_perm_scaled = (U @ data_perm) / sqrt_D
+    else:
+        # L = Uᵀ/√D
+        data_perm_scaled = U.T @ (data_perm / sqrt_D)
+
+    # Reapply permutation to return to original order
+    return data_perm_scaled[perm]

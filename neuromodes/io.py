@@ -5,7 +5,6 @@ Module for loading brain meshes and maps, as well as setting up caching.
 from __future__ import annotations
 
 from importlib.resources import as_file, files
-from importlib.util import find_spec
 from os import getenv
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -123,7 +122,7 @@ def read_surf(
             f'file {fs_extensions}, an instance of nibabel.GiftiImage or lapy.TriaMesh, or a '
             "dictionary of 'cells' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
             'respectively.'
-            )
+        )
         
     return TriaMesh(v=vertices, t=cells)
 
@@ -317,12 +316,16 @@ def _cache_output(
     ImportError
         If ``joblib`` is not installed.
     """
-    if find_spec("joblib") is None:
-        raise ImportError("joblib is required for caching. Neuromodes can be installed with the "
-                          "'cache' extra to include joblib as a dependency (e.g., pip install "
-                          "neuromodes[cache]).")
-    from joblib import Memory
-    
+    # LBYL
+    try:
+        from joblib import Memory
+    except ImportError:
+        raise ImportError(
+            "joblib is required for caching. Neuromodes can be installed with the 'cache' extra to "
+            "include joblib as a dependency (e.g., pip install neuromodes[cache])."
+        )
+
+    # Set up cache directory
     if cache_dir is None:
         cache_dir = getenv("CACHE_DIR")
         if cache_dir is None:
@@ -332,4 +335,5 @@ def _cache_output(
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Return cached version of the function
     return Memory(cache_dir, verbose=0).cache(function)

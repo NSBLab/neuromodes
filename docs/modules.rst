@@ -35,6 +35,8 @@ API Reference
    :toctree: generated/
 
    eigs
+   write_h5
+   read_h5
    decompose
    reconstruct
    calc_recon_error
@@ -87,8 +89,10 @@ API Reference
    :toctree: generated/
 
    sim_nft_waves
+   calc_nft_wave_speed
+   calc_nft_mode_freqs
+   calc_nft_fc
    balloon_model
-   calc_wave_speed
 
 .. _ref_network:
 
@@ -138,7 +142,6 @@ API Reference
    solvew
    lstsqw
    parcellate
-   resample
    sigmoid_rescale
 
 .. _ref_mesh:

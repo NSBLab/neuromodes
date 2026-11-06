@@ -4,7 +4,10 @@ from scipy import sparse
 from scipy.spatial.distance import cdist, pdist
 from scipy.stats import zscore
 
+from neuromodes import EigenSolver
+from neuromodes.io import fetch_example_surf
 from neuromodes.stats import (
+    _mult_by_cholesky,
     cdistw,
     covw,
     demeanw,
@@ -14,7 +17,6 @@ from neuromodes.stats import (
     meanw,
     parcellate,
     pdistw,
-    resample,
     sigmoid_rescale,
     solvew,
     ssqw,
@@ -32,12 +34,11 @@ def random_data():
     n_verts = 10
     n_maps = 3
 
-    X = np.hstack([rng.normal(loc=i, scale=i+1, size=(n_verts, n_maps)) for i in range(n_maps)])
-    Y = np.hstack([rng.normal(loc=i*9, scale=i*5+1, size=(n_verts, n_maps)) for i in range(n_maps)])
+    X = rng.standard_normal(size=(n_verts, n_maps))
+    Y = rng.standard_normal(size=(n_verts, n_maps))
 
     eye = sparse.eye(n_verts)  # identity mass for testing
     noneye = sparse.diags(np.arange(1, n_verts + 1), dtype=np.float64)
-
     return X, Y, eye, noneye
 
 class TestEye:
@@ -162,16 +163,15 @@ class TestEye:
 
     def test_solvew_eye(self, random_data):
         X, Y, eye, noneye = random_data
-
         solve_w = solvew(X, Y, mass=eye)
         solve_u = np.linalg.solve(X.T @ X, X.T @ Y)
         assert np.allclose(solve_w, solve_u), "Solve with identity mass should be the same as " \
                                               "unweighted solve."
-        
+
         solve_wn = solvew(X, Y, mass=noneye)
         assert not np.allclose(solve_wn, solve_w), "Solve with non-identity mass should not be " \
-                                                   "the same as unweighted solve."
-        
+                                                    "the same as unweighted solve."
+
     def test_cdistw_eye(self, random_data):
         X, Y, eye, noneye = random_data
         for metric in ['euclidean', 'sqeuclidean', 'cosine', 'correlation']:
@@ -283,16 +283,22 @@ class Test1D:
         lstsq_w = lstsqw(x_1d[:, np.newaxis], y_1d[:, np.newaxis], mass=eye)[0]
         lstsq_u = np.linalg.lstsq(x_1d[:, np.newaxis], y_1d[:, np.newaxis], rcond=None)[0]
         assert np.allclose(lstsq_w, lstsq_u), "Lstsqw with 1D input should match unweighted lstsq."
-    
+
     def test_solvew_1d(self, random_data):
         X, Y, eye, _ = random_data
         x_1d = X[:, 0]
         y_1d = Y[:, 0]
         # solvew expects 2D, so reshape 1D to (n, 1)
         solve_w = solvew(x_1d[:, np.newaxis], y_1d[:, np.newaxis], mass=eye)
-        solve_u = np.linalg.solve(x_1d[:, np.newaxis].T @ x_1d[:, np.newaxis], 
+        solve_u = np.linalg.solve(x_1d[:, np.newaxis].T @ x_1d[:, np.newaxis],
                                   x_1d[:, np.newaxis].T @ y_1d[:, np.newaxis])
         assert np.allclose(solve_w, solve_u), "Solvew with 1D input should match unweighted solve."
+
+    # TODO: add test to check that lstsqw output for consistent mass matches np.linalg.solve(a.T @
+    # mass @ a, a.T @ mass @ b)
+
+    # TODO: add test to check that lstsq output is different for lumped vs consistent mass and
+    # matches some expectation?
     
     def test_cdistw_1d(self, random_data):
         X, Y, eye, _ = random_data
@@ -323,8 +329,7 @@ def test_sigmoid_rescale():
 
 class TestParcellate:
     @pytest.fixture(scope='class')
-    @classmethod
-    def parcellation(cls, random_data):
+    def parcellation(self, random_data):
         n_verts = random_data[0].shape[0]
         parc = np.zeros(n_verts, dtype=int)
         parc[n_verts//3:] = 1
@@ -392,7 +397,7 @@ class TestParcellate:
     def test_parcellate_invalid_method(self, random_data, parcellation):
         X, _, eye, _ = random_data
         
-        with pytest.raises(ValueError, match="must be 'mean' or 'sum'; got how2say."):
+        with pytest.raises(ValueError, match="method must be 'mean' or 'sum'"):
             parcellate(X, parcellation, mass=eye, method='how2say')
     
     def test_parcellate_invalid_data_dim(self, random_data, parcellation):
@@ -413,285 +418,77 @@ class TestParcellate:
     # but accounted for by the mass matrix, and check that parcellation recovers the expected values
     # in each parcel.
 
-def test_resample_exact(random_data):
-    X, Y, _, _ = random_data
-
-    X_resampled = resample(X[:, 0], Y[:, 0], method='exact')
-    
-    # Check that the resampled data has the exact same values as original data (just reordered)
-    assert np.allclose(np.sort(X_resampled), np.sort(Y[:, 0])), \
-        "Resampled data doesn't preserve original data distribution"
-
-def test_resample_mean(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X[:, 0], Y[:, 0], method='mean', mass=noneye)
-    
-    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
-        "Resampled data mean is not close to original data mean"
-    assert not np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
-        "Resampled data std should not be close to original data std when using 'mean'"
-
-def test_resample_affine(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X[:, 0], Y[:, 0], method='affine', mass=noneye)
-    
-    assert np.isclose(meanw(X_resampled, noneye), meanw(Y[:, 0], noneye)), \
-        "Resampled data mean is not close to original data mean"
-    assert np.isclose(stdw(X_resampled, noneye), stdw(Y[:, 0], noneye)), \
-        "Resampled data std is not close to original data std"
-
-def test_resample_range(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X[:, 0], Y[:, 0], method='range', mass=noneye)
-
-    assert np.isclose(np.min(X_resampled), np.min(Y[:, 0])), \
-        "Resampled data min is not close to original data min"
-    assert np.isclose(np.max(X_resampled), np.max(Y[:, 0])), \
-        "Resampled data max is not close to original data max"
-
-def test_resample_exact_a2d(random_data):
-    X, Y, _, _ = random_data
-
-    X_resampled = resample(X, Y[:, 0], method='exact')
-
-    Y_sorted = np.sort(Y[:, 0])
-    X_sorted = np.sort(X_resampled, axis=0)
-    for i in range(X.shape[1]):
-        assert np.allclose(X_sorted[:, i], Y_sorted), \
-            f"Resampled data for map {i} doesn't preserve original data distribution"
-
-def test_resample_mean_a2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y[:, 0], method='mean', mass=noneye)
-
-    Y_mean = meanw(Y[:, 0], noneye)
-    X_means = meanw(X_resampled, noneye)
-    for i in range(X.shape[1]):
-        assert np.isclose(X_means[i], Y_mean), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-
-def test_resample_affine_a2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y[:, 0], method='affine', mass=noneye)
-
-    Y_mean = meanw(Y[:, 0], noneye)
-    Y_std = stdw(Y[:, 0], noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X.shape[1]):
-        assert np.isclose(X_means[i], Y_mean), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-        assert np.isclose(X_stds[i], Y_std), \
-            f"Resampled data std for map {i} is not close to original data std"
-
-def test_resample_range_a2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y[:, 0], method='range', mass=noneye)
-
-    X_mins = np.min(X_resampled, axis=0)
-    Y_min = np.min(Y[:, 0], axis=0)
-    X_maxs = np.max(X_resampled, axis=0)
-    Y_max = np.max(Y[:, 0], axis=0)
-
-    for i in range(X.shape[1]):
-        assert np.isclose(X_mins[i], Y_min), \
-            f"Resampled data min for map {i} is not close to original data min"
-        assert np.isclose(X_maxs[i], Y_max), \
-            f"Resampled data max for map {i} is not close to original data max"
-
-def test_resample_exact_ab2d(random_data):
-    X, Y, _, _ = random_data
-
-    X_resampled = resample(X, Y, method='exact')
-
-    Y_sorted = np.sort(Y, axis=0)
-    X_sorted = np.sort(X_resampled, axis=0)
-    for i in range(X.shape[1]):
-        assert np.allclose(X_sorted[:, i], Y_sorted[:, i]), \
-            f"Resampled data for map {i} doesn't preserve original data distribution"
-
-def test_resample_mean_ab2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y, method='mean', mass=noneye)
-
-    Y_means = meanw(Y, noneye)
-    X_means = meanw(X_resampled, noneye)
-    for i in range(X.shape[1]):
-        assert np.isclose(X_means[i], Y_means[i]), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-
-def test_resample_affine_ab2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y, method='affine', mass=noneye)
-
-    Y_means = meanw(Y, noneye)
-    Y_stds = stdw(Y, noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X.shape[1]):
-        assert np.isclose(X_means[i], Y_means[i]), \
-            f"Resampled data mean for map {i} is not close to original data mean"
-        assert np.isclose(X_stds[i], Y_stds[i]), \
-            f"Resampled data std for map {i} is not close to original data std"
-
-def test_resample_range_ab2d(random_data):
-    X, Y, _, noneye = random_data
-
-    X_resampled = resample(X, Y, method='range', mass=noneye)
-
-    X_mins = np.min(X_resampled, axis=0)
-    Y_mins = np.min(Y, axis=0)
-    X_maxs = np.max(X_resampled, axis=0)
-    Y_maxs = np.max(Y, axis=0)
-
-    for i in range(X.shape[1]):
-        assert np.isclose(X_mins[i], Y_mins[i]), \
-            f"Resampled data min for map {i} is not close to original data min"
-        assert np.isclose(X_maxs[i], Y_maxs[i]), \
-            f"Resampled data max for map {i} is not close to original data max"
-
-def test_resample_exact_a3d(random_data):
-    X, Y, _, _ = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, X**2], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='exact')
-
-    Y_sorted = np.sort(Y, axis=0)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.allclose(np.sort(X_resampled[:, j, i]), Y_sorted[:, i]), \
-                f"Resampled data for map {i} (slice {j}) doesn't preserve original data distribution"
-
-def test_resample_mean_a3d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y[:, 0], method='mean', mass=noneye)
-
-    Y_mean = meanw(Y[:, 0], noneye)
-    X_means = meanw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_means[j, i], Y_mean), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-
-def test_resample_affine_a3d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y[:, 0], method='affine', mass=noneye)
-
-    Y_mean = meanw(Y[:, 0], noneye)
-    Y_std = stdw(Y[:, 0], noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_means[j, i], Y_mean), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-            assert np.isclose(X_stds[j, i], Y_std), \
-                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
-
-def test_resample_range_a3d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y[:, 0], method='range', mass=noneye)
-
-    X_mins = np.min(X_resampled, axis=0)
-    Y_min = np.min(Y[:, 0])
-    X_maxs = np.max(X_resampled, axis=0)
-    Y_max = np.max(Y[:, 0])
-
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_mins[j, i], Y_min), \
-                f"Resampled data min for map {i} (slice {j}) is not close to original data min"
-            assert np.isclose(X_maxs[j, i], Y_max), \
-                f"Resampled data max for map {i} (slice {j}) is not close to original data max"
-
-def test_resample_exact_a3b2d(random_data):
-    X, Y, _, _ = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, X**2], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='exact')
-
-    Y_sorted = np.sort(Y, axis=0)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.allclose(np.sort(X_resampled[:, j, i]), Y_sorted[:, i]), \
-                f"Resampled data for map {i} (slice {j}) doesn't preserve original data distribution"
-
-def test_resample_mean_a3b2d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='mean', mass=noneye)
-
-    Y_means = meanw(Y, noneye)
-    X_means = meanw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_means[j, i], Y_means[i]), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-
-def test_resample_affine_a3b2d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='affine', mass=noneye)
-
-    Y_means = meanw(Y, noneye)
-    Y_stds = stdw(Y, noneye)
-    X_means = meanw(X_resampled, noneye)
-    X_stds = stdw(X_resampled, noneye)
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_means[j, i], Y_means[i]), \
-                f"Resampled data mean for map {i} (slice {j}) is not close to original data mean"
-            assert np.isclose(X_stds[j, i], Y_stds[i]), \
-                f"Resampled data std for map {i} (slice {j}) is not close to original data std"
-
-def test_resample_range_a3b2d(random_data):
-    X, Y, _, noneye = random_data
-
-    # Create 3D data by stacking along a new axis
-    X_3d = np.stack([X, 10*X + 100], axis=1)  # shape (n_verts, 2, n_maps)
-
-    X_resampled = resample(X_3d, Y, method='range', mass=noneye)
-
-    X_mins = np.min(X_resampled, axis=0)
-    Y_mins = np.min(Y, axis=0)
-    X_maxs = np.max(X_resampled, axis=0)
-    Y_maxs = np.max(Y, axis=0)
-
-    for i in range(X_3d.shape[2]):
-        for j in range(X_3d.shape[1]):
-            assert np.isclose(X_mins[j, i], Y_mins[i]), \
-                f"Resampled data min for map {i} (slice {j}) is not close to original data min"
-            assert np.isclose(X_maxs[j, i], Y_maxs[i]), \
-                f"Resampled data max for map {i} (slice {j}) is not close to original data max"
-            
-# TODO: test resample for a4d, a4b2d
+@pytest.fixture(scope='module')
+def solver():
+    surf, medmask = fetch_example_surf(res='4k')
+    return EigenSolver(surf, medmask)
+
+def test_mult_by_cholesky(solver):
+    n_maps = 3
+
+    # generate random maps
+    maps = np.random.default_rng(0).standard_normal(size=(solver.n_verts, n_maps))
+
+    # mass-weight maps
+    maps_M = solver.mass @ maps
+
+    # mass-weight maps via Cholesky
+    maps_LT = _mult_by_cholesky(maps, solver.mass, transpose=True)
+    maps_LLT = _mult_by_cholesky(maps_LT, solver.mass, transpose=False)
+
+    assert np.allclose(maps_LLT, maps_M, atol=1e-20), \
+        "Mult by Cholesky should satisfy L @ L.T @ maps = mass @ maps"
+
+    # verify that consistent mass != L^T L
+    maps_L = _mult_by_cholesky(maps, solver.mass, transpose=False)
+    maps_LTL = _mult_by_cholesky(maps_L, solver.mass, transpose=True)
+
+    assert not np.allclose(maps_LTL, maps_M, atol=1e-3), \
+        "Mult by Cholesky should not satisfy L.T @ L @ maps = mass @ maps for consistent mass"
+
+    # use lumped mass
+    solver.lump = True
+    maps_M_l = solver.mass @ maps
+    maps_LTL_l = _mult_by_cholesky(
+        _mult_by_cholesky(maps, solver.mass, transpose=False),
+        solver.mass,
+        transpose=True
+        )
+
+    # verify that lumped mass = L^T L = L L^T
+    assert np.allclose(maps_LTL_l, maps_M_l, atol=1e-20), \
+        "Mult by Cholesky should satisfy L.T @ L @ maps = mass @ maps for lumped mass"
+
+def test_lstsqw_consistent_mass(solver):
+    n_maps = 3
+    # ensure that the solver has consistent mass
+    solver.lump = False
+
+    # generate random maps
+    maps = np.random.default_rng(0).standard_normal(size=(solver.n_verts, n_maps))
+
+    # generate random target maps
+    targets = np.random.default_rng(1).standard_normal(size=(solver.n_verts, n_maps))
+
+    # solve least squares with consistent mass
+    coeffs = lstsqw(maps, targets, mass=solver.mass)[0]
+
+    # check that it solves the normal equations: a.T @ mass @ a @ x = a.T @ mass @ b
+    lhs = maps.T @ solver.mass @ maps @ coeffs
+    rhs = maps.T @ solver.mass @ targets
+
+    assert np.allclose(lhs, rhs, atol=1e-20), \
+        "Lstsqw with consistent mass should solve the normal equations: a.T @ mass @ a @ x = a.T @ mass @ b"
+
+    # check that coeffs differs when mass is lumped
+    solver.lump = True
+    coeffs_lumped = lstsqw(maps, targets, mass=solver.mass)[0]
+    assert not np.allclose(coeffs, coeffs_lumped, atol=1e-3), \
+        "Lstsqw with lumped mass should produce different coefficients than consistent mass."
+
+def test_mult_by_cholesky_non_spd():
+    # create a symmetric indefinite scipy csc matrix
+    A = sparse.csc_matrix([[1, 2], [2, 1]])
+    data = np.random.default_rng(0).standard_normal(size=(2, 3))
+    with pytest.warns(RuntimeWarning, match="invalid value encountered in sqrt"):
+        _mult_by_cholesky(data, A)
