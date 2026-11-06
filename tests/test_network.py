@@ -11,7 +11,7 @@ def solver():
     n_modes = 5
     surf, medmask = fetch_example_surf(res='4k')
 
-    return EigenSolver(surf, mask=~medmask).solve(n_modes)
+    return EigenSolver(surf, mask=~medmask).eigs(n_modes)
 
 def test_compute_gem_properties(solver):
     emodes = solver.emodes

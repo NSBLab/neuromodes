@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csc_matrix, eye
 
-from neuromodes.basis import decompose, calc_recon_error, reconstruct
+from neuromodes.basis import calc_recon_error, decompose, reconstruct
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.stats import sigmoid_rescale, zscorew
@@ -14,7 +14,8 @@ def solver():
     randmap = np.random.default_rng(0).standard_normal(size=medmask.sum())
     solver = EigenSolver(surf, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), steepness=0.5, upper=2.0)
-    return solver.solve(n_modes=10, hetero=hetero)
+    solver.hetero = hetero
+    return solver.eigs(n_modes=10)
 
 def test_decompose_eigenmodes_1d(solver):
     for i in range(solver.n_modes):
@@ -80,7 +81,8 @@ def solver_32k():
     randmap = rng.standard_normal(size=medmask.sum())
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), upper=2.0)
-    solver.solve(10, hetero=hetero)
+    solver.hetero = hetero
+    solver.eigs(10)
     return solver
 
 def test_decompose_nans(solver_32k):
