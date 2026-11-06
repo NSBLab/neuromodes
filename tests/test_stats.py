@@ -447,7 +447,7 @@ def test_mult_by_cholesky(solver):
         "Mult by Cholesky should not satisfy L.T @ L @ maps = mass @ maps for consistent mass"
 
     # use lumped mass
-    solver.compute_lbo(lump=True)
+    solver.lump = True
     maps_M_l = solver.mass @ maps
     maps_LTL_l = _mult_by_cholesky(
         _mult_by_cholesky(maps, solver.mass, transpose=False),
@@ -462,7 +462,7 @@ def test_mult_by_cholesky(solver):
 def test_lstsqw_consistent_mass(solver):
     n_maps = 3
     # ensure that the solver has consistent mass
-    solver.compute_lbo(lump=False)
+    solver.lump = False
 
     # generate random maps
     maps = np.random.default_rng(0).standard_normal(size=(solver.n_verts, n_maps))
@@ -481,7 +481,7 @@ def test_lstsqw_consistent_mass(solver):
         "Lstsqw with consistent mass should solve the normal equations: a.T @ mass @ a @ x = a.T @ mass @ b"
 
     # check that coeffs differs when mass is lumped
-    solver.compute_lbo(lump=True)
+    solver.lump = True
     coeffs_lumped = lstsqw(maps, targets, mass=solver.mass)[0]
     assert not np.allclose(coeffs, coeffs_lumped, atol=1e-3), \
         "Lstsqw with lumped mass should produce different coefficients than consistent mass."

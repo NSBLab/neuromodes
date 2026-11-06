@@ -817,7 +817,7 @@ def _mult_by_cholesky(
     -------
     np.ndarray
         The transformed spatial maps, of shape ``(n_verts, n_maps)``.
-"""
+    """
 
     # Diagonal matrix: F = Fᵀ = √A
     diag = matrix.diagonal()

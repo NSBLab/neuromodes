@@ -24,7 +24,8 @@ def solver():
     myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=1.0, upper=2.0)
-    return solver.solve(n_modes=100, hetero=hetero)
+    solver.hetero = hetero
+    return solver.eigs(n_modes=100)
 
 def test_unusual_wave_speed(solver):
     with pytest.warns(UserWarning, match=r'range of 0-150 m/s \(calculated 47.1-162.6 m/s\).'):
@@ -135,11 +136,12 @@ def test_gen_noise_gram(solver):
     assert np.abs(diag_mean - solver.n_modes) < 1
 
     # Lumped mass-normalised white noise
-    mass_lumped = EigenSolver(solver.geometry).compute_lbo(lump=True).mass
+    solver_lump = EigenSolver(solver.geometry)
+    solver_lump.lump = True
     # remove mass-weighting by taking inverse mass as reciprocal of diagonal
-    mass_inv = 1/mass_lumped.diagonal()[:, None]
-    noise = mass_inv * _gen_noise(solver.n_verts, nt, mass=mass_lumped, seed=seed)  
-    gram = gramw(noise, mass=mass_lumped)  # shape (nt, nt)
+    mass_inv = 1/solver_lump.mass.diagonal()[:, None]
+    noise = mass_inv * _gen_noise(solver.n_verts, nt, mass=solver_lump.mass, seed=seed)  
+    gram = gramw(noise, mass=solver_lump.mass)  # shape (nt, nt)
 
     offdiag_mean = gram[triu].mean()  # expected to be 0
     diag_mean = np.diag(gram).mean()  # expected to be n_samples = n_verts
