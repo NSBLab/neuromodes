@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 from lapy.shapedna import normalize_ev
 
-from neuromodes.eigen import EigenSolver, get_eigengroup_inds, is_orthonormal_basis
+from neuromodes.eigen import (
+    EigenSolver,
+    get_eigengroup_inds,
+    is_orthonormal_basis,
+)
 from neuromodes.io import fetch_example_map, fetch_example_surf, fetch_example_vol
 from neuromodes.mesh import normalize_vol
 from neuromodes.stats import sigmoid_rescale, zscorew
@@ -38,7 +42,7 @@ def surf_medmask():
     return fetch_example_surf(res='4k')
 
 @pytest.fixture(scope="module")
-def presolver(surf_medmask):
+def solver(surf_medmask):
     surf, medmask = surf_medmask
     myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
     solver = EigenSolver(surf, mask=medmask) # TODO: just use surf_medmask?
@@ -46,8 +50,8 @@ def presolver(surf_medmask):
     return solver
 
 @pytest.fixture(scope="module")
-def hetero(presolver):
-    return presolver.hetero
+def hetero(solver):
+    return solver.hetero
 
 def test_invalid_mask_shape(surf_medmask):
     surf, _ = surf_medmask
@@ -117,104 +121,104 @@ def test_real_heteromaps():
     for i in range(len(map_names)):
         solver.hetero = heteros_zsig[:, i]
 
-def test_symmetric_mass(presolver):
-    diff = presolver.mass - presolver.mass.transpose()
+def test_symmetric_mass(solver):
+    diff = solver.mass - solver.mass.transpose()
     assert abs(diff).max() == 0, 'Mass matrix is not symmetric.'
 
-def test_mass_rowsums(presolver):
-    mass_rowsums = presolver.mass.sum(axis=1).A1
-    mass_lumped_solver = EigenSolver(presolver.geometry)
+def test_mass_rowsums(solver):
+    mass_rowsums = solver.mass.sum(axis=1).A1
+    mass_lumped_solver = EigenSolver(solver.geometry)
     mass_lumped_solver.lump = True
     mass_lumped = mass_lumped_solver.mass.data
     np.testing.assert_allclose(mass_rowsums, mass_lumped,
                                   err_msg='Mass matrix row sums do not match lumped mass diagonal.')
 
-def test_symmetric_stiffness(presolver):
-    diff = presolver.stiffness - presolver.stiffness.transpose()
+def test_symmetric_stiffness(solver):
+    diff = solver.stiffness - solver.stiffness.transpose()
     assert abs(diff).max() == 0, 'Stiffness matrix is not symmetric.'
 
-def test_stiffness_rowsums(presolver):
-    assert abs(presolver.stiffness.sum(axis=1)).max() < 2e-6
+def test_stiffness_rowsums(solver):
+    assert abs(solver.stiffness.sum(axis=1)).max() < 2e-6
         
-def test_seeded_modes(presolver):
+def test_seeded_modes(solver):
     n_modes = 16
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=36)
-    emodes1 = presolver.emodes.copy()
-    evals1 = presolver.evals.copy()
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=36)
+    emodes1 = solver.emodes.copy()
+    evals1 = solver.evals.copy()
 
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=36)
-    emodes2 = presolver.emodes.copy()
-    evals2 = presolver.evals.copy()
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=36)
+    emodes2 = solver.emodes.copy()
+    evals2 = solver.evals.copy()
 
     assert (emodes1 == emodes2).all(), 'Modes from same seed are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed are not identical.'
 
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=37)
-    emodes3 = presolver.emodes.copy()
-    evals3 = presolver.evals.copy()
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False, seed=37)
+    emodes3 = solver.emodes.copy()
+    evals3 = solver.evals.copy()
 
     assert not (emodes1 == emodes3).all(), 'Modes from different seeds should not be identical.'
     assert not (evals1 == evals3).all(), 'Eigenvalues from different seeds should not be identical.'
 
-def test_generator_seeded_modes(presolver):
+def test_generator_seeded_modes(solver):
     n_modes = 16
     rng = np.random.default_rng(0)
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False,
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False,
                     seed=rng)
-    emodes1 = presolver.emodes.copy()
-    evals1 = presolver.evals.copy()
+    emodes1 = solver.emodes.copy()
+    evals1 = solver.evals.copy()
 
     # Reset the generator to ensure the same sequence of random numbers
     rng = np.random.default_rng(0)
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False,
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False,
                     seed=rng)
-    emodes2 = presolver.emodes.copy()
-    evals2 = presolver.evals.copy()
+    emodes2 = solver.emodes.copy()
+    evals2 = solver.evals.copy()
     assert (emodes1 == emodes2).all(), 'Modes from same seed generator are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed generator are not identical.'
 
     rng = np.random.default_rng(1)
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False,
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False,
                     seed=rng)
-    emodes3 = presolver.emodes.copy()
-    evals3 = presolver.evals.copy()
+    emodes3 = solver.emodes.copy()
+    evals3 = solver.evals.copy()
     assert not (emodes1 == emodes3).all(), 'Modes from different seed generators are identical.'
     assert not (evals1 == evals3).all(), 'Eigenvalues from different seed generators are identical.'
 
-def test_vector_seeded_modes(presolver):
+def test_vector_seeded_modes(solver):
     n_modes = 16
     rng = np.random.default_rng(0)
-    v0 = rng.standard_normal(size=presolver.n_verts)
+    v0 = rng.standard_normal(size=solver.n_verts)
 
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False, v0=v0)
-    emodes1 = presolver.emodes.copy()
-    evals1 = presolver.evals.copy()
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False, v0=v0)
+    emodes1 = solver.emodes.copy()
+    evals1 = solver.evals.copy()
 
     # Reuse the same seed vector
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False, v0=v0)
-    emodes2 = presolver.emodes.copy()
-    evals2 = presolver.evals.copy()
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False, v0=v0)
+    emodes2 = solver.emodes.copy()
+    evals2 = solver.evals.copy()
 
     assert (emodes1 == emodes2).all(), 'Modes from same seed vector are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed vector are not identical.'
 
-    v0_diff = rng.standard_normal(size=presolver.n_verts)
+    v0_diff = rng.standard_normal(size=solver.n_verts)
 
-    presolver.eigs(n_modes, align_emodes=False, set_emode1=False,
+    solver.eigs(n_modes, align_emodes=False, set_emode1=False,
                     v0=v0_diff)
-    emodes3 = presolver.emodes.copy()
-    evals3 = presolver.evals.copy()
+    emodes3 = solver.emodes.copy()
+    evals3 = solver.evals.copy()
 
     assert not (emodes1 == emodes3).all(), 'Modes from different seed vectors are identical.'
     assert not (evals1 == evals3).all(), 'Eigenvalues from different seed vectors are identical.'
 
-def test_invalid_vector_seed(presolver):
+def test_invalid_vector_seed(solver):
     with pytest.raises(ValueError,
                        match=r"v0 must have shape \(n_verts,\) = \(3619,\)."):
-        presolver.eigs(2400, v0=np.ones(10))
+        solver.eigs(2400, v0=np.ones(10))
 
-def test_eigs_alias_and_cache_setters(presolver):
-    solver = presolver.eigs(2)
+def test_eigs_alias_and_cache_setters(solver):
+    solver = solver.eigs(2)
     assert solver.n_modes == 2
 
     original_hetero = solver.hetero.copy()
@@ -249,12 +253,8 @@ def test_read_only_solver_state(surf_medmask):
     with pytest.raises(AttributeError):
         solver.mask = solver.mask
 
-# TODO: this seems a bit redundant
-@pytest.fixture(scope="module")
-def solver(presolver):
-    return presolver.eigs(16, )
-
 def test_unaligned_modes(solver, surf_medmask):
+    solver.eigs(16, align_emodes=True)
     emodes = solver.emodes
     surf, medmask = surf_medmask
     unalign_solver = EigenSolver(surf, mask=medmask)
@@ -305,6 +305,7 @@ def test_n_modes_consistency(solver, surf_medmask):
     
 def test_normalized_surf(solver):
     surf = solver.geometry
+    solver.eigs(16)
 
     # Use LaPy to normalize evals
     evals_lapy = normalize_ev(surf, solver.evals)
@@ -323,10 +324,13 @@ def test_normalized_surf(solver):
 def test_normalized_vol():
     # Above test but for volumes
     hippo = fetch_example_vol('hippocampus')
-
-    volser = EigenSolver(hippo).eigs(16, seed=0)
+    volser = EigenSolver(hippo)
+    volser.hetero = np.arange(volser.n_verts) * 2 / volser.n_verts
+    volser.eigs(16, seed=0)
     evals_lapy = normalize_ev(volser.geometry, volser.evals)
-    volser_norm = EigenSolver(normalize_vol(hippo)).eigs(16, seed=0)
+    volser_norm = EigenSolver(normalize_vol(hippo))
+    volser_norm.hetero = volser.hetero
+    volser_norm.eigs(16, seed=0)
 
     assert np.allclose(evals_lapy, volser_norm.evals, atol=1e-20), \
     'Evals from LaPy normalization do not match evals from EigenSolver normalization.'

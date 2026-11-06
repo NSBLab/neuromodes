@@ -123,7 +123,7 @@ def read_surf(
             f'file {fs_extensions}, an instance of nibabel.GiftiImage or lapy.TriaMesh, or a '
             "dictionary of 'cells' and 'vertices' with shapes (n_verts, 3) 'and (n_trias, 3), "
             'respectively.'
-            )
+        )
         
     return TriaMesh(v=vertices, t=cells)
 
@@ -317,12 +317,15 @@ def _cache_output(
     ImportError
         If ``joblib`` is not installed.
     """
+    # Check for and import joblib
     if find_spec("joblib") is None:
-        raise ImportError("joblib is required for caching. Neuromodes can be installed with the "
-                          "'cache' extra to include joblib as a dependency (e.g., pip install "
-                          "neuromodes[cache]).")
+        raise ImportError(
+            "joblib is required for caching. Neuromodes can be installed with the 'cache' extra to "
+            "include joblib as a dependency (e.g., pip install neuromodes[cache])."
+        )
     from joblib import Memory
-    
+
+    # Set up cache directory
     if cache_dir is None:
         cache_dir = getenv("CACHE_DIR")
         if cache_dir is None:
@@ -332,4 +335,5 @@ def _cache_output(
     cache_dir = Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
 
+    # Return cached version of the function
     return Memory(cache_dir, verbose=0).cache(function)

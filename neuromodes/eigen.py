@@ -5,12 +5,14 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
 
+import h5py
 import numpy as np
 from lapy import Solver
-from scipy.sparse import csc_matrix
+from scipy.sparse import csc_matrix, isspmatrix_csc
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
@@ -24,8 +26,8 @@ if TYPE_CHECKING:
     from numpy.random import Generator
     from numpy.typing import NDArray
 
-    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
     from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
+    _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
 
 class EigenSolver(Solver):
     """
@@ -91,7 +93,7 @@ class EigenSolver(Solver):
 
         # Assign attributes and cache states
         self._geometry = geometry
-        self.n_verts = geometry.v.shape[0]  # Nicety
+        self._n_verts = geometry.v.shape[0]  # Nicety
         self._mask = mask
 
         self._lump = False
@@ -114,6 +116,11 @@ class EigenSolver(Solver):
         brain structure (optionally masked).
         """
         return self._geometry
+
+    @property
+    def n_verts(self) -> int:
+        """The number of vertices in the mesh (after masking, if :attr:`mask` has been set)."""
+        return self._n_verts
 
     # TODO: consider allowing setting, apply cache invalidation, but need to store unmasked geometry
     @property
@@ -408,6 +415,125 @@ class EigenSolver(Solver):
         self._emodes = emodes
         return self
 
+    # TODO P5? users can add their own attrs kwargs and dataset kwargs?
+    def write_h5(
+        self, 
+        path: str | Path, 
+        n_modes: int | None = None,
+        mode: Literal['r+', 'w', 'x', 'w-', 'a'] = 'x'
+    ) -> None:
+        """
+        Write the ``EigenSolver`` object to an HDF5 file.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path to the output HDF5 file.
+        n_modes : int or None, optional
+            The number of eigenmodes and eigenvalues to include in the output. If ``None``, all
+            computed eigenmodes and eigenvalues are included.
+        mode : {'r+', 'w', 'x', 'w-', 'a'}, optional
+            The mode in which to open the file. Default is ``'x'`` (exclusive creation).
+        """
+        if n_modes is None: 
+            n_modes = self.n_modes
+
+        # TODO P5 consider if more options need to be considered when writing to HDF5
+        with h5py.File(path, mode) as f:
+            f.create_dataset('geometry/vertices', data=self.geometry.v)
+            f.create_dataset('geometry/cells', data=self.geometry.t)
+            if self.mask is not None:
+                f.create_dataset('mask', data=self.mask)
+            if self.hetero is not None:
+                f.create_dataset('hetero', data=self.hetero)
+            f.create_dataset('emodes', data=self.emodes[:, :n_modes])
+            f.create_dataset('evals', data=self.evals[:n_modes])
+
+            if isspmatrix_csc(self.mass):
+                f.create_dataset('mass/indptr', data=self.mass.indptr)
+                f.create_dataset('mass/indices', data=self.mass.indices)
+                f.create_dataset('mass/data', data=self.mass.data)
+            else: 
+                warn("Mass matrix is not a sparse CSC matrix. It will not be saved.")
+
+            if isspmatrix_csc(self.stiffness):
+                f.create_dataset('stiffness/indptr', data=self.stiffness.indptr)
+                f.create_dataset('stiffness/indices', data=self.stiffness.indices)
+                f.create_dataset('stiffness/data', data=self.stiffness.data)
+            else: 
+                warn("Stiffness matrix is not a sparse CSC matrix. It will not be saved.")
+
+            f.attrs['lump'] = self.lump
+            f.attrs['use_cholmod'] = self.use_cholmod
+            f.attrs['n_verts'] = self.n_verts
+            f.attrs['n_modes'] = n_modes
+
+            f.attrs['datetime'] = str(np.datetime64('now'))
+            f.attrs['neuromodes'] = version('neuromodes')
+
+    @classmethod
+    def read_h5(
+        cls,
+        path: str | Path, 
+        n_modes: int | None = None
+    ) -> EigenSolver:
+        """
+        Read an ``EigenSolver`` object from an HDF5 file.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            Path to the input HDF5 file.
+
+        Returns
+        -------
+        EigenSolver
+            The ``EigenSolver`` instance.
+        """
+        with h5py.File(path, 'r') as f:
+            vertices = f['geometry/vertices'][()]
+            cells = f['geometry/cells'][()]
+            geometry = {'vertices': vertices, 'cells': cells}
+            mask = f['mask'][()] if 'mask' in f else None
+            lump = bool(f.attrs['lump'])
+            hetero = f['hetero'][()] if 'hetero' in f else None
+            n_verts = int(f.attrs['n_verts'])
+
+            n_modes = int(f.attrs['n_modes']) if n_modes is None else n_modes
+
+            emodes = f['emodes'][:, :n_modes]
+            evals = f['evals'][:n_modes]
+
+            if 'mass' in f:
+                mass_indptr = f['mass/indptr'][()]
+                mass_indices = f['mass/indices'][()]
+                mass_data = f['mass/data'][()]
+                mass = csc_matrix((mass_data, mass_indices, mass_indptr))
+            else:
+                mass = None
+
+            if 'stiffness' in f:
+                stiffness_indptr = f['stiffness/indptr'][()]
+                stiffness_indices = f['stiffness/indices'][()]
+                stiffness_data = f['stiffness/data'][()]
+                stiffness = csc_matrix((stiffness_data, stiffness_indices, stiffness_indptr))
+            else:
+                stiffness = None
+
+        # init
+        solver = cls(geometry)
+        # manually set other things
+        solver._mask = mask
+        solver._n_verts = n_verts
+        solver._n_modes = n_modes
+        solver._mass = mass
+        solver._stiffness = stiffness
+        solver._lump = lump
+        solver._hetero = hetero
+        solver._emodes = emodes
+        solver._evals = evals
+        return solver
+        
     # 1. mode_counts is None or int -> Single Array 
     @overload
     def decompose(
@@ -619,10 +745,11 @@ def align_basis(
     numpy.ndarray
         The aligned basis vectors array of shape ``(n_verts, n_modes)``.
     """
-    emodes = EigenData(emodes=emodes, checks=checks).emodes
+    # TODO: pass in emodes as emodes once EigenData implementation has been finalised
+    emodes = EigenData(data=emodes, checks=checks).data
    
     # Flip modes where the first element is negative
-    return emodes * np.copysign(1, np.sign(np.asarray(emodes)[0, :]))
+    return emodes * np.copysign(1, np.sign(emodes[0, :]))
 
 def is_orthonormal_basis(
     emodes: NDArray[np.floating],
@@ -904,13 +1031,21 @@ class EigenData:
         # TODO : add lump input and parameter (confirm that mass is diagonal if lump=True)
         if mass is not _MISSING:
             all_inputs.append('mass')
-            if mass is not None and check_shape and (mass.ndim != 2 or mass.shape[0] != mass.shape[1]):
+            if (
+                mass is not None 
+                and check_shape 
+                and (mass.ndim != 2 or mass.shape[0] != mass.shape[1])
+            ):
                 raise ValueError("mass must be a square matrix.")
             _set('mass', mass)
 
         if stiffness is not _MISSING:
             all_inputs.append('stiffness')
-            if stiffness is not None and check_shape and (stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1]):
+            if (
+                stiffness is not None 
+                and check_shape 
+                and (stiffness.ndim != 2 or stiffness.shape[0] != stiffness.shape[1])
+            ):
                 raise ValueError("stiffness must be a square matrix.")
             _set('stiffness', stiffness)
 
