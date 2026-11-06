@@ -78,7 +78,7 @@ def linkcode_resolve(domain, info):
 
     try:
         module = importlib.import_module(module_name)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
     # Walk from the imported module to the exact object Sphinx is documenting,
@@ -94,7 +94,7 @@ def linkcode_resolve(domain, info):
         # source at the correct object definition.
         file_path = inspect.getsourcefile(obj)
         source_lines, start_line = inspect.getsourcelines(obj)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
     if not file_path:
