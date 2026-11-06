@@ -9,3 +9,4 @@ at https://github.com/NSBLab/neuromodes.
 from neuromodes.eigen import EigenSolver
 
 __all__ = ["EigenSolver"]
+__version__ = "0.1.0"
