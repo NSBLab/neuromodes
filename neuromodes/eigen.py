@@ -5,14 +5,14 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from importlib.metadata import version
 
+import h5py
 import numpy as np
 from lapy import Solver
-from scipy.sparse import csc_matrix, isspmatrix_csc
-import h5py
+from scipy.sparse import csc_matrix, issparse, isspmatrix_csc
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from nibabel.gifti.gifti import GiftiImage
     from numpy.random import Generator
     from numpy.typing import NDArray
+    from scipy.sparse import spmatrix
 
     from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
     _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
@@ -788,6 +789,8 @@ def is_orthonormal_basis(
 
     # Check Euclidean or mass-orthonormality
     prod = emodes.T @ emodes if mass is None else emodes.T @ (mass @ emodes)
+    if issparse(prod):
+        prod = prod.toarray()
     identity = np.eye(emodes.shape[1])
     return np.allclose(prod, identity, rtol=rtol, atol=atol, equal_nan=False)
 
@@ -960,7 +963,7 @@ def _fem_tetra_hetero(
 _MISSING = object()  
 @dataclass(frozen=True, init=False)
 class EigenData:
-    emodes: NDArray[np.floating]
+    emodes: NDArray[np.floating] | spmatrix
     evals: NDArray[np.floating] 
     mass: csc_matrix
     stiffness: csc_matrix
@@ -969,7 +972,7 @@ class EigenData:
 
     def __init__(
         self,
-        emodes: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
+        emodes: NDArray[np.floating] | spmatrix | None = _MISSING, # type: ignore[assignment]
         evals: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment] 
         mass: csc_matrix | None = _MISSING, # type: ignore[assignment]
         stiffness: csc_matrix | None = _MISSING, # type: ignore[assignment]
@@ -994,7 +997,11 @@ class EigenData:
         if emodes is not _MISSING:
             all_inputs.append('emodes')
             if emodes is not None:
-                emodes = np.asarray_chkfinite(emodes)
+                if issparse(emodes):
+                    if not np.isfinite(emodes.data).all():
+                        raise ValueError("emodes must not contain infs or NaNs.")
+                else:
+                    emodes = np.asarray_chkfinite(emodes)
                 if check_shape:
                     if emodes.ndim != 2: 
                         raise ValueError("emodes must be a 2D array.")
@@ -1077,10 +1084,16 @@ class EigenData:
                 data_proc = []
                 for d in data:
                     if d is not None:
-                        d = np.asarray(d)
-                        if np.isnan(d).any(): 
+                        is_sparse = issparse(d)
+                        if is_sparse:
+                            if not np.isfinite(d.data).all():
+                                warn("NaN or Inf values detected in sparse data, which may cause "
+                                     "issues with computations.")
+                        else:
+                            d = np.asarray(d)
+                        if not is_sparse and np.isnan(d).any(): 
                             warn("NaN values detected in data, which may cause issues with computations.")
-                        if np.isinf(d).any():
+                        if not is_sparse and np.isinf(d).any():
                             warn("Inf values detected in data, which may cause issues with computations.")
                         if n_verts is None:
                             n_verts = d.shape[0]  # Establish the ground truth if not set

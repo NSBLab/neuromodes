@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from warnings import warn
 
 import numpy as np
-from scipy.sparse import csc_matrix, diags, spmatrix
+from scipy.sparse import csc_matrix, diags, issparse, spmatrix
 from scipy.sparse.linalg import splu
 from scipy.spatial.distance import cdist, squareform
 
@@ -487,38 +487,8 @@ def pdistw(
     np.fill_diagonal(D2, 0) # Ensures exact 0 on diagonal
     return squareform(D2, checks=False)
 
-def solvew(
-    data_a: NDArray[np.floating],
-    data_b: NDArray[np.floating],
-    mass: spmatrix | NDArray[np.floating] | None
-) -> NDArray[np.floating]:
-    """
-    Solves the weighted least squares problem using the normal equations (aᵀMa)x = aᵀMb, where
-    M is the mass matrix. See https://en.wikipedia.org/wiki/Weighted_least_squares#Motivation
-    for details. Consider instead using :func:`lstsqw` for a numerically stable approximation.
-
-    Parameters
-    ----------
-    data_a : array-like
-        The basis maps of shape ``(n_verts, n_maps_a)``.
-    data_b : array-like
-        The target maps of shape ``(n_verts, n_maps_b)``.
-    mass : array-like
-        The mass matrix, of shape ``(n_verts, n_verts)``.
-
-    Returns
-    -------
-    np.ndarray
-        The solution to the weighted least squares problem, of shape ``(n_maps_a, n_maps_b)``.
-    """
-    ved = EigenData(data=(data_a, data_b), mass=mass)
-    a, b = ved.data
-    mass = _create_mass_matrix(ved.mass, a.shape[0])
-    # Solves (a'Wa)x = (a'Wb)
-    return np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)
-
 def lstsqw(
-    data_a: NDArray[np.floating],
+    data_a: NDArray[np.floating] | spmatrix,
     data_b: NDArray[np.floating],
     mass: spmatrix | NDArray[np.floating] | None,
     rcond: float | None = None
@@ -573,12 +543,22 @@ def lstsqw(
         a = a[:, None]
     if b.ndim == 1:
         b = b[:, None]
-    ab = np.concatenate([a, b], axis=1)
 
-    # multiply and unpack
-    LT_ab = _mult_by_cholesky(ab, mass, transpose=True)
-    LT_a = LT_ab[:, :a.shape[1]]
-    LT_b = LT_ab[:, a.shape[1]:]
+    if issparse(a):
+        # scale and convert to dense for np.linalg.lstsq (no good alternative)
+        # (e.g., scipy.sparse.linalg.splu cannot solve rectangular systems, no sparse QR solver.
+        # iterative solvers lsqr() and lsmr() aren't great for multi RHS)
+        LT_a = _mult_by_cholesky(a, mass, transpose=True).toarray()
+
+        # b is dense so need to multiply separately
+        LT_b = _mult_by_cholesky(b, mass, transpose=True)
+    else:
+        # concatenate for efficiency
+        ab = np.concatenate([a, b], axis=1)
+        LT_ab = _mult_by_cholesky(ab, mass, transpose=True)
+
+        LT_a = LT_ab[:, :a.shape[1]]
+        LT_b = LT_ab[:, a.shape[1]:]
 
     # Get results from standard least squares solver
     return np.linalg.lstsq(LT_a, LT_b, rcond=rcond)
@@ -590,7 +570,7 @@ def parcellate(
     method: Literal['mean', 'sum'] = 'mean'  # TODO: add 'var' (e.g., for parcel homogeneity)
 ) -> NDArray[np.floating]:
     """
-    Area-weighted parcellation of each brain map.
+    Mass-weighted parcellation of each brain map.
 
     Parameters
     ----------
@@ -598,14 +578,14 @@ def parcellate(
         The spatial maps, of shape ``(n_verts, n_maps)``.
     parcellation : array-like
         The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
-        the parcel ID for the corresponding vertex. Values of -1 are treated as medial wall and 
-        ignored in the parcellation.
+        the parcel ID for the corresponding vertex. Negative values are treated as outside the mask
+        (e.g., medial wall) and are ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum'}, optional
         The method for aggregating vertex values within each parcel. If ``'mean'``, the function
-        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
-        area-weighted sum of each parcel. Default is ``'mean'``.
+        computes the mass-weighted mean of each parcel. If ``'sum'``, the function computes the
+        mass-weighted sum of each parcel. Default is ``'mean'``.
 
     Returns
     -------
@@ -628,17 +608,19 @@ def parcellate(
     if method not in ('mean', 'sum'):
         raise ValueError(f"method must be 'mean' or 'sum'; got {method}.")
 
-    # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
-    # output = p.T @ mass @ data; or 
-    # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
-    parc_mass = _create_parcellation_matrix(parcellation).T @ _create_mass_matrix(ved.mass, data.shape[0])
-    if method == 'mean':
-        parc_mass /= parc_mass.sum(axis=1) 
+    # avoid circular import due to _create_mass_matrix() being imported in basis.py
+    from neuromodes.basis import decompose
 
-    is_data_vec = (data.ndim == 1)
-    data_2d = data[:, np.newaxis] if is_data_vec else data
-    data_parc = parc_mass @ data_2d
-    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+    # Parcellate data u via parcellation matrix P and mass matrix M:
+    # 'sum' -> x = PᵀMu
+    # 'mean' -> x = (PᵀMP)⁻¹PᵀMu (least-squares minimiser for unparcellation Px ≈ u)
+    return decompose(
+        data,
+        _create_parcellation_matrix(parcellation),
+        method='regress' if method == 'mean' else 'project',
+        mass=_create_mass_matrix(ved.mass, data.shape[0]),
+        checks='maps'
+    )
 
 # TODO add support for passing through parcellation matrix without modification
 # TODO add support for dtypes
@@ -785,10 +767,10 @@ def _create_mass_matrix(
     return output
 
 def _mult_by_cholesky(
-    data: NDArray[np.floating],
+    data: NDArray[np.floating] | spmatrix,
     matrix: spmatrix,
     transpose: bool = False,
-) -> NDArray[np.floating]:
+) -> NDArray[np.floating] | spmatrix:
     """
     Multiplies ``data`` by a Cholesky-derived square-root factor of the symmetric positive-definite
     ``matrix`` (A), or by its transpose. For a non-diagonal matrix, a fill-reducing permutation P is
@@ -815,14 +797,16 @@ def _mult_by_cholesky(
 
     Returns
     -------
-    np.ndarray
+    np.ndarray or scipy.sparse.spmatrix
         The transformed spatial maps, of shape ``(n_verts, n_maps)``.
-"""
+    """
+    is_sparse = issparse(data)
 
     # Diagonal matrix: F = Fᵀ = √A
     diag = matrix.diagonal()
     if matrix.nnz == np.count_nonzero(diag):
-        return data * np.sqrt(diag)[:, None]
+        sqrt_diag = np.sqrt(diag)[:, None]
+        return data.multiply(sqrt_diag) if is_sparse else data * sqrt_diag
 
     # Let SuperLU choose a fill-reducing symmetric ordering (min degree on A+Aᵀ), and force
     # diagonal pivots: PAPᵀ = L_lu U = L_lu D L_luᵀ = (Uᵀ/√D)(Uᵀ/√D)ᵀ = LLᵀ.
@@ -840,15 +824,22 @@ def _mult_by_cholesky(
     perm = lu.perm_c
 
     # Permute and scale data
-    data_perm = np.empty_like(data)
-    data_perm[perm] = data
+    if is_sparse:
+        data_perm = data.tocsr()[np.argsort(perm)]
+    else:
+        data_perm = np.empty_like(data)
+        data_perm[perm] = data
 
     if transpose:
         # Lᵀ = U/√D
-        data_perm_scaled = (U @ data_perm) / sqrt_D
+        data_perm_scaled = ((U @ data_perm).multiply(1 / sqrt_D) if is_sparse
+                            else (U @ data_perm) / sqrt_D)
     else:
         # L = Uᵀ/√D
-        data_perm_scaled = U.T @ (data_perm / sqrt_D)
+        data_perm_scaled = (U.T @ (data_perm.multiply(1 / sqrt_D) if is_sparse
+                                   else data_perm / sqrt_D))
 
     # Reapply permutation to return to original order
+    if is_sparse:
+        data_perm_scaled = data_perm_scaled.tocsr()
     return data_perm_scaled[perm]

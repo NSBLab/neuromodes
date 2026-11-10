@@ -140,7 +140,6 @@ API Reference
    vecnormw
    cdistw
    pdistw
-   solvew
    lstsqw
    parcellate
    sigmoid_rescale
