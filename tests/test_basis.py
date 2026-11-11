@@ -325,25 +325,3 @@ class TestShape:
         recon = reconstruct(solver.emodes, data=solver.emodes, mass=solver.mass, mode_ids=mode_ids)
         assert recon.shape == (solver.n_verts, solver.n_modes, len(mode_ids)), \
             'Reconstruction shape does not match expected shape for 2D data with mode IDs.'
-
-def test_sparse_emodes(solver):
-    sparse_emodes = csc_matrix(solver.emodes)
-    data = np.random.default_rng(0).standard_normal((solver.n_verts, 3))
-
-    for method in ('project', 'regress'):
-        dense_coeffs = decompose(
-            data, solver.emodes, mass=solver.mass, method=method
-        )
-        sparse_coeffs = decompose(
-            data, sparse_emodes, mass=solver.mass, method=method
-        )
-        assert np.allclose(sparse_coeffs, dense_coeffs, atol=1e-5)
-
-    coeffs = np.random.default_rng(1).standard_normal((solver.n_modes, 3))
-    dense_recon = reconstruct(
-        solver.emodes, coeffs=coeffs, mass=solver.mass
-    )
-    sparse_recon = reconstruct(
-        sparse_emodes, coeffs=coeffs, mass=solver.mass
-    )
-    assert np.allclose(sparse_recon, dense_recon)

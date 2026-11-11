@@ -7,7 +7,7 @@ from scipy.stats import zscore
 from neuromodes import EigenSolver
 from neuromodes.io import fetch_example_surf
 from neuromodes.stats import (
-    _mult_by_cholesky,
+    _CholeskyFactor,
     cdistw,
     covw,
     demeanw,
@@ -421,25 +421,26 @@ def test_mult_by_cholesky(solver):
     maps_M = solver.mass @ maps
 
     # mass-weight maps via Cholesky
-    maps_LT = _mult_by_cholesky(maps, solver.mass, transpose=True)
-    maps_LLT = _mult_by_cholesky(maps_LT, solver.mass, transpose=False)
+    chol = _CholeskyFactor(solver.mass)
+    maps_LT = chol.multiply(maps, transpose=True)
+    maps_LLT = chol.multiply(maps_LT, transpose=False)
 
     assert np.allclose(maps_LLT, maps_M, atol=1e-20), \
         "Mult by Cholesky should satisfy L @ L.T @ maps = mass @ maps"
 
     # verify that consistent mass != L^T L
-    maps_L = _mult_by_cholesky(maps, solver.mass, transpose=False)
-    maps_LTL = _mult_by_cholesky(maps_L, solver.mass, transpose=True)
+    maps_L = chol.multiply(maps, transpose=False)
+    maps_LTL = chol.multiply(maps_L, transpose=True)
 
     assert not np.allclose(maps_LTL, maps_M, atol=1e-3), \
         "Mult by Cholesky should not satisfy L.T @ L @ maps = mass @ maps for consistent mass"
 
     # use lumped mass
     mass_lumped = sparse.diags(solver.mass.sum(axis=0).A1, format='csc')
+    chol_lumped = _CholeskyFactor(mass_lumped)
     maps_M_l = mass_lumped @ maps
-    maps_LTL_l = _mult_by_cholesky(
-        _mult_by_cholesky(maps, mass_lumped, transpose=False),
-        mass_lumped,
+    maps_LTL_l = chol_lumped.multiply(
+        chol_lumped.multiply(maps, transpose=False),
         transpose=True
         )
 
@@ -452,10 +453,11 @@ def test_mult_by_cholesky_sparse(solver):
         solver.n_verts, 3, density=0.01,
         random_state=0, format='csc'
     )
+    chol = _CholeskyFactor(solver.mass)
 
     for transpose in [True, False]:
-        transformed_sparse = _mult_by_cholesky(maps, solver.mass, transpose=transpose)
-        transformed_dense = _mult_by_cholesky(maps.toarray(), solver.mass, transpose=transpose)
+        transformed_sparse = chol.multiply(maps, transpose=transpose)
+        transformed_dense = chol.multiply(maps.toarray(), transpose=transpose)
 
         assert sparse.issparse(transformed_sparse)
         assert np.allclose(transformed_sparse.toarray(), transformed_dense)
@@ -498,6 +500,5 @@ def test_lstsqw_sparse_basis(solver):
 def test_mult_by_cholesky_non_spd():
     # create a symmetric indefinite scipy csc matrix
     A = sparse.csc_matrix([[1, 2], [2, 1]])
-    data = np.random.default_rng(0).standard_normal(size=(2, 3))
     with pytest.warns(RuntimeWarning, match="invalid value encountered in sqrt"):
-        _mult_by_cholesky(data, A)
+        _ = _CholeskyFactor(A)

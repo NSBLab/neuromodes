@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from typing import Any, Literal, TypeAlias
 
     from numpy.typing import NDArray
-    from scipy.sparse import csc_matrix, spmatrix
+    from scipy.sparse import csc_matrix
     from scipy.spatial.distance import _MetricCallback, _MetricKind
 
     from neuromodes.eigen import _CheckKind
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 @overload
 def decompose(
     data: NDArray[np.floating],
-	emodes: NDArray[np.floating] | spmatrix,
+	emodes: NDArray[np.floating],
 	method: _DecompositionKind = ...,
 	*,
     mass: csc_matrix | None = ...,
@@ -43,7 +43,7 @@ def decompose(
 @overload
 def decompose(
     data: NDArray[np.floating],
-	emodes: NDArray[np.floating] | spmatrix,
+	emodes: NDArray[np.floating],
 	method: _DecompositionKind = ...,
 	*,
     mass: csc_matrix | None = ...,
@@ -56,7 +56,7 @@ def decompose(
 @overload
 def decompose(
     data: NDArray[np.floating],
-	emodes: NDArray[np.floating] | spmatrix,
+	emodes: NDArray[np.floating],
 	method: _DecompositionKind = ...,
 	*,
     mass: csc_matrix | None = ...,
@@ -67,7 +67,7 @@ def decompose(
 
 def decompose(
     data: NDArray[np.floating],
-    emodes: NDArray[np.floating] | spmatrix,
+    emodes: NDArray[np.floating],
     method: _DecompositionKind = 'project',
     *,
     mass: csc_matrix | None = None,

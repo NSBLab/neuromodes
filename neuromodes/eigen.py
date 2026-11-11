@@ -4,6 +4,7 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
@@ -789,8 +790,6 @@ def is_orthonormal_basis(
 
     # Check Euclidean or mass-orthonormality
     prod = emodes.T @ emodes if mass is None else emodes.T @ (mass @ emodes)
-    if issparse(prod):
-        prod = prod.toarray()
     identity = np.eye(emodes.shape[1])
     return np.allclose(prod, identity, rtol=rtol, atol=atol, equal_nan=False)
 
@@ -963,7 +962,7 @@ def _fem_tetra_hetero(
 _MISSING = object()  
 @dataclass(frozen=True, init=False)
 class EigenData:
-    emodes: NDArray[np.floating] | spmatrix
+    emodes: NDArray[np.floating]
     evals: NDArray[np.floating] 
     mass: csc_matrix
     stiffness: csc_matrix
@@ -972,12 +971,13 @@ class EigenData:
 
     def __init__(
         self,
-        emodes: NDArray[np.floating] | spmatrix | None = _MISSING, # type: ignore[assignment]
+        emodes: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
         evals: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment] 
         mass: csc_matrix | None = _MISSING, # type: ignore[assignment]
         stiffness: csc_matrix | None = _MISSING, # type: ignore[assignment]
         hetero: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
-        data: NDArray[np.floating] | tuple[NDArray[np.floating]] | list[NDArray[np.floating]] | None = _MISSING, # type: ignore[assignment]
+        data: (NDArray[np.floating] | Sequence[NDArray[np.floating]] | spmatrix | Sequence[spmatrix]
+               | None) = _MISSING, # type: ignore[assignment]
         checks: _CheckKind = True
     ):  # TODO: add mask?
         # TODO: refactor to use helper functions
@@ -997,11 +997,7 @@ class EigenData:
         if emodes is not _MISSING:
             all_inputs.append('emodes')
             if emodes is not None:
-                if issparse(emodes):
-                    if not np.isfinite(emodes.data).all():
-                        raise ValueError("emodes must not contain infs or NaNs.")
-                else:
-                    emodes = np.asarray_chkfinite(emodes)
+                emodes = np.asarray_chkfinite(emodes)
                 if check_shape:
                     if emodes.ndim != 2: 
                         raise ValueError("emodes must be a 2D array.")
@@ -1077,7 +1073,7 @@ class EigenData:
         if data is not _MISSING:
             if check_maps: # if check_maps is True, always check the shape
                 # Convert single data array to iterable for consistent processing
-                if not isinstance(data, (tuple, list)):
+                if not isinstance(data, Sequence):
                     data = [data]
                 
                 # check shape and for NaN/Inf values in each data array
