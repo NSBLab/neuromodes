@@ -4,15 +4,16 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from importlib.metadata import version
 
+import h5py
 import numpy as np
 from lapy import Solver
-from scipy.sparse import csc_matrix, isspmatrix_csc
-import h5py
+from scipy.sparse import csc_matrix, issparse, isspmatrix_csc
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from nibabel.gifti.gifti import GiftiImage
     from numpy.random import Generator
     from numpy.typing import NDArray
+    from scipy.sparse import spmatrix
 
     from neuromodes.basis import _IntSequenceKind, _SeqSequenceKind
     _CheckKind: TypeAlias = bool | Literal['maps', 'ortho', 'shape', 'evals']
@@ -974,7 +976,8 @@ class EigenData:
         mass: csc_matrix | None = _MISSING, # type: ignore[assignment]
         stiffness: csc_matrix | None = _MISSING, # type: ignore[assignment]
         hetero: NDArray[np.floating] | None = _MISSING, # type: ignore[assignment]
-        data: NDArray[np.floating] | tuple[NDArray[np.floating]] | list[NDArray[np.floating]] | None = _MISSING, # type: ignore[assignment]
+        data: (NDArray[np.floating] | Sequence[NDArray[np.floating]] | spmatrix | Sequence[spmatrix]
+               | None) = _MISSING, # type: ignore[assignment]
         checks: _CheckKind = True
     ):  # TODO: add mask?
         # TODO: refactor to use helper functions
@@ -1070,17 +1073,23 @@ class EigenData:
         if data is not _MISSING:
             if check_maps: # if check_maps is True, always check the shape
                 # Convert single data array to iterable for consistent processing
-                if not isinstance(data, (tuple, list)):
+                if not isinstance(data, Sequence):
                     data = [data]
                 
                 # check shape and for NaN/Inf values in each data array
                 data_proc = []
                 for d in data:
                     if d is not None:
-                        d = np.asarray(d)
-                        if np.isnan(d).any(): 
+                        is_sparse = issparse(d)
+                        if is_sparse:
+                            if not np.isfinite(d.data).all():
+                                warn("NaN or Inf values detected in sparse data, which may cause "
+                                     "issues with computations.")
+                        else:
+                            d = np.asarray(d)
+                        if not is_sparse and np.isnan(d).any(): 
                             warn("NaN values detected in data, which may cause issues with computations.")
-                        if np.isinf(d).any():
+                        if not is_sparse and np.isinf(d).any():
                             warn("Inf values detected in data, which may cause issues with computations.")
                         if n_verts is None:
                             n_verts = d.shape[0]  # Establish the ground truth if not set

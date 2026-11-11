@@ -18,7 +18,7 @@ from scipy.sparse.linalg import eigsh, splu
 
 from neuromodes.basis import decompose
 from neuromodes.eigen import EigenData
-from neuromodes.stats import _mult_by_cholesky
+from neuromodes.stats import _CholeskyFactor
 
 if TYPE_CHECKING:
     from typing import Literal
@@ -668,39 +668,38 @@ def _gen_noise(
 
     Notes
     -----
-    A vector of standard normal noise (f) has an expected Euclidean mean and variance of 0 and 1,
+    A vector of standard normal noise (u) has an expected Euclidean mean and variance of 0 and 1,
     respectively. However, in vertex space, a map's mean and variance are weighted by the mass
     matrix. As such, spatial noise must account for this mass-weighting. This is achieved by
-    leveraging the Cholesky decomposition of the symmetric positive definite mass matrix: M = LLᵀ,
-    where L is lower triangular. By defining the mass-normalized noise as w = L⁻ᵀf, the expected
-    mean and variance remain independent of the mass matrix:
+    leveraging a Cholesky-like decomposition of the symmetric positive definite mass matrix: M =
+    FFᵀ. By defining the mass-normalized noise as w = F⁻ᵀu, the expected mean and variance remain
+    independent of the mass matrix:
 
     E[μ(w)] = E[sum(Mw) / sum(M)]
-            = E[1ᵀ(LLᵀ)(L⁻ᵀf) / (1ᵀM1)]
-            = (1ᵀLE[f]) / (1ᵀM1)
-            = (1ᵀL0) / (1ᵀM1)
+            = E[1ᵀ(Fᵀ)(F⁻ᵀu) / (1ᵀM1)]
+            = (1ᵀFE[u]) / (1ᵀM1)
+            = (1ᵀF0) / (1ᵀM1)
             = 0
 
     E[σ²(w)] = E[(w-μ(w))ᵀM(w-μ(w))]
              = E[wᵀMw - wᵀMμ(w) - μ(w)ᵀMw + μ(w)ᵀMμ(w)]
              = E[wᵀMw] - E[wᵀMμ(w)] - E[μ(w)ᵀMw] + E[μ(w)ᵀMμ(w)]
-             = E[(L⁻ᵀf)ᵀ(LLᵀ)(L⁻ᵀf)] - E[wᵀ]ME[μ(w)] - E[μ(w)]ᵀME[w] + E[μ(w)ᵀ]ME[μ(w)]
-             = E[fᵀ(L⁻¹LLᵀL⁻ᵀ)f] - 0 - 0 + 0 
-             = E[fᵀf]
-             = E[∑ᵢⁿ(fᵢ²)]
-             = nE[fᵢ²]
+             = E[(F⁻ᵀu)ᵀ(FFᵀ)(F⁻ᵀu)] - E[wᵀ]ME[μ(w)] - E[μ(w)]ᵀME[w] + E[μ(w)ᵀ]ME[μ(w)]
+             = E[uᵀ(F⁻¹FFᵀF⁻ᵀ)u] - 0 - 0 + 0 
+             = E[uᵀu]
+             = E[∑ᵢⁿ(uᵢ²)]
+             = nE[uᵢ²]
              = n
     
     However, since the wave PDE of the NFT wave model's FEM solver needs mass-weighting, we can
     pre-factor this into our noise generation:
     
-    Mw = ML⁻ᵀf
-       = LLᵀL⁻ᵀf
-       = Lf
-
-    This lets us use a simple sparse multiplication instead of obtaining w = L⁻ᵀf via the slower and
-    less numerically stable ``scipy.sparse.linalg.spsolve_triangular(L.T, f)``. Note that for lumped
-    (diagonal) mass, L = Lᵀ = √M (element-wise).
+    Mw = MF⁻ᵀu
+       = FFᵀF⁻ᵀu
+       = Fu
+    This lets us use a simple sparse multiplication instead of obtaining w = F⁻ᵀu via the slower and
+    less numerically stable ``scipy.sparse.linalg.spsolve_triangular(F.T, u)``. Note that for lumped
+    (i.e., diagonal) mass, F = Fᵀ = √M (element-wise).
     """
     # Draw samples from N(0, 1) in column-major order to ensure reproducibility across nt, then
     # transpose to desired shape (n_samples, nt)
@@ -710,8 +709,8 @@ def _gen_noise(
     if mass is None:  # e.g., modes along rows
         return noise
     else:
-        # vertex space, pre-weighted by Cholesky factor
-        return _mult_by_cholesky(noise, mass, transpose=False)
+        # vertex space, pre-weighted by Cholesky-like factor
+        return _CholeskyFactor(mass).multiply(noise, transpose=False)
 
 def _model_wave_fourier(
     input_coeffs: NDArray[np.floating],

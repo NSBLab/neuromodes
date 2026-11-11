@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from warnings import warn
 
 import numpy as np
-from scipy.sparse import csc_matrix, diags, spmatrix
+from scipy.sparse import csc_matrix, diags, issparse, spmatrix
 from scipy.sparse.linalg import splu
 from scipy.spatial.distance import cdist, squareform
 
@@ -27,7 +27,8 @@ def gramw(
     mass: spmatrix | NDArray[np.floating] | None
 ) -> NDArray[np.floating]:
     """
-    Dot product between all brain maps (pairwise), equivalent to ``data_a.T @ (mass @ data_b)``.
+    Mass-weighted inner product between all brain maps (pairwise), equivalent to ``data_a.T @ (mass
+    @ data_b)``.
 
     Parameters
     ----------
@@ -60,8 +61,8 @@ def dotw(
     keepdims: bool = False
 ) -> NDArray[np.floating]:
     """
-    Dot product between corresponding brain maps (not pairwise), equivalent to ``sum(data_a * (mass
-    @ data_b), axis=0)``.
+    Mass-weighted inner products between corresponding brain maps (not pairwise), equivalent to
+    ``sum(data_a * (mass @ data_b), axis=0)``.
 
     Parameters
     ----------
@@ -78,7 +79,7 @@ def dotw(
     Returns
     -------
     np.ndarray
-        The dot product of shape ``(n_maps,)`` if ``keepdims=False``, or ``(1, n_maps)`` if
+        The inner products of shape ``(n_maps,)`` if ``keepdims=False``, or ``(1, n_maps)`` if
         ``keepdims=True``.
 
     Raises
@@ -106,7 +107,8 @@ def ssqw(
     keepdims: bool = False
 ) -> NDArray[np.floating]:
     """
-    Sums of squares of each brain map, equivalent to ``sum(data * (mass @ data), axis=0)``.
+    Mass-weighted sums of squares of each brain map, equivalent to ``sum(data * (mass @ data),
+    axis=0)``.
 
     Parameters
     ----------
@@ -487,38 +489,8 @@ def pdistw(
     np.fill_diagonal(D2, 0) # Ensures exact 0 on diagonal
     return squareform(D2, checks=False)
 
-def solvew(
-    data_a: NDArray[np.floating],
-    data_b: NDArray[np.floating],
-    mass: spmatrix | NDArray[np.floating] | None
-) -> NDArray[np.floating]:
-    """
-    Solves the weighted least squares problem using the normal equations (aᵀMa)x = aᵀMb, where
-    M is the mass matrix. See https://en.wikipedia.org/wiki/Weighted_least_squares#Motivation
-    for details. Consider instead using :func:`lstsqw` for a numerically stable approximation.
-
-    Parameters
-    ----------
-    data_a : array-like
-        The basis maps of shape ``(n_verts, n_maps_a)``.
-    data_b : array-like
-        The target maps of shape ``(n_verts, n_maps_b)``.
-    mass : array-like
-        The mass matrix, of shape ``(n_verts, n_verts)``.
-
-    Returns
-    -------
-    np.ndarray
-        The solution to the weighted least squares problem, of shape ``(n_maps_a, n_maps_b)``.
-    """
-    ved = EigenData(data=(data_a, data_b), mass=mass)
-    a, b = ved.data
-    mass = _create_mass_matrix(ved.mass, a.shape[0])
-    # Solves (a'Wa)x = (a'Wb)
-    return np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)
-
 def lstsqw(
-    data_a: NDArray[np.floating],
+    data_a: NDArray[np.floating] | spmatrix,
     data_b: NDArray[np.floating],
     mass: spmatrix | NDArray[np.floating] | None,
     rcond: float | None = None
@@ -526,7 +498,7 @@ def lstsqw(
     """
     Solve the linear system Ax = b, where A and b are sets of spatial maps (e.g., basis maps
     and target maps, respectively), by minimising the mass-weighted squared L₂ norm 
-    (b-Ax)ᵀ M (b-Ax) (see Notes).
+    (b-Ax)ᵀM(b-Ax) (see Notes).
 
     Parameters
     ----------
@@ -550,38 +522,50 @@ def lstsqw(
 
     Notes
     -----
-    For discretized spatial maps, we want to minimize the mass-weighted L₂ norm. By leveraging the
-    Cholesky decomposition of the symmetric positive definite mass matrix (M = LLᵀ), we can
+    For discretized spatial maps, we want to minimize the mass-weighted L₂ norm. By leveraging a
+    Cholesky-like decomposition of the symmetric positive definite mass matrix (M = FFᵀ), we can
     transform the mass-weighted norm into a typical Euclidean norm:
     
     ||b-Ax||₂²_mass = (b-Ax)ᵀM(b-Ax)
-                    = (b-Ax)ᵀLLᵀ(b-Ax)
-                    = (Lᵀ(b-Ax))ᵀ(Lᵀ(b-Ax))
-                    = ((Lᵀb)-(LᵀA)x)ᵀ((Lᵀb)-(LᵀA)x)
-                    = ||(Lᵀb)-(LᵀA)x||₂²_Euclidean
+                    = (b-Ax)ᵀFFᵀ(b-Ax)
+                    = (Fᵀ(b-Ax))ᵀ(Fᵀ(b-Ax))
+                    = ((Fᵀb)-(FᵀA)x)ᵀ((Fᵀb)-(FᵀA)x)
+                    = ||(Fᵀb)-(FᵀA)x||₂²_Euclidean
     
     The above tells us that we can still use a standard least squares solver if we simply scale the
-    data by Lᵀ. This is equivalent to using ``np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)`` but
-    is more efficient and numerically stable. Note that for lumped (diagonal) mass, L = Lᵀ = √M
+    data by Fᵀ. This is equivalent to using ``np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)`` but
+    is more efficient and numerically stable. Note that for lumped (diagonal) mass, F = Fᵀ = √M
     (element-wise).
     """
     ved = EigenData(data=(data_a, data_b), mass=mass)
     a, b = ved.data
 
-    # concatenate both data arrays for efficient Cholesky multiplication
     if a.ndim == 1:
         a = a[:, None]
     if b.ndim == 1:
         b = b[:, None]
-    ab = np.concatenate([a, b], axis=1)
 
-    # multiply and unpack
-    LT_ab = _mult_by_cholesky(ab, mass, transpose=True)
-    LT_a = LT_ab[:, :a.shape[1]]
-    LT_b = LT_ab[:, a.shape[1]:]
+    # scale data by transposed Cholesky-like factor of mass matrix
+    chol = _CholeskyFactor(ved.mass)
+    if issparse(a):
+        # convert output to dense for np.linalg.lstsq(). no good alternative as scipy's splu()
+        # cannot handle rectangular systems, scipy has no sparse QR solver, iterative solvers like
+        # lsqr() and lsmr() are inefficient for multi RHS, and spsolve() is not stable for
+        # ill-conditioned systems.
+        FT_a = chol.multiply(a, transpose=True).toarray()
+
+        # b is dense so need to multiply separately
+        FT_b = chol.multiply(b, transpose=True)
+    else:
+        # concatenate and multiply for efficiency
+        FT_a, FT_b = np.split(
+            chol.multiply(np.concatenate([a, b], axis=1), transpose=True),
+            [a.shape[1]],
+            axis=1
+            )
 
     # Get results from standard least squares solver
-    return np.linalg.lstsq(LT_a, LT_b, rcond=rcond)
+    return np.linalg.lstsq(FT_a, FT_b, rcond=rcond)
 
 def parcellate(
     data: NDArray[np.floating],
@@ -590,7 +574,7 @@ def parcellate(
     method: Literal['mean', 'sum'] = 'mean'  # TODO: add 'var' (e.g., for parcel homogeneity)
 ) -> NDArray[np.floating]:
     """
-    Area-weighted parcellation of each brain map.
+    Mass-weighted parcellation of each brain map.
 
     Parameters
     ----------
@@ -598,14 +582,14 @@ def parcellate(
         The spatial maps, of shape ``(n_verts, n_maps)``.
     parcellation : array-like
         The parcellation map, of shape ``(n_verts,)``, where each value is an integer representing
-        the parcel ID for the corresponding vertex. Values of -1 are treated as medial wall and 
-        ignored in the parcellation.
+        the parcel ID for the corresponding vertex. Negative values are treated as outside the mask
+        (e.g., medial wall) and are ignored in the parcellation.
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum'}, optional
         The method for aggregating vertex values within each parcel. If ``'mean'``, the function
-        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
-        area-weighted sum of each parcel. Default is ``'mean'``.
+        computes the mass-weighted mean of each parcel. If ``'sum'``, the function computes the
+        mass-weighted sum of each parcel. Default is ``'mean'``.
 
     Returns
     -------
@@ -628,17 +612,15 @@ def parcellate(
     if method not in ('mean', 'sum'):
         raise ValueError(f"method must be 'mean' or 'sum'; got {method}.")
 
-    # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
-    # output = p.T @ mass @ data; or 
-    # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
-    parc_mass = _create_parcellation_matrix(parcellation).T @ _create_mass_matrix(ved.mass, data.shape[0])
-    if method == 'mean':
-        parc_mass /= parc_mass.sum(axis=1) 
+    mass = _create_mass_matrix(ved.mass, data.shape[0])
+    parc_mat = _create_parcellation_matrix(parcellation)
 
-    is_data_vec = (data.ndim == 1)
-    data_2d = data[:, np.newaxis] if is_data_vec else data
-    data_parc = parc_mass @ data_2d
-    return data_parc.squeeze(axis=1) if is_data_vec else data_parc
+    # Parcellate data u via parcellation matrix P and mass matrix M:
+    # 'sum' -> x = PᵀMu
+    # 'mean' -> x = (PᵀMP)⁻¹PᵀMu (least-squares minimiser for unparcellation Px ≈ u)
+    parc_data = (gramw(parc_mat, data, mass=mass) if method == 'sum'
+                 else lstsqw(parc_mat, data, mass=mass)[0])
+    return parc_data[:, 0] if data.ndim == 1 else parc_data
 
 # TODO add support for passing through parcellation matrix without modification
 # TODO add support for dtypes
@@ -784,71 +766,86 @@ def _create_mass_matrix(
 
     return output
 
-def _mult_by_cholesky(
-    data: NDArray[np.floating],
-    matrix: spmatrix,
-    transpose: bool = False,
-) -> NDArray[np.floating]:
+class _CholeskyFactor:
     """
-    Multiplies ``data`` by a Cholesky-derived square-root factor of the symmetric positive-definite
-    ``matrix`` (A), or by its transpose. For a non-diagonal matrix, a fill-reducing permutation P is
-    applied first. The permuted matrix is factorized as
+    Computes a Cholesky-derived square-root factor of a sparse symmetric positive definite
+    ``matrix`` (A). For a non-diagonal matrix, a fill-reducing permutation P is applied first. The
+    permuted matrix is factorized as
 
-        P A Pᵀ = L Lᵀ,
+        PAPᵀ = LLᵀ,
 
-    where L is triangular. The factor applied in the original ordering is
+    where L is lower triangular. The factor applied in the original ordering is given by
 
-        F = Pᵀ L P,
+        F = PᵀLP,
 
-    so that A = F Fᵀ. Consequently, ``transpose=False`` applies F and ``transpose=True`` applies Fᵀ.
-    F is generally not triangular because of the permutation. For a diagonal matrix, F = Fᵀ =
-    sqrt(A), applied element-wise.
+    such that A = FFᵀ. Due to permutation, F is generally not triangular. If A is diagonal, L = Lᵀ =
+    F = Fᵀ = √A (element-wise; P = I).
 
     Parameters
     ----------
-    data : array-like
-        The spatial maps, of shape ``(n_verts, n_maps)``.
     matrix : spmatrix
-        The symmetric positive-definite matrix, of shape ``(n_verts, n_verts)``.
-    transpose : bool, optional
-        If ``True``, applies the transposed factor Fᵀ. Default is ``False``.
+        The symmetric positive definite matrix, of shape ``(n_verts, n_verts)``.
+    """
+    def __init__(self, matrix: spmatrix):
+        self.is_diag = matrix.nnz == np.count_nonzero(matrix.diagonal())
 
-    Returns
-    -------
-    np.ndarray
-        The transformed spatial maps, of shape ``(n_verts, n_maps)``.
-"""
+        if not self.is_diag:
+            # Let SuperLU choose a fill-reducing symmetric ordering (min degree on A+Aᵀ) and force
+            # diagonal pivots such that PAPᵀ = L_lu U_lu = L_lu D L_luᵀ = (Uᵀ/√D)(Uᵀ/√D)ᵀ = LLᵀ
+            lu = splu(
+                matrix,
+                permc_spec="MMD_AT_PLUS_A",
+                diag_pivot_thresh=0,
+                options={"SymmetricMode": True},
+            )
+            self.U = lu.U
+            self.perm_c = lu.perm_c
 
-    # Diagonal matrix: F = Fᵀ = √A
-    diag = matrix.diagonal()
-    if matrix.nnz == np.count_nonzero(diag):
-        return data * np.sqrt(diag)[:, None]
+        self.sqrt_diag = np.sqrt((matrix if self.is_diag else lu.U).diagonal())[:, None]
 
-    # Let SuperLU choose a fill-reducing symmetric ordering (min degree on A+Aᵀ), and force
-    # diagonal pivots: PAPᵀ = L_lu U = L_lu D L_luᵀ = (Uᵀ/√D)(Uᵀ/√D)ᵀ = LLᵀ.
-    lu = splu(
-        matrix,
-        permc_spec="MMD_AT_PLUS_A",
-        diag_pivot_thresh=0,
-        options={"SymmetricMode": True},
-    )
+    def multiply(
+        self,
+        data: NDArray[np.floating] | spmatrix,
+        transpose: bool = False,
+    ) -> NDArray[np.floating] | spmatrix:
+        """
+        Multiplies the input data by the Cholesky-derived factor F or its transpose Fᵀ.
 
-    # Extract factors and permutation
-    U = lu.U
-    D = U.diagonal()
-    sqrt_D = np.sqrt(D)[:, None]
-    perm = lu.perm_c
+        Parameters
+        ----------
+        data : array-like
+            The spatial maps, of shape ``(n_verts, n_maps)``.
+        transpose : bool, optional
+            If ``True``, multiplies by Fᵀ instead of F. Default is ``False``.
 
-    # Permute and scale data
-    data_perm = np.empty_like(data)
-    data_perm[perm] = data
+        Returns
+        -------
+        np.ndarray or scipy.sparse.spmatrix
+            The result of the multiplication, of shape ``(n_verts, n_maps)``.
+        """
+        if issparse(data):
+            if self.is_diag:
+                # F = Fᵀ = √A
+                return data.multiply(self.sqrt_diag)
 
-    if transpose:
-        # Lᵀ = U/√D
-        data_perm_scaled = (U @ data_perm) / sqrt_D
-    else:
-        # L = Uᵀ/√D
-        data_perm_scaled = U.T @ (data_perm / sqrt_D)
+            # Permute rows of data according to match matrix ordering (CSR for efficiency)
+            data_perm = data.tocsr()[np.argsort(self.perm_c)]
 
-    # Reapply permutation to return to original order
-    return data_perm_scaled[perm]
+            # Scale data by factor
+            data_perm_scaled = ((self.U @ data_perm).multiply(1 / self.sqrt_diag) if transpose
+                                else self.U.T @ (data_perm.multiply(1 / self.sqrt_diag)))
+
+            # Reverse permutation and return to original spmatrix type
+            return data.__class__(data_perm_scaled.tocsr()[self.perm_c], copy=False)
+
+        if self.is_diag:
+            # F = Fᵀ = √A
+            return data * self.sqrt_diag
+
+        # Permute rows of data according to match matrix ordering
+        data_perm = np.empty_like(data)
+        data_perm[self.perm_c] = data
+
+        # Scale data by factor and reverse permutation
+        return ((self.U @ data_perm) / self.sqrt_diag if transpose
+                else self.U.T @ (data_perm / self.sqrt_diag))[self.perm_c]

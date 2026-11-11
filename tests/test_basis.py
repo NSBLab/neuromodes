@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csc_matrix, eye
 
-from neuromodes.basis import decompose, calc_recon_error, reconstruct
+from neuromodes.basis import calc_recon_error, decompose, reconstruct
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.stats import sigmoid_rescale, zscorew

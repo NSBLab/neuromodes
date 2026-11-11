@@ -91,9 +91,9 @@ def decompose(
         vectors.
     method : str, optional
         The method used for the decomposition, either ``'project'`` or ``'regress'``. Note that
-        ``'project'`` is faster and more accurate, while ``'regress'`` should only be used when
-        ``data`` contains missing values (NaNs; see Notes). The methods are otherwise equivalent.
-        Default is ``'project'``.
+        ``'project'`` may be faster, while ``'regress'`` should only be used for non-orthonormal
+        bases or when ``data`` contains missing values (NaNs; see Notes). The methods are otherwise
+        equivalent for orthonormal bases. Default is ``'project'``.
     mass : array-like, optional
         The mass matrix of shape ``(n_verts, n_verts)``. If vectors are orthonormal in Euclidean
         space, leave as ``None``. See :func:`eigen.is_orthonormal_basis` for more details. Default
@@ -168,8 +168,6 @@ def decompose(
         masks = np.ones((data_2d.shape[0], 1), dtype=bool)
         mask_indices = np.zeros(data_2d.shape[1], dtype=int)
 
-    # TODO : consider adding a method that does fitting/param estimation (like lstsqw) but using 
-    # full (consistent) mass matrix (not just vertex areas). solvew?
     if method == 'project': 
         # Find the unique mode IDs requested, and the inverse mapping back to mode_ids
         unique_mids, inv = np.unique(np.concatenate(mode_ids), return_inverse=True)
