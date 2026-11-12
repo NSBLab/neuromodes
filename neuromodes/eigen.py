@@ -55,6 +55,20 @@ class EigenSolver(Solver):
         A boolean mask to exclude certain vertices (e.g., medial wall) from the mesh. Note that some
         masks may be invalid, if they lead to multiple connected components or faceless vertices.
         Default is ``None``.
+    lump : bool, optional
+        Whether to use a lumped mass matrix. If ``True``, the mass matrix is diagonal with entries
+        equal to vertex areas. Default is ``False``.
+    hetero : array-like, optional
+        A spatial heterogeneity map to modify the stiffness matrix. Must have shape ``(n_verts,)``
+        and contain non-negative values. In line with prior work [4]_, maps of interest can be
+        rescaled via :func:`~neuromodes.stats.zscorew` followed by
+        :func:`~neuromodes.stats.sigmoid_rescale` for comparability. Default is ``None``
+        (homogeneous; equivalent to all ones).
+
+    Raises
+    ------
+    TypeError
+        If ``lump`` is not a boolean.
 
     Notes
     -----
@@ -75,8 +89,14 @@ class EigenSolver(Solver):
     def __init__(
         self,
         geometry: str | Path | GiftiImage | TriaMesh | TetMesh | dict,
-        mask: NDArray[np.bool_] | None = None
+        mask: NDArray[np.bool_] | None = None,
+        *,
+        lump: bool = False,
+        hetero: NDArray[np.floating] | None = None
     ):
+        if not isinstance(lump, bool):
+            raise TypeError("lump must be True or False.")
+
         # Read in surface or volume mesh
         geometry = read_vol(geometry) if is_vol(geometry) else read_surf(geometry)
 
@@ -95,8 +115,7 @@ class EigenSolver(Solver):
         self._geometry = geometry
         self._n_verts = geometry.v.shape[0]  # Nicety
         self._mask = mask
-
-        self._lump = False
+        self._lump = lump
         self._hetero = None
         self._n_modes = None
         self._emodes = None
@@ -105,8 +124,12 @@ class EigenSolver(Solver):
         # LaPy's init sets self.mass and self.stiffness, so we need our own _initializing attribute
         # to bypass our ban on setting these matrices (see comment on properties below)
         self._initializing = True
-        super().__init__(geometry)
+        # LaPy computes homogeneous stiffness, which is slightly inefficient if hetero is not None
+        # as we need to recompute it
+        super().__init__(geometry, lump=lump)
         self._initializing = False
+
+        self.hetero = hetero
 
     # Properties are needed to disallow users from modifying attributes and creating invalid states
     @property
@@ -384,7 +407,7 @@ class EigenSolver(Solver):
             https://doi.org/10.64898/2026.01.22.701178
         """
         # Validate arguments
-        if n_modes != int(n_modes) or n_modes <= 0 or n_modes >= self.n_verts:
+        if not isinstance(n_modes, (int, np.integer)) or n_modes <= 0 or n_modes >= self.n_verts:
             raise ValueError("n_modes must be a positive integer less than the number of vertices"
                              f" ({self.n_verts}).")
         if v0 is not None:

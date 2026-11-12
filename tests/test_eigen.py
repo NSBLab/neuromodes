@@ -41,7 +41,7 @@ def surf_medmask():
 def solver(surf_medmask):
     surf, medmask = surf_medmask
     myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
-    solver = EigenSolver(surf, mask=medmask) # TODO: just use surf_medmask?
+    solver = EigenSolver(surf, mask=medmask)
     solver.hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=0.5, upper=2.0)
     return solver
 
@@ -54,6 +54,29 @@ def test_invalid_mask_shape(surf_medmask):
     bad_mask = np.ones(10)
     with pytest.raises(ValueError, match=r"mask must have shape \(4002,\)"):
         EigenSolver(surf, mask=bad_mask)
+
+def test_lump_init(surf_medmask):
+    surf, medmask = surf_medmask
+    solver = EigenSolver(surf, mask=medmask, lump=True)
+
+    assert solver.lump
+    assert solver.mass.nnz == solver.n_verts
+
+def test_invalid_lump(surf_medmask):
+    surf, medmask = surf_medmask
+    with pytest.raises(TypeError, match="lump must be True or False"):
+        EigenSolver(surf, mask=medmask, lump='you tell me')
+
+def test_hetero_init(surf_medmask):
+    surf, medmask = surf_medmask
+    hetero = np.arange(sum(medmask))
+    solver = EigenSolver(surf, mask=medmask)
+    solver.hetero = hetero
+    solver_h = EigenSolver(surf, mask=medmask, hetero=hetero)
+
+    assert np.allclose(solver_h.hetero, hetero)
+    assert np.array_equal(solver_h.stiffness.data, solver.stiffness.data), \
+        'Stiffness matrices do not match when hetero is set in init vs. after init.'
 
 def test_no_hetero(surf_medmask):
     surf, medmask = surf_medmask
@@ -345,14 +368,15 @@ def test_unaligned_modes(solver, surf_medmask):
 
 def test_solve_lumped_mass(solver, surf_medmask):
     surf, medmask = surf_medmask
+    n_modes = 16
+    solver.eigs(n_modes)
 
     # Get modes after solving with lumped mass matrix
-    lump_solver = EigenSolver(surf, mask=medmask)
-    lump_solver.hetero = solver.hetero
-    lump_solver.lump = True
-    emodes_lump = lump_solver.eigs(solver.n_modes).emodes
+    emodes_lump = EigenSolver(surf, mask=medmask, lump=True, hetero=solver.hetero).eigs(
+        n_modes
+        ).emodes
 
-    for i in range(1, solver.n_modes):
+    for i in range(n_modes):
         mse = np.mean((solver.emodes[:, i] - emodes_lump[:, i])**2)
         assert mse < 1e-4, f'Mode {i} has MSE {mse:.2e} between lumped and consistent mass ' \
             'solutions, which is above the threshold of 1e-4.'
