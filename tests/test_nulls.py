@@ -4,7 +4,7 @@ import pytest
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
 from neuromodes.nulls import eigenstrap
-from neuromodes.stats import meanw, stdw
+from neuromodes.stats import meanw
 
 # Params and setup
 n_nulls = 100
@@ -151,6 +151,30 @@ def test_null_means(solver, test_data, nulls):
     assert np.allclose(null_means, data_mean, atol=1e-10), \
         f"Null means are not close to data mean {data_mean}"
 
+def test_resample_exact(solver, test_data):
+    """With resample=True, nulls should have same values as original data"""
+    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="exact")
+    
+    # Check that each null has the exact same values as original data (just reordered)
+    for i in range(nulls.shape[1]):
+        null_sorted = np.sort(nulls[:, i])
+        data_sorted = np.sort(test_data)
+        assert np.allclose(null_sorted, data_sorted), \
+            f"Null {i} doesn't preserve data distribution"
+
+def test_resample_range(solver, test_data):
+    """With resample='range', nulls should have same min and max as original data"""
+    nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, resample="range")
+    
+    data_min = np.min(test_data)
+    data_max = np.max(test_data)
+    
+    for i in range(nulls.shape[1]):
+        null_min = np.min(nulls[:, i])
+        null_max = np.max(nulls[:, i])
+        assert np.isclose(null_min, data_min), f"Null {i} min is not close to data min"
+        assert np.isclose(null_max, data_max), f"Null {i} max is not close to data max"
+
 @pytest.fixture
 def test_data_2d(solver):
     """Generate 2D test data with n_maps maps"""
@@ -202,7 +226,11 @@ def test_decomp_options_2d(solver, test_data_2d, decomp_method):
 
 def test_same_map(solver, test_data_2d): 
     """For the same map, nulls should be the same (and different for different maps)"""
-    test_data = np.column_stack((test_data_2d[:,0], test_data_2d[:,0], np.random.standard_normal(size=solver.n_verts)))
+    test_data = np.column_stack((
+        test_data_2d[:,0],
+        test_data_2d[:,0],
+        np.random.standard_normal(size=solver.n_verts)
+        ))
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls)
 
     assert not np.allclose(nulls[:,:,1], nulls[:,:,2]), \
@@ -222,3 +250,29 @@ def test_different_maps(solver, test_data_2d):
         for j in range(i): 
             assert not np.allclose(nulls[:,i,:], nulls[:,j,:]), \
                 f"Nulls {i} should be different to nulls {j}"
+
+def test_resample_exact_2d(solver, test_data_2d):
+    """With resample=True, nulls should have same values as original data"""
+    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="exact")
+    
+    # Check that each null has the exact same values as original data (just reordered)
+    # TODO: vectorise if slow?
+    for j in range(test_data_2d.shape[1]):
+        for i in range(nulls.shape[1]):
+            null_sorted = np.sort(nulls[:, i, j])
+            data_sorted = np.sort(test_data_2d[:, j])
+            assert np.allclose(null_sorted, data_sorted), \
+                f"Null {i} doesn't preserve data distribution for map {j}"
+
+def test_resample_range_2d(solver, test_data_2d):
+    """With resample='range', nulls should have same min and max as original data"""
+    nulls = solver.eigenstrap(test_data_2d, n_nulls=n_nulls, resample="range")
+    
+    for j in range(test_data_2d.shape[1]):
+        data_min = np.min(test_data_2d[:, j])
+        data_max = np.max(test_data_2d[:, j])
+        for i in range(nulls.shape[1]):
+            null_min = np.min(nulls[:, i, j])
+            null_max = np.max(nulls[:, i, j])
+            assert np.isclose(null_min, data_min), f"Null {i} map {j} min is not close to data min"
+            assert np.isclose(null_max, data_max), f"Null {i} map {j} max is not close to data max"

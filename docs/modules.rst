@@ -143,7 +143,6 @@ API Reference
    solvew
    lstsqw
    parcellate
-   resample
    sigmoid_rescale
 
 .. _ref_mesh:

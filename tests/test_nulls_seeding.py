@@ -8,7 +8,6 @@ from scipy.sparse import csc_matrix, eye
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.nulls import eigenstrap
-from neuromodes.stats import resample
 
 # Params
 res = '4k'
@@ -288,11 +287,10 @@ def test_compared_to_original_seed_outside(nulls_orig):
         checks=False,               # skip checks to match original implementation which doesn't have these checks
         mass=csc_matrix(eye(solver.n_verts)),# matches original which doesn't account for vertex areal differences
         residual=None,              # matches original add_res=False and permute=False
+        resample="range",           # matches original resample=False
         decomp_method="regress",    # matches original decomp_method='matrix'
         rotation_method="scipy",    # matches original rotations.indirect_method (called by geometry.gen_eigensamples)
     )
-
-    nulls_neuromodes = resample(nulls_neuromodes, map, 'range')  # matches original resample=False
 
     # Compare (on diagonal near 1, off diagonal near 0)
     null_corrs = np.corrcoef(nulls_neuromodes.T, nulls_orig.T)[:n_nulls, n_nulls:]
@@ -335,11 +333,10 @@ def test_compared_to_original_seed_inside(nulls_orig):
         mass=csc_matrix(eye(solver.n_verts)), # matches original which doesn't account for vertex areal differences
         seed=seed,                  # matches original seed=seed 
         residual=None,              # matches original add_res=False and permute=False
+        resample="range",           # matches original resample=False
         decomp_method="regress",    # matches original decomp_method='matrix'
         rotation_method="scipy",    # matches original rotations.indirect_method (called by geometry.gen_eigensamples)
     )
-
-    nulls_neuromodes = resample(nulls_neuromodes, map, 'range')  # matches original resample=False
 
     # Compare (on diagonal near 1, off diagonal near 0)
     null_corrs = np.corrcoef(nulls_neuromodes.T, nulls_orig.T)[:n_nulls, n_nulls:]

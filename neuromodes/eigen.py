@@ -5,14 +5,14 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from importlib.metadata import version
 
+import h5py
 import numpy as np
 from lapy import Solver
 from scipy.sparse import csc_matrix, isspmatrix_csc
-import h5py
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
