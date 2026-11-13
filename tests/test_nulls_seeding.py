@@ -20,7 +20,7 @@ n_nulls = 20
 rotation_options = ['qr', 'scipy']
 randomize_options = [True, False]
 residual_options = [None, 'permute'] # skip add for convenience as it has no randomisation
-# Skip resample and decomp method as they are not related to seeding
+# Skip decomp method as it is not related to seeding
 
 @pytest.fixture(scope='module')
 def solver(seed=None):
@@ -105,8 +105,8 @@ def test_seed_none(solver, test_data, rotation_method, randomize, residual):
 @pytest.mark.parametrize("rotation_method", rotation_options)
 @pytest.mark.parametrize("randomize", randomize_options)
 @pytest.mark.parametrize("residual", residual_options) 
-def test_randomize_resample(solver, rotation_method, randomize, residual):
-    """Test that the rotation matrices are not affected by randomizing/resampling"""
+def test_randomize_randomize(solver, rotation_method, randomize, residual):
+    """Test that the rotation matrices are not affected by randomizing/residuals"""
     # Generate beta coeffs at the group level so that they are not affected by randomization
     group_indices = np.floor(np.sqrt(np.arange(solver.n_modes))).astype(int)
     beta0_group = np.random.default_rng(None).normal(loc=1, size=(max(group_indices)+1, n_maps))

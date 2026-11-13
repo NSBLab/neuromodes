@@ -34,8 +34,8 @@ def random_data():
     n_verts = 10
     n_maps = 3
 
-    X = rng.standard_normal(size=(n_verts, n_maps))
-    Y = rng.standard_normal(size=(n_verts, n_maps))
+    X = np.hstack([rng.normal(loc=i, scale=i+1, size=(n_verts, n_maps)) for i in range(n_maps)])
+    Y = np.hstack([rng.normal(loc=i*9, scale=i*5+1, size=(n_verts, n_maps)) for i in range(n_maps)])
 
     eye = sparse.eye(n_verts)  # identity mass for testing
     noneye = sparse.diags(np.arange(1, n_verts + 1), dtype=np.float64)
@@ -329,7 +329,8 @@ def test_sigmoid_rescale():
 
 class TestParcellate:
     @pytest.fixture(scope='class')
-    def parcellation(self, random_data):
+    @classmethod
+    def parcellation(cls, random_data):
         n_verts = random_data[0].shape[0]
         parc = np.zeros(n_verts, dtype=int)
         parc[n_verts//3:] = 1
@@ -397,7 +398,7 @@ class TestParcellate:
     def test_parcellate_invalid_method(self, random_data, parcellation):
         X, _, eye, _ = random_data
         
-        with pytest.raises(ValueError, match="method must be 'mean' or 'sum'"):
+        with pytest.raises(ValueError, match="must be 'mean' or 'sum'; got how2say."):
             parcellate(X, parcellation, mass=eye, method='how2say')
     
     def test_parcellate_invalid_data_dim(self, random_data, parcellation):

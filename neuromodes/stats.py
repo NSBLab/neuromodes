@@ -587,7 +587,8 @@ def parcellate(
     data: NDArray[np.floating],
     parcellation: NDArray[np.integer],
     mass: spmatrix | NDArray[np.floating] | None,
-    method: Literal['mean', 'sum'] = 'mean'  # TODO: add 'var' (e.g., for parcel homogeneity)
+    method: Literal['mean', 'sum'] = 'mean',
+    checks: bool = True
 ) -> NDArray[np.floating]:
     """
     Area-weighted parcellation of each brain map.
@@ -603,14 +604,17 @@ def parcellate(
     mass : array-like
         The mass matrix, of shape ``(n_verts, n_verts)``.
     method : {'mean', 'sum'}, optional
-        The method for aggregating vertex values within each parcel. If ``'mean'``, the function
-        computes the area-weighted mean of each parcel. If ``'sum'``, the function computes the
-        area-weighted sum of each parcel. Default is ``'mean'``.
+        The method for aggregating vertex values within each parcel. If 'mean', the function
+        computes the area-weighted mean of each parcel. If 'sum', the function computes the
+        area-weighted sum of each parcel. Default is 'mean'.
+    checks : bool, optional
+        If True, the function will perform input validation and formatting. Default is True.
 
     Returns
     -------
     np.ndarray
         The parcellated spatial maps, of shape ``(n_parcels, n_maps)``.
+    TODO consider also returning the parcellation matrix
 
     Raises
     ------
@@ -620,7 +624,7 @@ def parcellate(
         If ``data`` is not 1D or 2D.
     """
     # Format / validate arguments
-    ved = EigenData(data=(data, parcellation), mass=mass)
+    ved = EigenData(data=(data, parcellation), mass=mass, checks=checks)
     data, parcellation = ved.data
     if data.ndim > 2:
         raise ValueError("data must be 1D or 2D.")
@@ -748,7 +752,7 @@ def _create_mass_matrix(
     if mass is None and n_verts is None:
         raise ValueError("Either mass or n_verts must be provided.")
     elif mass is None and n_verts is not None: # appease: pyright
-        warn("Mass matrix not provided; assuming that area at each vertex is 1")
+        warn("Mass matrix not provided; setting to identity (i.e., every vertex has area 1).")
         output = diags(np.ones(n_verts), format='csc')
 
     elif isinstance(mass, (np.ndarray, list)):        

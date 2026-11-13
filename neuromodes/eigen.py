@@ -5,14 +5,14 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from importlib.metadata import version
 
+import h5py
 import numpy as np
 from lapy import Solver
 from scipy.sparse import csc_matrix, isspmatrix_csc
-import h5py
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
@@ -620,13 +620,15 @@ class EigenSolver(Solver):
     ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.network.compute_gem`. Note that ``emodes``,
-        ``evals``, and ``checks`` are passed automatically by the ``EigenSolver`` instance.
+        ``evals``, ``mass``, and ``checks`` are passed automatically by the ``EigenSolver``
+        instance.
         """
         from neuromodes.network import compute_gem as _compute_gem
 
         return _compute_gem(
             emodes=self.emodes,
             evals=self.evals,
+            mass=self.mass,
             checks=False,
             **kwargs
         )
