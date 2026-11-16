@@ -2,6 +2,8 @@ import numpy as np
 from scipy.stats import genpareto, kstest, lognorm
 import pytest
 
+from neuromodes.eigen import EigenSolver
+from neuromodes.io import fetch_example_surf
 from neuromodes.mbm import (permutations_shuffle_rows, permutations_flip_sign, 
                             mbm_generate_stat_maps, mbm_calc_p_vals, 
                             _fit_and_ad_exceedances)
@@ -140,8 +142,70 @@ class TestPermutations:
         np.testing.assert_allclose(np.mean(perm, axis=1), 0, atol=0.1)  # check each subject (row)
         np.testing.assert_allclose(np.mean(perm), 0, atol=0.05)         # check whole matrix
 
+class TestTStatMapsKnown(): 
+    @pytest.fixture(scope="class")
+    def solver(self): 
+        density = '4k'
+        n_modes = 25
+        surf, medmask = fetch_example_surf(density=density)
+        solver = EigenSolver(surf, mask=medmask).solve(n_modes)
+        return solver
 
-class TestStatMaps(): 
+    @pytest.mark.parametrize("n_modes", [10, 25])       # n_subjects * 2 > n_modes        
+    @pytest.mark.parametrize("n_subjects", [20, 50])    # just to synthesise data for this test
+    @pytest.mark.parametrize("seed", [None, 1, 42])
+    def test_asdf(self, solver, n_modes, n_subjects, seed): 
+        statTest = 'ttest'
+        df = 2 * (n_subjects - 1)
+
+        beta = np.arange(n_modes) / n_modes
+        emodes = solver.emodes[:, :n_modes]
+        spatial_pattern = (emodes @ beta[:,None]).flatten()
+
+        ## Generate synthetic data with known signal and noise structure
+        # 1. Zero-group-mean Gaussian noise across subjects: shape (n_verts, 2 * n_subjects)
+        Z = np.random.default_rng(seed=seed).normal(size=(solver.n_verts, 2, n_subjects))
+        Z = (Z - Z.mean(axis=2, keepdims=True)).reshape(solver.n_verts, 2 * n_subjects)
+
+        # 2. Orthonormal bases for mode space (Q_a) and mode-projected subjects (Q_c)
+        Q_a, _ = np.linalg.qr(solver.mass @ emodes) # shape (n_verts, n_modes)
+        Q_c, _ = np.linalg.qr(Z.T @ Q_a)            # shape (2 * n_subjects, n_modes)
+
+        # 3. Project residual orthogonal to Q_c (subjects) and Q_a (vertices), then balance norms
+        r_norm = np.sqrt(df * (1.0 - np.sum(Q_a ** 2, axis=1, keepdims=True)))
+        R = Z - (Z @ Q_c) @ Q_c.T
+        for _ in range(10):
+            R -= Q_a @ (Q_a.T @ R)
+            R *= r_norm / np.linalg.norm(R, axis=1, keepdims=True)
+
+        # 4. Split into groups and add spatial pattern
+        U = np.sqrt(df) * (Q_a @ Q_c.T)
+        data_a, data_b = np.hsplit(U + R, 2)
+        data_b += spatial_pattern[:, np.newaxis]
+
+        ## Set up data
+        response = np.vstack((data_a.T, data_b.T))
+        design = np.kron(np.array([[1,-1], [1,1]]), np.ones((n_subjects, 1)))
+        contrast = np.array([[0, 1]])
+
+        t_expected_vertex = spatial_pattern * np.sqrt(n_subjects / 2)
+        t_expected_mode = beta * np.sqrt(n_subjects / 2)
+
+        ## SBM (get t-stat at each vertex)
+        t_observed_vertex = mbm_generate_stat_maps(design, response, contrast, statTest)
+        d_observed_vertex = t_observed_vertex / np.sqrt(n_subjects / 2)
+
+        np.testing.assert_allclose(t_observed_vertex, t_expected_vertex)
+        np.testing.assert_allclose(d_observed_vertex, spatial_pattern)
+
+        ## MBM (get betas of the t-maps)
+        t_observed_mode = solver.decompose(t_observed_vertex, mode_counts=n_modes)
+        d_observed_mode = (emodes @ t_observed_mode[:, np.newaxis]).flatten() / np.sqrt(n_subjects / 2)
+
+        np.testing.assert_allclose(t_observed_mode, t_expected_mode, atol=1e-12)
+        np.testing.assert_allclose(d_observed_mode, spatial_pattern)
+
+class TestStatMapsRandom(): 
     @pytest.fixture(scope="class")
     def glm_data(self):
         """Generates a reproducible 2-predictor GLM setup with a clear signal."""
