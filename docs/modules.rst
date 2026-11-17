@@ -184,6 +184,21 @@ API Reference
 
    eigenstrap
 
+:mod:`neuromodes.parcellation` - Functions for generating hierarchical parcellations
+---------------------------------------------------------------
+
+.. automodule:: neuromodes.parcellation
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: neuromodes.parcellation
+
+.. autosummary::
+   :template: function.rst
+   :toctree: generated/
+
+   make_parcellation
+
 .. _ref_io:
 
 :mod:`neuromodes.io` - IO functions for loading cortical meshes and maps
@@ -204,3 +219,18 @@ API Reference
    fetch_example_surf
    fetch_example_vol
    fetch_example_map
+
+:mod:`neuromodes.parcellation` - Functions for generating hierarchical parcellations
+---------------------------------------------------------------
+
+.. automodule:: neuromodes.parcellation
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: neuromodes.parcellation
+
+.. autosummary::
+   :template: function.rst
+   :toctree: generated/
+
+   make_parcellation

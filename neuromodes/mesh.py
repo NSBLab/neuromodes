@@ -77,30 +77,35 @@ def is_vol(
         raise ValueError(err_str)
 
 def mask_mesh(
-    geometry: TriaMesh,
-    mask: NDArray[np.bool_]
-) -> TriaMesh:
+    geometry: TriaMesh | TetMesh,
+    mask: NDArray[np.bool_],
+    return_mapping: bool = False,
+) -> TriaMesh | TetMesh | tuple[TriaMesh | TetMesh, NDArray[np.integer]]:
     """
-    Remove specified vertices and corresponding cells from a triangular surface mesh. Note that this
-    may produce a non-contiguous mesh with unreferenced vertices--use :func:`check_surf` to validate
-    the resulting mesh.
+    Remove vertices and cells not fully contained by a vertex mask. Vertices retained by ``mask``
+    that do not belong to a retained cell are removed as well, so the returned mesh has no
+    unreferenced vertices.
 
     Parameters
     ----------
-    geometry : lapy.TriaMesh
-        The input surface mesh.
+    geometry : lapy.TriaMesh or lapy.TetMesh
+        The input mesh.
     mask : array-like
         A boolean array indicating which vertices to keep (``True``) or remove (``False``).
+    return_mapping : bool, optional
+        If ``True``, also return the original indices of vertices in the masked mesh.
 
     Returns
     -------
-    lapy.TriaMesh
-        The masked surface mesh.
+    lapy.TriaMesh, lapy.TetMesh, or tuple
+        The masked mesh, or a tuple containing the mesh, local-to-global mapping.
 
     Raises
     ------
     ValueError
         If ``mask`` does not have a length matching the number of vertices in ``geometry``.
+    ValueError
+        If no cell is fully contained by ``mask``.
     """
     # Format / validate arguments
     mask = np.asarray_chkfinite(mask, dtype=bool)
@@ -108,19 +113,20 @@ def mask_mesh(
         raise ValueError(f"mask must have shape ({geometry.v.shape[0]},), matching the number of "
                          "vertices in geometry.")
 
-    # Remove vertices not in mask
-    v_masked = geometry.v[mask] # inherit original type
-
-    # Update vertex indices of elements
-    v_map = unmask_data(np.arange(np.sum(mask)), mask, fill_value=0).astype(geometry.t.dtype) 
-    t_remapped = v_map[geometry.t]
-    
-    # Keep only elements where all vertices are in the mask
+    # Keep only cells whose vertices are all retained
     elem_mask = np.all(mask[geometry.t], axis=1)
-    t_masked = t_remapped[elem_mask]
+    if not np.any(elem_mask):
+        raise ValueError("mask does not retain any complete cell")
+    cells = geometry.t[elem_mask]
 
-    # Create a new TriaMesh with the masked vertices and elements
-    return geometry.__class__(v=v_masked, t=t_masked)
+    # Remove unreferenced vertices and remap cell indices
+    mapping = np.unique(cells)
+    inverse = np.full(len(geometry.v), -1, dtype=geometry.t.dtype)
+    inverse[mapping] = np.arange(len(mapping), dtype=geometry.t.dtype)
+
+    # Create new mesh
+    masked = geometry.__class__(v=geometry.v[mapping], t=inverse[cells])
+    return (masked, mapping) if return_mapping else masked
 
 def unmask_data(
     data: NDArray[np.floating],

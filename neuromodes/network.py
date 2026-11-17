@@ -67,8 +67,8 @@ def compute_gem(
 
     References
     ----------
-    ..  [1] Normand, F., et al. (2025). Geometric constraints on the architecture of mammalian
-        cortical connectomes. BioRxiv. https://doi.org/10.1101/2025.09.17.676944
+    ..  [1] Normand, F., et al. (2026). Geometric constraints on the architecture of mammalian
+        cortical connectomes. Cell. https://doi.org/10.1016/j.cell.2026.05.048
     """
     # Format / validate arguments
     if checks is not False:

@@ -23,15 +23,15 @@ def test_mask_surf():
         [1, 3, 5]
     ])
 
-    vol = TriaMesh(v=verts, t=cells)
+    surf = TriaMesh(v=verts, t=cells)
 
     mask = np.array([True, True, True, True, False, False])
 
-    masked_vol = mask_mesh(vol, mask)
+    masked_surf = mask_mesh(surf, mask)
 
-    # Only the first tetrahedron should remain
-    assert masked_vol.v.shape[0] == 4
-    assert (masked_vol.t == [[0, 1, 2], [0, 2, 3]]).all()
+    # Only two triangles should remain
+    assert masked_surf.v.shape[0] == 4
+    assert (masked_surf.t == [[0, 1, 2], [0, 2, 3]]).all()
 
 def test_surf_unreferenced_verts():
     # Create an invalid surface mesh with unreferenced vertices
@@ -146,3 +146,38 @@ def test_vol_nonmanifold():
     
     with raises(ValueError, match="Volume mesh is not manifold"):
         check_vol(vol)
+
+def test_mask_mesh_reindexes_cells():
+    mesh = TriaMesh(
+        v=np.array(
+            [
+                [0, 0, 0],
+                [1, 0, 0],
+                [0, 1, 0],
+                [2, 0, 0],
+                [3, 0, 0],
+                [2, 1, 0],
+            ]
+        ),
+        t=np.array([[0, 1, 2], [3, 4, 5]]),
+    )
+    masked, mapping = mask_mesh(
+        mesh,
+        np.array([False, False, False, True, True, True]),
+        return_mapping=True,
+    )
+    assert np.array_equal(mapping, [3, 4, 5])
+    assert np.array_equal(masked.t, [[0, 1, 2]])
+
+def test_mask_mesh_returns_clean_mapping():
+    mesh = TriaMesh(
+        v=np.array(
+            [[0, 0, 0], [1, 0, 0], [0, 1, 0], [2, 2, 2]]
+        ),
+        t=np.array([[0, 1, 2]]),
+    )
+    masked, mapping = mask_mesh(
+        mesh, np.ones(len(mesh.v), dtype=bool), return_mapping=True
+    )
+    assert len(masked.v) == 3
+    assert np.array_equal(mapping, [0, 1, 2])
