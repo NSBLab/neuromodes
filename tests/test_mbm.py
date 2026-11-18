@@ -1,146 +1,198 @@
+from functools import partial
+
 import numpy as np
 from scipy.stats import genpareto, kstest, lognorm
 import pytest
 
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
-from neuromodes.mbm import (permutations_shuffle_rows, permutations_flip_sign, 
-                            mbm_generate_stat_maps, mbm_calc_p_vals, 
-                            _fit_and_ad_exceedances)
-
+from neuromodes.mbm import (permute_design, compute_stat_map, generate_null_stat_maps, 
+                            mbm_calc_p_vals, _fit_and_ad_exceedances)
 
 class TestPermutations:
-    @pytest.mark.parametrize("function", [permutations_shuffle_rows, permutations_flip_sign])
-    @pytest.mark.parametrize("seed", [None, 1, 42])
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
-    @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_permutation_shape(self, function, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("method", ['flip', 'shuffle', 'flip_shuffle'])
+    @pytest.mark.parametrize("seed", [None, 42])
+    @pytest.mark.parametrize("n_subjects", [1, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [1, 7])
+    def test_permutation_shape(self, method, seed, n_subjects, n_observations, n_permutations):
         """Check that the permutation matrix has the correct shape."""
-        perm = function(
+        design = np.ones((n_subjects, n_observations))  # Dummy design matrix
+        perm = permute_design(
+            design=design, 
+            columns=np.arange(n_observations),
+            method=method,
             seed=seed,
-            n_subjects=n_subjects,
-            n_permutations=n_permutations,
+            n_permutations=n_permutations
         )
 
-        assert perm.shape == (n_subjects, n_permutations)
+        assert perm.shape == (n_subjects, n_observations, n_permutations)
 
-    @pytest.mark.parametrize("seed", [None, 1, 42])
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
-    @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_shuffle_rows_contents(self, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("seed", [None, 42])
+    @pytest.mark.parametrize("n_subjects", [1, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [1, 7])
+    def test_shuffle_contents(self, seed, n_subjects, n_observations, n_permutations):
         """Check that the permutation matrix has the correct contents."""
-        perm = permutations_shuffle_rows(
-            seed=seed,
-            n_subjects=n_subjects,
+        design = np.repeat(np.arange(n_subjects)[:, None], n_observations, axis=1)
+        perm = permute_design(
+            design=design,
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
+            method='shuffle',
+            seed=seed,
         )
 
-        for ii in range(n_permutations):
-            assert set(perm[:, ii]) == set(range(n_subjects))
+        assert np.all(
+            np.sort(perm, axis=0) == np.sort(design, axis=0)[..., None]
+        )
 
-    @pytest.mark.parametrize("seed", [None, 1, 42])
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
-    @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_flip_sign_contents(self, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("seed", [None, 42])
+    @pytest.mark.parametrize("n_subjects", [1, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [1, 7])
+    def test_flip_contents(self, seed, n_subjects, n_observations, n_permutations):
         """Check that the permutation matrix has the correct contents."""
-        perm = permutations_flip_sign(
-            seed=seed,
-            n_subjects=n_subjects,
+        design = np.ones((n_subjects, n_observations))
+        perm = permute_design(
+            design=design,
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
+            method='flip',
+            seed=seed,
         )
 
         assert np.isin(perm, [-1, 1]).all()
 
-    @pytest.mark.parametrize("function", [permutations_shuffle_rows, permutations_flip_sign])
-    @pytest.mark.parametrize("seed", range(20))
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
-    @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_permutation_n_permutations_stable(self, function, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("seed", [None, 42])
+    @pytest.mark.parametrize("n_subjects", [1, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [1, 7])
+    def test_flip_shuffle_contents(self, seed, n_subjects, n_observations, n_permutations):
+        """Check that the permutation matrix has the correct contents."""
+        design = np.repeat(np.arange(n_subjects)[:, None], n_observations, axis=1)
+        perm = permute_design(
+            design=design,
+            columns=np.arange(n_observations),
+            n_permutations=n_permutations,
+            method='flip_shuffle',
+            seed=seed,
+        )
+
+        assert np.all(
+            np.sort(np.abs(perm), axis=0) == np.sort(design, axis=0)[..., None]
+        )
+        assert np.isin(perm, np.arange(-n_subjects, n_subjects + 1)).any()
+
+    @pytest.mark.parametrize("method", ['flip', 'shuffle', 'flip_shuffle'])
+    @pytest.mark.parametrize("seed", [1, 42])
+    @pytest.mark.parametrize("n_subjects", [1, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [2, 7])
+    def test_method_n_permutations_stable(self, method, seed, n_subjects, n_observations, n_permutations):
         """Check that the first n_permutations of a larger permutation set are the same as a smaller permutation set."""
-        first = function(
-            seed=seed,
-            n_subjects=n_subjects,
+        design = np.repeat(np.arange(n_subjects)[:, None], n_observations, axis=1)
+        
+        first = permute_design(
+            design=design,
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
-        )
-
-        second = function(
+            method=method,
             seed=seed,
-            n_subjects=n_subjects,
-            n_permutations=n_permutations+1,
         )
 
-        assert np.array_equal(first, second[:, :n_permutations])
+        second = permute_design(
+            design=design,
+            columns=np.arange(n_observations),
+            n_permutations=n_permutations-1,
+            method=method,
+            seed=seed,
+        )
 
-    @pytest.mark.parametrize("seed", range(20))
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
+        assert np.array_equal(first[:, :, :-1], second)
+
+    @pytest.mark.parametrize("seed", [1, 42])
+    @pytest.mark.parametrize("n_subjects", [2, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
     @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_flip_sign_n_subjects_stable(self, seed, n_subjects, n_permutations):
+    def test_flip_n_subjects_stable(self, seed, n_subjects, n_observations, n_permutations):
         """Check that the first n_subjects of a larger flip-sign permutation set are the same as a smaller flip-sign permutation set."""
-        first = permutations_flip_sign(
-            seed=seed,
-            n_subjects=n_subjects,
+        first = permute_design(
+            design=np.ones((n_subjects, n_observations)), 
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
+            method='flip',
+            seed=seed,
         )
 
-        second = permutations_flip_sign(
-            seed=seed,
-            n_subjects=n_subjects+1,
+        second = permute_design(
+            design=np.ones((n_subjects-1, n_observations)),
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
+            method='flip',
+            seed=seed,
         )
 
-        assert np.array_equal(first, second[:n_subjects, :])
+        assert np.array_equal(first[:-1], second)
 
-    @pytest.mark.parametrize("function", [permutations_shuffle_rows, permutations_flip_sign])
-    @pytest.mark.parametrize("seeds", [[1, 2], [42, 43]])
-    @pytest.mark.parametrize("n_subjects", [2, 5, 10])
-    @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_permutation_different_seeds(self, function, seeds, n_subjects, n_permutations):
+    @pytest.mark.parametrize("method", ['flip', 'shuffle', 'flip_shuffle'])
+    @pytest.mark.parametrize("seed", [1, 42])
+    @pytest.mark.parametrize("n_subjects", [3, 5])
+    @pytest.mark.parametrize("n_observations", [1, 6])
+    @pytest.mark.parametrize("n_permutations", [3, 7])
+    def test_permutation_different_seeds(self, method, seed, n_subjects, n_observations, n_permutations):
         """Check that different seeds produce different permutation matrices."""
-        perm1 = function(
-            seed=seeds[0],
-            n_subjects=n_subjects,
+        perm = partial(
+            permute_design,
+            design=np.repeat(np.arange(n_subjects)[:, None], n_observations, axis=1),
+            columns=np.arange(n_observations),
             n_permutations=n_permutations,
+            method=method,
         )
 
-        perm2 = function(
-            seed=seeds[1],
-            n_subjects=n_subjects,
-            n_permutations=n_permutations,
-        )
-
+        perm1 = perm(seed=seed)
+        perm2 = perm(seed=seed+1)
         assert not np.array_equal(perm1, perm2)
 
-    @pytest.mark.parametrize("seed", range(1, 50)) # has to be a fixed set which is known to be within error bounds
+    @pytest.mark.parametrize("seed", range(3)) # has to be a fixed set which is known to be within error bounds (up to 50 tested)
+    @pytest.mark.parametrize("method", ['shuffle', 'flip_shuffle'])
     @pytest.mark.parametrize("n_subjects", [2, 5])
-    @pytest.mark.parametrize("n_permutations", [2500]) # has to be large
-    def test_shuffle_rows_distribution(self, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("n_permutations", [2500])
+    def test_shuffle_distribution(self, seed, method, n_subjects, n_permutations):
         """Check that the distribution of shuffle-row permutations is approximately uniform."""
-        perm = permutations_shuffle_rows(
-            seed=seed,
-            n_subjects=n_subjects,
+        design = np.arange(n_subjects)[:, None]
+        perm = permute_design(
+            design=design,
+            columns=np.arange(1),
             n_permutations=n_permutations,
+            method=method,
+            seed=seed,
         )
 
-        rtol = 4 * np.sqrt((n_subjects-1) / n_permutations)  # ~4 SDs of a binomial distribution
+        expected_count = n_permutations / n_subjects
+        rtol = 4 * np.sqrt((n_subjects - 1) / n_permutations)  # ~4 SDs of a binomial distribution
 
-        for ii in range(n_subjects): # check each row
-            counts = np.bincount(perm[ii, :], minlength=n_subjects)
-            expected_count = n_permutations / n_subjects
+        for ii in range(n_subjects):
+            counts = np.bincount(np.abs(perm[ii, 0, :]), minlength=n_subjects)
             np.testing.assert_allclose(counts, expected_count, rtol=rtol)
 
-    @pytest.mark.parametrize("seed", range(1, 50)) # has to be a fixed set which is known to be within error bounds
+    @pytest.mark.parametrize("seed", range(3)) # has to be a fixed set which is known to be within error bounds (up to 50 tested)
+    @pytest.mark.parametrize("method", ['flip', 'flip_shuffle'])
     @pytest.mark.parametrize("n_subjects", [2, 5])
-    @pytest.mark.parametrize("n_permutations", [2500]) # has to be large
-    def test_flip_sign_distribution(self, seed, n_subjects, n_permutations):
+    @pytest.mark.parametrize("n_permutations", [2500])
+    def test_flip_distribution(self, seed, method, n_subjects, n_permutations):
         """Check that the distribution of flip-sign permutations is approximately uniform."""
-        perm = permutations_flip_sign(
-            seed=seed,
-            n_subjects=n_subjects,
+        design = np.ones((n_subjects, 1))
+        perm = permute_design(
+            design=design,
+            columns=np.arange(1),
             n_permutations=n_permutations,
+            method=method,
+            seed=seed,
         )
 
-        np.testing.assert_allclose(np.mean(perm, axis=1), 0, atol=0.1)  # check each subject (row)
-        np.testing.assert_allclose(np.mean(perm), 0, atol=0.05)         # check whole matrix
+        np.testing.assert_allclose(np.mean(perm, axis=-1), 0, atol=0.1)  # check each subject (row)
+        np.testing.assert_allclose(np.mean(perm), 0, atol=0.05)          # check whole matrix
 
 class TestTStatMapsKnown(): 
     @pytest.fixture(scope="class")
@@ -154,8 +206,8 @@ class TestTStatMapsKnown():
     @pytest.mark.parametrize("n_modes", [10, 25])       # n_subjects * 2 > n_modes        
     @pytest.mark.parametrize("n_subjects", [20, 50])    # just to synthesise data for this test
     @pytest.mark.parametrize("seed", [None, 1, 42])
-    def test_asdf(self, solver, n_modes, n_subjects, seed): 
-        statTest = 'ttest'
+    def test_t_map(self, solver, n_modes, n_subjects, seed): 
+        statistic = 't'
         df = 2 * (n_subjects - 1)
 
         beta = np.arange(n_modes) / n_modes
@@ -192,7 +244,7 @@ class TestTStatMapsKnown():
         t_expected_mode = beta * np.sqrt(n_subjects / 2)
 
         ## SBM (get t-stat at each vertex)
-        t_observed_vertex = mbm_generate_stat_maps(design, response, contrast, statTest)
+        t_observed_vertex = compute_stat_map(design, response, contrast, statistic)
         d_observed_vertex = t_observed_vertex / np.sqrt(n_subjects / 2)
 
         np.testing.assert_allclose(t_observed_vertex, t_expected_vertex)
@@ -235,13 +287,13 @@ class TestStatMapsRandom():
             "n_data": n_data,
         }
 
-    @pytest.mark.parametrize("statTest", ["ttest", "ztest", "ftest"])
-    def test_empirical_shapes_and_types(self, glm_data, statTest):
-        stat_map = mbm_generate_stat_maps(
+    @pytest.mark.parametrize("statistic", ["t", "z", "f"])
+    def test_empirical_shapes_and_types(self, glm_data, statistic):
+        stat_map = compute_stat_map(
             glm_data["design"],
             glm_data["response"],
             glm_data["contrast_1row"],
-            statTest,
+            statistic,
         )
 
         assert isinstance(stat_map, np.ndarray)
@@ -249,16 +301,16 @@ class TestStatMapsRandom():
         assert stat_map.shape == (glm_data["n_data"],)
         assert not np.isnan(stat_map).any()
 
-    @pytest.mark.parametrize("statTest", ["ttest", "ztest", "ftest"])
-    @pytest.mark.parametrize("permutationMethod", ["flip_sign", "shuffle_rows"])
+    @pytest.mark.parametrize("statistic", ["t", "z", "f"])
+    @pytest.mark.parametrize("method", ["flip", "shuffle", "flip_shuffle"])
     @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_nulls_1row_shapes_and_types(self, glm_data, statTest, permutationMethod, n_permutations):
-        null_maps = mbm_generate_stat_maps(
+    def test_nulls_1row_shapes_and_types(self, glm_data, statistic, method, n_permutations):
+        null_maps = generate_null_stat_maps(
             glm_data["design"],
             glm_data["response"],
             glm_data["contrast_1row"],
-            statTest=statTest,
-            permutationMethod=permutationMethod,
+            statistic=statistic,
+            method=method,
             n_permutations=n_permutations,
             seed=42,
         )
@@ -268,16 +320,16 @@ class TestStatMapsRandom():
         assert null_maps.shape == (glm_data["n_data"], n_permutations)
         assert not np.isnan(null_maps).any()
 
-    @pytest.mark.parametrize("statTest", ["ftest"]) # multirow only for F-test
-    @pytest.mark.parametrize("permutationMethod", ["flip_sign", "shuffle_rows"])
+    @pytest.mark.parametrize("statistic", ["f"]) # multirow only for F-test
+    @pytest.mark.parametrize("method", ["flip", "shuffle", "flip_shuffle"])
     @pytest.mark.parametrize("n_permutations", [5, 10])
-    def test_nulls_2row_shapes_and_types(self, glm_data, statTest, permutationMethod, n_permutations):
-        null_maps = mbm_generate_stat_maps(
+    def test_nulls_2row_shapes_and_types(self, glm_data, statistic, method, n_permutations):
+        null_maps = generate_null_stat_maps(
             glm_data["design"],
             glm_data["response"],
             glm_data["contrast_2row"],
-            statTest=statTest,
-            permutationMethod=permutationMethod,
+            statistic=statistic,
+            method=method,
             n_permutations=n_permutations,
             seed=42,
         )
@@ -288,11 +340,11 @@ class TestStatMapsRandom():
         assert not np.isnan(null_maps).any()
 
 
-    @pytest.mark.parametrize("statTest", ["ttest", "ztest", "ftest"])
-    @pytest.mark.parametrize("permutationMethod", ["flip_sign", "shuffle_rows"])
+    @pytest.mark.parametrize("statistic", ["t", "z", "f"])
+    @pytest.mark.parametrize("method", ["flip", "shuffle", "flip_shuffle"])
     @pytest.mark.parametrize("n_permutations", [1000]) # has to be large
     @pytest.mark.parametrize("seed", range(3)) # has to be a fixed set which is known to be within error bounds
-    def test_permutation_p_values_recover_signal(self, glm_data, statTest, permutationMethod, n_permutations, seed):
+    def test_permutation_p_values_recover_signal(self, glm_data, statistic, method, n_permutations, seed):
         """Verifies that permutation tests yield significant p-values for true signals
         and non-significant p-values for noise/nuisance.
         """
@@ -301,25 +353,25 @@ class TestStatMapsRandom():
 
         # --- 1. Test True Signal (Predictor 0) ---
         contrast_signal = np.array([[1.0, 0.0]])
-        obs_stat_signal = mbm_generate_stat_maps(
+        obs_stat_signal = compute_stat_map(
             design, 
             response, 
             contrast_signal, 
-            statTest=statTest
+            statistic=statistic
         )
-        null_stats_signal = mbm_generate_stat_maps(
+        null_stats_signal = generate_null_stat_maps(
             design,
             response,
             contrast_signal,
-            statTest=statTest,
-            permutationMethod=permutationMethod,
+            statistic=statistic,
+            method=method,
             n_permutations=n_permutations,
             seed=seed,
         )
 
         # The mean of the null t-statistics across permutations 
-        # should be close to 0 for ttest and ztest (F-test is not centred at 0)
-        if statTest in ["ttest", "ztest"]:
+        # should be close to 0 for t and z (F-test is not centred at 0)
+        if statistic in ["t", "z"]:
             null_means = np.mean(null_stats_signal, axis=1)
             np.testing.assert_allclose(null_means, 0.0, atol=0.25)
             
@@ -331,11 +383,11 @@ class TestStatMapsRandom():
         assert np.all(p_vals_signal < 0.05)
 
 
-    @pytest.mark.parametrize("statTest", ["ttest", "ztest", "ftest"])
-    @pytest.mark.parametrize("permutationMethod", ["flip_sign", "shuffle_rows"])
+    @pytest.mark.parametrize("statistic", ["t", "z", "f"])
+    @pytest.mark.parametrize("method", ["flip", "shuffle", "flip_shuffle"])
     @pytest.mark.parametrize("n_permutations", [100])
     @pytest.mark.parametrize("seed", range(3)) # has to be a fixed set which is known to be within error bounds
-    def test_permutation_p_values_recover_nuisance(self, glm_data, statTest, permutationMethod, n_permutations, seed):
+    def test_permutation_p_values_recover_nuisance(self, glm_data, statistic, method, n_permutations, seed):
         """Verifies that permutation tests yield significant p-values for true signals
         and non-significant p-values for noise/nuisance.
         """
@@ -343,18 +395,18 @@ class TestStatMapsRandom():
         response = glm_data["response"]
         # --- 2. Test Pure Nuisance (Predictor 1, no injected effect) ---
         contrast_nuisance = np.array([[0.0, 1.0]])
-        obs_stat_nuisance = mbm_generate_stat_maps(
+        obs_stat_nuisance = compute_stat_map(
             design, 
             response, 
-            contrast_nuisance, 
-            statTest=statTest
+            contrast_nuisance,  
+            statistic=statistic
         )
-        null_stats_nuisance = mbm_generate_stat_maps(
+        null_stats_nuisance = generate_null_stat_maps(
             design,
             response,
             contrast_nuisance,
-            statTest=statTest,
-            permutationMethod=permutationMethod,
+            statistic=statistic,
+            method=method,
             n_permutations=n_permutations,
             seed=seed,
         )

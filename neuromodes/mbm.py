@@ -23,7 +23,7 @@ PermutationLiteral = Literal["flip", "shuffle", "flip_shuffle"]
 # If you want to do multiple ttests, they have to be run separately and then corrected for multiple comparisons (e.g. FDR).
 # If you want to see this functionality added, please open an issue on GitHub and we can discuss the best way to implement it.
 # It would probably involve different tests (contrasts) being stacked along axis=2
-def stat_map(
+def compute_stat_map(
     design: np.ndarray,     # (n_subjects, n_predictors)
     response: np.ndarray,   # (n_subjects, n_data)
     contrast: np.ndarray,   # (n_contrasts, n_predictors)
@@ -197,7 +197,7 @@ def iter_null_stat_maps(
     # Main
     def _stream() -> Iterator[np.ndarray]:
         for perm_design in iter_permute_design(design, target_cols, method, seed):
-            yield stat_map(perm_design, response, contrast_arr, statistic)
+            yield compute_stat_map(perm_design, response, contrast_arr, statistic)
     return _stream()
 
 def generate_null_stat_maps(
