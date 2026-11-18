@@ -1,204 +1,229 @@
+from collections.abc import Sequence, Iterable, Iterator, Sized
+from itertools import islice
+from typing import Literal
+from warnings import warn
 
 import numpy as np
-import scipy.stats as sps
+from scipy.stats import genpareto
+from scipy.sparse import csr_matrix, eye as speye
 from scipy.interpolate import make_interp_spline
-from scipy.sparse import eye as speye
-from warnings import warn
-from collections.abc import Sequence
-from typing import Literal
 
-# import neuromodes.stats as nms
-# import neuromodes.palm
 import neuromodes.glmw as glmw
-from neuromodes.basis import decompose
-# from neuromodes.palm import andersondarling
+
+SeedLike = np.random.SeedSequence | int | None
+StatLiteral = Literal['t', 'f', 'z']
+PermutationLiteral = Literal["flip", "shuffle", "flip_shuffle"]
 
 # TODO rename all variables to be more descriptive
 # TODO remove mbm_ from function names
 
-# ofc this will be removed at some point
-# just here to compare with the original fdr_bh
-def fdr_bh(ps): 
-    return sps.false_discovery_control(ps, method='bh')
-
-# TODO replace with yield?
-def permutations_flip_sign(
-    n_subjects: int,  
-    n_permutations: int,
-    seed: int | None = None
-) -> np.ndarray:
-    """
-    Generates independent random sign flips (1 or -1) for subjects.
-    
-    Uses spawned SeedSequences to guarantee that generating additional
-    permutations for a given seed will not alter the streams of previously
-    generated permutations.
-
-    Args:
-        n_subjects: The number of subjects (rows).
-        n_permutations: The number of permutations (columns).
-        seed: An integer or np.random.SeedSequence for reproducibility.
-
-    Returns:
-        np.ndarray: An array of shape (n_subjects, n_permutations) of type int8.
-    """
-    # 1. Initialize the seeds
-    child_seeds = np.random.SeedSequence(seed).spawn(n_permutations)
-    
-    # 2. Pre-allocate the output array (F-contiguous for column-wise writing)
-    out = np.empty((n_subjects, n_permutations), dtype=np.int8, order='F')
-    
-    # 3. Fill the array column-by-column directly
-    for i, s in enumerate(child_seeds):
-        out[:, i] = np.random.default_rng(s).integers(0, 2, size=n_subjects, dtype=np.int8) * 2 - 1
-        
-    return out
-
-# TODO consider making this faster/better/more pythonic with 
-# yield/Lazy evalutions/no need to predetermine number of permutations?
-def permutations_shuffle_rows(
-    n_subjects: int,  
-    n_permutations: int,
-    seed: int | None = None
-) -> np.ndarray:
-    """
-    Generates independent random permutations of subject indices.
-    
-    Uses spawned SeedSequences to guarantee that generating additional
-    permutations for a given seed will not alter the streams of previously
-    generated permutations.
-
-    Args:
-        n_subjects: The number of subjects (rows).
-        n_permutations: The number of permutations (columns).
-        seed: An integer or np.random.SeedSequence for reproducibility.
-
-    Returns:
-        np.ndarray: An array of shape (n_subjects, n_permutations) of type int.
-    """
-    # 1. Initialize the seeds
-    child_seeds = np.random.SeedSequence(seed).spawn(n_permutations)
-    
-    # 2. Pre-allocate the output array (F-contiguous for column-wise writing)
-    out = np.empty((n_subjects, n_permutations), dtype=np.min_scalar_type(n_subjects), order='F')
-    
-    # 3. Fill the array column-by-column directly
-    for i, s in enumerate(child_seeds):
-        out[:, i] = np.random.default_rng(s).permutation(n_subjects)
-        
-    return out
-
-# TODO add tests if keeping this as a standalone function
-def mbm_generate_permutations(
-        response, # (n_subjects, n_data)
-        permutationMethod, 
-        n_permutations,
-        seed = None
-):
-
-    # Return a function that generates the permuted response for a given permutation index ii
-    # permutedMaps(ii) will be of shape (n_subjects, n_data)
-
-    n_subjects = response.shape[0]
-
-    if permutationMethod == 'flip_sign':
-        perms = permutations_flip_sign(n_subjects, n_permutations, seed) # (n_subjects, n_permutations)
-        permutedMaps = lambda ii: response * perms[:, ii][:, None]
-    elif permutationMethod == 'shuffle_rows': 
-        perms = permutations_shuffle_rows(n_subjects, n_permutations, seed) # (n_subjects, n_permutations)
-        permutedMaps = lambda ii: response[perms[:, ii], :]
-    else:
-        raise ValueError(f"Unsupported permutation method: {permutationMethod}")
-
-    return permutedMaps, perms
-
-
+# TODO future: stat testing support 3d data so that this can be done without a loop
 # Currently only supports one ttest at a time (1 contrast). For multiple contrasts, use ftestw/ANOVA.
 # doing multiple ttests concurrently is dangerous in terms of multiple comparisons, so we don't want to encourage it.
 # If you want to do multiple ttests, they have to be run separately and then corrected for multiple comparisons (e.g. FDR).
 # If you want to see this functionality added, please open an issue on GitHub and we can discuss the best way to implement it.
 # It would probably involve different tests (contrasts) being stacked along axis=2
-def _mbm_generate_stat_map(
-        design, # (n_subjects, n_predictors)
-        response, # (n_subjects, n_data)
-        contrast, # (n_contrasts, n_predictors)
-        statTest, # TODO consider replace with t, f, z. Enum?
-):
-    
-    # ident = np.eye(response.shape[0]) # TODO change to scipy sparse?
+def stat_map(
+    design: np.ndarray,     # (n_subjects, n_predictors)
+    response: np.ndarray,   # (n_subjects, n_data)
+    contrast: np.ndarray,   # (n_contrasts, n_predictors)
+    statistic: StatLiteral,
+) -> np.ndarray:            
     ident = speye(response.shape[0], format='csc')
 
-    # TODO consider replacing glmw with inbuilt functions
-    # TODO consider creating non-weighted functions that just called the weighted version with ident
-    if statTest == 'ttest':
+    if statistic == 't':
         statMap = glmw.ttestw(design, response, contrast, ident).statistic
-    elif statTest == 'ztest':
+    elif statistic == 'z':
         statMap = glmw.ztestw(design, response, contrast, ident).statistic
-    elif statTest == 'ftest':
+    elif statistic == 'f':
         statMap = glmw.ftestw(design, response, contrast, ident)[0]
     else:
-        raise ValueError(f"Unsupported stat test: {statTest}")
+        raise ValueError(f"Unsupported stat test: {statistic}")
 
-    return statMap # shape (n_data,)
+    return statMap 
 
+# TODO consider moving these two functions to a more generic location
+def _iter_spawned_rng(seed: SeedLike = None) -> Iterator[np.random.Generator]:
+    """Yields an infinite, prefix-invariant stream of independent Generators."""
+    rng = np.random.default_rng(seed)
+    while True:
+        yield rng.spawn(1)[0]
 
-# TODO look at speed options for this?
-# is it faster to avoid generating the full permuted response
-# for one sample: can just flip the sign for each ii at the time it is needed?
-# for two sample can we just shuffle the design matrix 
-# maybe also put the if statement inside the loop if this is the case
-# if it is faster, consider using seedSequence to generate the seeds for each ii
-# then the input seed will be a 'master seed'. 
-# then generate n_permutations daughter seeds, need to all be different, and in reproducible order
-# see eigenstrapping for an example
-# TODO future: stat testing support 3d data so that this can be done without a loop
-# TODO rename this function or the previous one
-def mbm_generate_stat_maps(
-        design, # (n_subjects, n_predictors)
-        response, # (n_subjects, n_data)
-        contrast, # (n_contrasts, n_predictors)
-        statTest,
-        permutationMethod = 'shuffle_rows', # 'flip_sign', 'shuffle_rows', None
-        n_permutations = 0, # TODO change this!! boolean, None, separate function name, ??
-        seed = None
-):
+def _stack_arrays(
+    arrays: Iterable[np.ndarray],
+    n: int | None = None,
+) -> np.ndarray:
+    """
+    Materializes `n` arrays from `arrays` along a new trailing axis (axis=-1).
 
+    If `n` is None, `arrays` must be Sized and all elements are consumed.
+    """
+    # Validate inputs
+    if n is None:
+        if not isinstance(arrays, Sized):
+            raise TypeError("n must be specified when Iterable is not Sized.")
+        n = len(arrays)
+    elif isinstance(arrays, Sized) and n > len(arrays):
+        raise ValueError(f"n ({n}) exceeds the length of arrays ({len(arrays)}).")
+    if n <= 0:
+        raise ValueError(f"n must be positive, got {n}.")
+
+    # Main loop
+    i, out = -1, None
+    for i, arr in enumerate(islice(arrays, n)):
+        if out is None:
+            out = np.empty((*arr.shape, n), dtype=arr.dtype, order="F")
+        out[..., i] = arr
+
+    # Validate outputs
+    if i != n - 1 or out is None:
+        raise ValueError(f"Expected {n} arrays, but iterable stopped after {i + 1}.")
+
+    return out
+
+# These could also use `def _stream(): for.... return _stream()` if desired
+def iter_flip(
+    n: int,
+    seed: SeedLike = None,
+) -> Iterator[csr_matrix]:
+    """Lazily yields (n_subjects, n_subjects) diagonal sign-flip sparse matrices."""
+    indptr = np.arange(n + 1, dtype=np.intp)
+    indices = np.arange(n, dtype=np.intp)
+
+    for rng in _iter_spawned_rng(seed):
+        signs = rng.integers(0, 2, size=n, dtype=np.int8) * 2 - 1
+        yield csr_matrix((signs, indices, indptr), shape=(n, n))
+
+def iter_shuffle(
+    n: int,
+    seed: SeedLike = None,
+) -> Iterator[csr_matrix]:
+    """Lazily yields (n_subjects, n_subjects) row-permutation sparse matrices."""
+    indptr = np.arange(n + 1, dtype=np.intp)
+    signs = np.ones(n, dtype=np.int8)
+
+    for rng in _iter_spawned_rng(seed):
+        indices = rng.permutation(n)
+        yield csr_matrix((signs, indices, indptr), shape=(n, n))
+
+def iter_flip_shuffle(
+    n: int,
+    seed: SeedLike = None,
+) -> Iterator[csr_matrix]:
+    """Lazily yields (n_subjects, n_subjects) signed permutation sparse matrices."""
+    indptr = np.arange(n + 1, dtype=np.intp)
+
+    for rng in _iter_spawned_rng(seed):
+        signs = rng.integers(0, 2, size=n, dtype=np.int8) * 2 - 1
+        indices = rng.permutation(n)
+        yield csr_matrix((signs, indices, indptr), shape=(n, n))
+
+def iter_permute_design(
+    design: np.ndarray,
+    columns: np.ndarray,
+    method: PermutationLiteral = 'flip_shuffle',
+    seed: SeedLike = None,
+) -> Iterator[np.ndarray]:
+    """
+    Lazily yields permuted copies of `design` of shape (n_subjects, n_predictors).
+
+    Only columns selected by `columns` are transformed; nuisance columns
+    remain untouched.
+    """
+
+    # Validate inputs
     if design.ndim != 2:
         raise ValueError(f"Design matrix must be 2D. Received shape: {design.shape}")
-    if response.ndim != 2:
-        raise ValueError(f"Response matrix must be 2D. Received shape: {response.shape}")
-    if contrast.ndim != 2:
-        raise ValueError(f"Contrast matrix must be 2D. Received shape: {contrast.shape}")
 
-    if n_permutations == 0: 
-        if seed is not None:
-            warn("seed is ignored when permutationMethod is 0.")
-        return _mbm_generate_stat_map(design, response, contrast, statTest)
+    if method == 'flip':
+        operators = iter_flip
+    elif method == 'shuffle':
+        operators = iter_shuffle
+    elif method == 'flip_shuffle':
+        operators = iter_flip_shuffle
+    else:
+        raise ValueError(f"Unsupported permutation method: {method}")
 
-    # Permutation only applies to the columns of the design matrix that are involved in the contrast
-    # Don't permute the nuisance predictors
-    targetCols = np.any(contrast != 0, axis=0)
+    target_design = np.ascontiguousarray(design[:, columns])
+    if target_design.size == 0: 
+        raise ValueError("No columns selected for permutation. Please provide at least one column to permute.")
 
-    permutedDesigns, _ = mbm_generate_permutations(
-        design[:, targetCols], permutationMethod, n_permutations, seed
-    )
+    # Main
+    def _stream() -> Iterator[np.ndarray]:
+        for op in operators(design.shape[0], seed):
+            perm_design = design.copy()
+            perm_design[:, columns] = op @ target_design
+            yield perm_design
+    return _stream()
 
-    # Iterate over number of permutations
-    statMapNull = np.empty((response.shape[1], n_permutations))
-    for ii in range(n_permutations):
-        curr = design.copy()
-        curr[:, targetCols] = permutedDesigns(ii)
-        statMapNull[:, ii] = _mbm_generate_stat_map(
-            curr, response, contrast, statTest
-        )
+def permute_design(
+    design: np.ndarray,
+    columns: np.ndarray,
+    n_permutations: int,
+    method: PermutationLiteral = 'flip_shuffle',
+    seed: SeedLike = None,
+) -> np.ndarray:
+    """
+    Materializes a 3D array of permuted copies of `design` of shape
+    (n_subjects, n_predictors, n_permutations).
 
-    return statMapNull # shape (n_data, n_permutations)
+    Only columns selected by `columns` are transformed; nuisance columns
+    remain untouched.
+
+    If `n_permutations` is None, all permutations are generated (if finite).
+    """
+    stream = iter_permute_design(design, columns, method, seed)
+    return _stack_arrays(stream, n=n_permutations)
+
+def iter_null_stat_maps(
+    design: np.ndarray,
+    response: np.ndarray,
+    contrast: np.ndarray | np.number | int | float,
+    statistic: StatLiteral,
+    method: PermutationLiteral = "flip_shuffle",
+    seed: SeedLike = None,
+) -> Iterator[np.ndarray]:
+    """Lazily yields null statistic maps of shape (n_data,)."""
+    # Convert contrast to target_columns 
+    contrast_arr = np.asarray(contrast)
+    if contrast_arr.ndim == 0:
+        contrast_arr = np.atleast_2d(contrast_arr)
+    if contrast_arr.ndim != 2:
+        raise ValueError(f"Contrast must be a 2D array or a scalar. Received shape: {contrast_arr.shape}")
+    target_cols = np.any(contrast_arr != 0, axis=0)
+    if not np.any(target_cols):
+        raise ValueError("Contrast must have at least one non-zero entry.")
+
+    # Main
+    def _stream() -> Iterator[np.ndarray]:
+        for perm_design in iter_permute_design(design, target_cols, method, seed):
+            yield stat_map(perm_design, response, contrast_arr, statistic)
+    return _stream()
+
+def generate_null_stat_maps(
+    design: np.ndarray,
+    response: np.ndarray,
+    contrast: np.ndarray | np.number | int | float,
+    statistic: StatLiteral,
+    n_permutations: int,
+    method: PermutationLiteral = 'flip_shuffle',
+    seed: SeedLike = None,
+) -> np.ndarray:
+    """
+    Materializes a 2D null statistic matrix of shape (n_data, n_permutations).
+
+    If `n_permutations` is None, all permutations are generated (if finite).
+    """
+    stream = iter_null_stat_maps(design, response, contrast, statistic, method, seed)
+    return _stack_arrays(stream, n=n_permutations)
+
+
 
 
 # TODO FUTURE look at ways of vectorising this across vertices ?Newton method for MLE ?method of moments
 # TODO consider returning the fit vals/threshold/ad test for each vertex as well
-# TODO FUTURE support observed_stat_map being 2D for alternative == two-sided ?recursion
 # TODO P1 allow returning of information about the fit success/quality
+# TODO FUTURE support observed_stat_map being 2D for alternative == two-sided ?recursion
 def mbm_calc_p_vals(
         # TODO change names!
         observedStatMap, # (n_data,) or (n_data, n_obs) if alternative != 'two-sided'
@@ -211,7 +236,7 @@ def mbm_calc_p_vals(
 ): 
 
     # Note that n_for_tail_estimation and n_for_pval_recalculation should be specified as 
-    # integers (like in Knijenberg et al. 2009), NOT as fractions (like in PALM).
+    # integers (like in Knijnenberg et al. 2009), NOT as fractions (like in PALM).
 
     # 0. Input validation
     if is_vector_obs := observedStatMap.ndim == 1:
@@ -252,6 +277,8 @@ def mbm_calc_p_vals(
         nte_copy = [nte for nte in n_for_tail_estimation if 2 <= nte <= n_permutations]
         if n_for_tail_estimation and not nte_copy:
             warn(f"All values in n_for_tail_estimation ({n_for_tail_estimation}) are invalid. No p-values will be recalculated.")
+    else: # for pyright
+        nte_copy = []
     
     # 1. Get naive p values (P'_ecdf) and setup for calculation of P_gpd
     tail_counts, tail_dir = _count_tails(observedStatMap, statMapNull, alternative)
@@ -301,7 +328,7 @@ def mbm_calc_p_vals(
             if gof_acceptance_level is not None and adp <= gof_acceptance_level: # next iter if fit is poor
                 continue
 
-            tail_counts[ii, ob_mask] = exceedances.size * sps.genpareto.sf(ob[ob_mask] - thr, *fit)
+            tail_counts[ii, ob_mask] = exceedances.size * genpareto.sf(ob[ob_mask] - thr, *fit)
             mask_row[ob_mask] = False
             if not np.any(mask_row):
                 break
@@ -322,7 +349,6 @@ def mbm_calc_p_vals(
 
     return tuple(output) if len(output) > 1 else output[0]
 
-
 def _count_tails(obs_2d, nulls_2d, alternative): 
     obs_3d = obs_2d[:, np.newaxis, :]
     null_3d = nulls_2d[:, :, np.newaxis]
@@ -341,10 +367,10 @@ def _count_tails(obs_2d, nulls_2d, alternative):
         raise ValueError(f"Unsupported alternative hypothesis: {alternative}")
     return tail_counts, tail_dir
 
-def _counts_to_pvals(pvals, n_permutations, alternative):
+def _counts_to_pvals(tail_counts, n_permutations, alternative):
     if alternative == 'two-sided':
-        pvals = 2 * pvals
-    return np.clip(pvals / n_permutations, 0.0, 1.0)
+        tail_counts = 2 * tail_counts
+    return np.clip(tail_counts / n_permutations, 0.0, 1.0)
 
 def _naive_pvals(obs_2d, nulls_2d, alternative):
     tail_counts, tail_dir = _count_tails(obs_2d, nulls_2d, alternative)
@@ -360,10 +386,10 @@ def _get_threshold_and_exceedances(nulls_nondesc, n_tail):
     return thr, exceedances
 
 def _fit_and_ad_exceedances(exceedences, gof_acceptance_level: float | None = 0.05):
-    fit = sps.genpareto.fit(exceedences, floc=0.0) # floc forced to 0
+    fit = genpareto.fit(exceedences, floc=0.0) # floc forced to 0
     if gof_acceptance_level is not None: 
         adp = _andersondarling(
-            np.sort(sps.genpareto.cdf(exceedences, *fit)), 
+            np.sort(genpareto.cdf(exceedences, *fit)), 
             k=-fit[0])[0] # Choulakian & Stephens parameterize shape parameter k = -c
     else: 
         adp = np.nan # adp = 1.0 # could instead use dummy p value
@@ -421,73 +447,23 @@ def _andersondarling(z_ascending, k):
     
     return np.clip(p, 0.0, 1.0), np.clip(a2, 0.0, np.inf)
 
+# # These functions may be useful if freedman-lane permutations are incorporated in the future, 
+# # or for regression testing (comparing with MATLAB using a known set of permutated designs)
+# def iter_permuted_design_stat_maps(
+#     permuted_designs: Iterable[np.ndarray],
+#     response: np.ndarray,
+#     contrast: np.ndarray,
+#     statistic: StatLiteral,
+# ) -> Iterator[np.ndarray]:
+#     for perm_design in permuted_designs:
+#         yield stat_map(perm_design, response, contrast, statistic)
 
-
-
-
-
-
-
-
-# TODO : generate smaller single responsibility functions 
-# ?0. generate permutations (n_subjects, n_permutations). have to see if it is worthwhile 
-# saving all these in memory at the same time for large number of permutations 
-# (other option, generate on the fly, perhaps slower but less memory)  
-# 1. generate statMapNull (n_data, n_permutations)
-# 2. finding p values for A (observed stat/beta map) vs B (null stat/beta response)
-#   A is (n_data/n_modes, 1), collapsed from (n_data/n_modes, n_subjects) using the stat test
-#   B is (n_data/n_modes, n_permutations)
-#   users can FDR correct easily themselves if desired, so just return the uncorrected p values
-def mbm_example_workflow(
-        response, # (n_data, n_subjects)
-        emodes, # (n_data, n_modes)
-        mass, # (n_data, n_data)
-        statTest,           # cant do ancova as there is no contrast
-        design,   # (n_subjects,) or (n_subjects, n_predictors) depending on statTest
-        statPThr = 0.05, # consider making two thresh? for tail estimation and for mode significance?
-        statFDR = True, 
-        n_modes = None, 
-        n_permutations = 1000,
-        seed = None
-): 
-    
-    # 0 & 1
-    # generate permutations
-    ident = np.eye(response.shape[1])
-    contrast = _stat_test_to_contrast(statTest, design.shape[1])
-
-    observedStatMap, _ = glmw.glmw_test(
-        response.T, design, ident, contrast
-    ) # (n_data, 1)
-    nullStatMaps = mbm_generate_stat_map_nulls(
-        response, design, contrast, ident, n_permutations, seed
-    )
-
-    # 2
-    # convert observed stat to p values using tail estimation
-    permPMap, permRevMap = mbm_calc_p_vals(observedStatMap, nullStatMaps, statPThr)
-    if statFDR:
-        permPMap = fdr_bh(permPMap)
-    sig_stat_mask = permPMap < statPThr
-    recon_stat_map = observedStatMap * sig_stat_mask
-
-
-    # Eigenmode decomposition of observed and null stat response
-    # would decompose_kwargs be needed?
-    # TODO update to new decompose
-    eigBeta = decompose(observedStatMap, emodes=emodes, mass=mass) # (n_modes, 1)
-    betaNull = decompose(nullStatMaps, emodes=emodes, mass=mass) # (n_modes, n_permutations)
-
-    # 2
-    eigBeta = eigBeta.flatten() # TODO remove this
-    eigPBeta, eigPRevBeta = mbm_calc_p_vals(eigBeta, betaNull, statPThr)    
-    if statFDR:
-        eigPBeta = fdr_bh(eigPBeta)
-
-    # Take those above results, extract significant modes, and reconstruct the stat map
-    sig_mode_mask = eigPBeta < statPThr
-    sig_mode_indices = np.where(sig_mode_mask)[0]
-    recon_mode_map = emodes @ (eigBeta * sig_mode_mask)
-
-
-    return recon_mode_map, sig_mode_indices
+# def compute_permuted_design_stat_maps(
+#     permuted_designs: Iterable[np.ndarray],
+#     response: np.ndarray,
+#     contrast: np.ndarray,
+#     statistic: StatLiteral,
+#     n_permutations: int | None = None,
+# ) -> np.ndarray:
+#     stream = iter_permuted_design_stat_maps(permuted_designs, response, contrast, statistic)
+#     return _stack_arrays(stream, n=n_permutations)

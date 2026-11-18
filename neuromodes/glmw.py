@@ -22,11 +22,20 @@ def _glmw(
         raise ValueError(f"Design matrix X must be 2D. Received shape: {X.shape}.")
     if Y.ndim != 2:
         raise ValueError(f"Data matrix Y must be 2D. Received shape: {Y.shape}.")
-
     if np.isscalar(contrast):
         contrast = np.array([[contrast]])
     elif contrast.ndim != 2: 
         raise ValueError("Contrast must be a 2D array or a scalar.")
+    if X.shape[0] != Y.shape[0]:
+        raise ValueError(
+            f"Number of rows in X and Y must match. "
+            f"Received X shape: {X.shape}, Y shape: {Y.shape}."
+        )
+    if contrast.shape[1] != X.shape[1]:
+        raise ValueError(
+            f"Contrast matrix must have the same number of columns as X. "
+            f"Received contrast shape: {contrast.shape}, X shape: {X.shape}."
+        )
 
     # C = np.atleast_2d(contrast)
 
