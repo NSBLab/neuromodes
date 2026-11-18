@@ -25,13 +25,13 @@ def _glmw(
     mass = ved.mass
 
     if design.ndim != 2:
-        raise ValueError(f"Design matrix X must be 2D. Received shape: {design.shape}.")
+        raise ValueError(f"Design matrix must be 2D. Received shape: {design.shape}.")
     if response.ndim != 2:
-        raise ValueError(f"Data matrix Y must be 2D. Received shape: {response.shape}.")
+        raise ValueError(f"Response matrix must be 2D. Received shape: {response.shape}.")
     if design.shape[0] != response.shape[0]:
         raise ValueError(
-            f"Number of rows in X and Y must match. "
-            f"Received X shape: {design.shape}, Y shape: {response.shape}."
+            f"Number of rows in design and response matrices must match. "
+            f"Received design shape: {design.shape}, response shape: {response.shape}."
         )
     
     contrast = np.asarray(contrast)
@@ -41,10 +41,11 @@ def _glmw(
         raise ValueError("Contrast must be a 2D array or a scalar. Received shape: {contrast.shape}.")
     if contrast.shape[1] != design.shape[1]:
         raise ValueError(
-            f"Contrast matrix must have the same number of columns as X. "
-            f"Received contrast shape: {contrast.shape}, X shape: {design.shape}."
+            f"Contrast matrix must have the same number of columns as design matrix. "
+            f"Received contrast shape: {contrast.shape}, design shape: {design.shape}."
         )
 
+    # TODO check use of solve here? what if input is deficient rank? overdetermined design matrix?
     # 1. Fit GLM. TODO Should probably return beta 
     beta = solvew(design, response, mass) # Shape: (n_predictors, n_data)
     
@@ -57,7 +58,6 @@ def _glmw(
     # 3. Contrast Analysis
     D = contrast.dot(beta)  # Shape: (n_contrasts, n_data)
 
-    # TODO check use of solve here? what if input is deficient rank? overdetermined contrast matrix?
     A = (mass.dot(design)).T.dot(design)
     G = contrast.dot(np.linalg.solve(A, contrast.T))  # Shape: (n_contrasts, n_contrasts)
     V = np.linalg.solve(G, D)
@@ -66,9 +66,7 @@ def _glmw(
     
     return Q, D, df  
 
-# TODO consider making mass optional and warning (as in stats.py)
-# TODO consider making that part of EigenData (flag to return speye mass if None input)
-# TODO consider writing wrapper for ttest_1samp, f_oneway etc. 
+# TODO P5 consider writing wrapper for ttest_1samp, f_oneway etc. 
 def ttestw(
     design: np.ndarray, 
     response: np.ndarray, 
