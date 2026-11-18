@@ -1,46 +1,77 @@
+from __future__ import annotations
 from collections.abc import Sequence, Iterable, Iterator, Sized
+from dataclasses import dataclass
 from itertools import islice
-from typing import Literal
+from functools import partial
+from typing import Literal, TYPE_CHECKING, overload
 from warnings import warn
 
 import numpy as np
 from scipy.stats import genpareto
-from scipy.sparse import csr_matrix, eye as speye
+from scipy.sparse import csr_matrix, csc_matrix, eye as speye
 from scipy.interpolate import make_interp_spline
 
 import neuromodes.glmw as glmw
 
+if TYPE_CHECKING:
+    from typing import Any
+    from numpy.typing import NDArray
+
 SeedLike = np.random.SeedSequence | int | None
 StatLiteral = Literal['t', 'f', 'z']
 PermutationLiteral = Literal["flip", "shuffle", "flip_shuffle"]
+AlternativeLiteral = Literal['two-sided', 'greater', 'less']
+
+@dataclass(frozen=True, slots=True)
+class TailFitResult:
+    """GPD tail-fit diagnostics aligned with `stat_map`.
+
+    Attributes
+    ----------
+    n : NDArray[np.intp]
+        Number of extreme null samples used for the accepted GPD fit,
+        or ``-1`` where no GPD fit was performed or accepted.
+    fit : NDArray[np.float64]
+        Array of shape ``(*stat_map.shape, 3)`` containing ``(shape, threshold, scale)``,
+        or ``NaN`` where unfitted. ``threshold`` is in the original scale of
+        ``stat_map``. To evaluate tail probabilities
+        directly, orient exceedances via ``sign = np.where(tail_dir, -1.0, 1.0)``
+        and call ``scipy.stats.genpareto.sf(sign * (stat_map - fit[..., 1]), fit[..., 0], 0.0, fit[..., 2])``.
+    pvalue : NDArray[np.float64]
+        Anderson-Darling goodness-of-fit p-value for the accepted fit,
+        or ``NaN`` where unfitted.
+    """
+    n: NDArray[np.intp]
+    fit: NDArray[np.float64]
+    pvalue: NDArray[np.float64]
 
 # TODO rename all variables to be more descriptive
 # TODO remove mbm_ from function names
 
-# TODO future: stat testing support 3d data so that this can be done without a loop
+# TODO P5: stat testing support 3d data so that this can be done without a loop
 # Currently only supports one ttest at a time (1 contrast). For multiple contrasts, use ftestw/ANOVA.
 # doing multiple ttests concurrently is dangerous in terms of multiple comparisons, so we don't want to encourage it.
 # If you want to do multiple ttests, they have to be run separately and then corrected for multiple comparisons (e.g. FDR).
 # If you want to see this functionality added, please open an issue on GitHub and we can discuss the best way to implement it.
 # It would probably involve different tests (contrasts) being stacked along axis=2
 def compute_stat_map(
-    design: np.ndarray,     # (n_subjects, n_predictors)
-    response: np.ndarray,   # (n_subjects, n_data)
-    contrast: np.ndarray,   # (n_contrasts, n_predictors)
+    design: NDArray,     # (n_subjects, n_predictors)
+    response: NDArray,   # (n_subjects, n_data)
+    contrast: NDArray,   # (n_contrasts, n_predictors)
     statistic: StatLiteral,
-) -> np.ndarray:            
-    ident = speye(response.shape[0], format='csc')
+) -> NDArray:            
+    ident = csc_matrix(speye(response.shape[0], format='csc')) # pyright
 
     if statistic == 't':
-        statMap = glmw.ttestw(design, response, contrast, ident).statistic
+        stat_map = glmw.ttestw(design, response, contrast, ident).statistic
     elif statistic == 'z':
-        statMap = glmw.ztestw(design, response, contrast, ident).statistic
+        stat_map = glmw.ztestw(design, response, contrast, ident).statistic
     elif statistic == 'f':
-        statMap = glmw.ftestw(design, response, contrast, ident)[0]
+        stat_map = glmw.ftestw(design, response, contrast, ident)[0]
     else:
         raise ValueError(f"Unsupported stat test: {statistic}")
 
-    return statMap 
+    return stat_map 
 
 # TODO consider moving these two functions to a more generic location
 def _iter_spawned_rng(seed: SeedLike = None) -> Iterator[np.random.Generator]:
@@ -50,9 +81,9 @@ def _iter_spawned_rng(seed: SeedLike = None) -> Iterator[np.random.Generator]:
         yield rng.spawn(1)[0]
 
 def _stack_arrays(
-    arrays: Iterable[np.ndarray],
+    arrays: Iterable[NDArray],
     n: int | None = None,
-) -> np.ndarray:
+) -> NDArray:
     """
     Materializes `n` arrays from `arrays` along a new trailing axis (axis=-1).
 
@@ -119,11 +150,11 @@ def iter_flip_shuffle(
         yield csr_matrix((signs, indices, indptr), shape=(n, n))
 
 def iter_permute_design(
-    design: np.ndarray,
-    columns: np.ndarray,
+    design: NDArray,
+    columns: NDArray,
     method: PermutationLiteral = 'flip_shuffle',
     seed: SeedLike = None,
-) -> Iterator[np.ndarray]:
+) -> Iterator[NDArray]:
     """
     Lazily yields permuted copies of `design` of shape (n_subjects, n_predictors).
 
@@ -149,7 +180,7 @@ def iter_permute_design(
         raise ValueError("No columns selected for permutation. Please provide at least one column to permute.")
 
     # Main
-    def _stream() -> Iterator[np.ndarray]:
+    def _stream() -> Iterator[NDArray]:
         for op in operators(design.shape[0], seed):
             perm_design = design.copy()
             perm_design[:, columns] = op @ target_design
@@ -157,12 +188,12 @@ def iter_permute_design(
     return _stream()
 
 def permute_design(
-    design: np.ndarray,
-    columns: np.ndarray,
+    design: NDArray,
+    columns: NDArray,
     n_permutations: int,
     method: PermutationLiteral = 'flip_shuffle',
     seed: SeedLike = None,
-) -> np.ndarray:
+) -> NDArray:
     """
     Materializes a 3D array of permuted copies of `design` of shape
     (n_subjects, n_predictors, n_permutations).
@@ -176,13 +207,13 @@ def permute_design(
     return _stack_arrays(stream, n=n_permutations)
 
 def iter_null_stat_maps(
-    design: np.ndarray,
-    response: np.ndarray,
-    contrast: np.ndarray | np.number | int | float,
+    design: NDArray,
+    response: NDArray,
+    contrast: NDArray | np.number | int | float,
     statistic: StatLiteral,
     method: PermutationLiteral = "flip_shuffle",
     seed: SeedLike = None,
-) -> Iterator[np.ndarray]:
+) -> Iterator[NDArray]:
     """Lazily yields null statistic maps of shape (n_data,)."""
     # Convert contrast to target_columns 
     contrast_arr = np.asarray(contrast)
@@ -195,20 +226,20 @@ def iter_null_stat_maps(
         raise ValueError("Contrast must have at least one non-zero entry.")
 
     # Main
-    def _stream() -> Iterator[np.ndarray]:
+    def _stream() -> Iterator[NDArray]:
         for perm_design in iter_permute_design(design, target_cols, method, seed):
             yield compute_stat_map(perm_design, response, contrast_arr, statistic)
     return _stream()
 
 def generate_null_stat_maps(
-    design: np.ndarray,
-    response: np.ndarray,
-    contrast: np.ndarray | np.number | int | float,
+    design: NDArray,
+    response: NDArray,
+    contrast: NDArray | np.number | int | float,
     statistic: StatLiteral,
     n_permutations: int,
     method: PermutationLiteral = 'flip_shuffle',
     seed: SeedLike = None,
-) -> np.ndarray:
+) -> NDArray:
     """
     Materializes a 2D null statistic matrix of shape (n_data, n_permutations).
 
@@ -217,80 +248,137 @@ def generate_null_stat_maps(
     stream = iter_null_stat_maps(design, response, contrast, statistic, method, seed)
     return _stack_arrays(stream, n=n_permutations)
 
+@overload
+def compute_p_values(
+        stat_map: NDArray[np.floating],
+        stat_map_nulls: NDArray[np.floating],
+        alternative: AlternativeLiteral = ..., 
+        fit_trigger: int | None = ..., 
+        fit_candidate_sizes: int | Sequence[int] = ..., 
+        fit_alpha: float | None = ..., 
+        *,
+        return_tail: Literal[False] = False,
+        return_fit: Literal[False] = False,
+) -> NDArray[np.floating]: ...
 
+@overload
+def compute_p_values(
+        stat_map: NDArray[np.floating],
+        stat_map_nulls: NDArray[np.floating],
+        alternative: AlternativeLiteral = ..., 
+        fit_trigger: int | None = ..., 
+        fit_candidate_sizes: int | Sequence[int] = ..., 
+        fit_alpha: float | None = ..., 
+        *,
+        return_tail: Literal[True],
+        return_fit: Literal[False] = False,
+) -> tuple[NDArray[np.floating], NDArray[np.bool_]]: ...
 
+@overload
+def compute_p_values(
+        stat_map: NDArray[np.floating],
+        stat_map_nulls: NDArray[np.floating],
+        alternative: AlternativeLiteral = ..., 
+        fit_trigger: int | None = ..., 
+        fit_candidate_sizes: int | Sequence[int] = ..., 
+        fit_alpha: float | None = ..., 
+        *,
+        return_tail: Literal[False] = False,
+        return_fit: Literal[True],
+) -> tuple[NDArray[np.floating], TailFitResult]: ...
+
+@overload
+def compute_p_values(
+        stat_map: NDArray[np.floating],
+        stat_map_nulls: NDArray[np.floating],
+        alternative: AlternativeLiteral = ..., 
+        fit_trigger: int | None = ..., 
+        fit_candidate_sizes: int | Sequence[int] = ..., 
+        fit_alpha: float | None = ..., 
+        *,
+        return_tail: Literal[True],
+        return_fit: Literal[True],
+) -> tuple[NDArray[np.floating], NDArray[np.bool_], TailFitResult]: ...
 
 # TODO FUTURE look at ways of vectorising this across vertices ?Newton method for MLE ?method of moments
-# TODO consider returning the fit vals/threshold/ad test for each vertex as well
-# TODO P1 allow returning of information about the fit success/quality
 # TODO FUTURE support observed_stat_map being 2D for alternative == two-sided ?recursion
-def mbm_calc_p_vals(
+# TODO P2 add tests for the data returned return_tail and return_fit
+def compute_p_values(
         # TODO change names!
-        observedStatMap, # (n_data,) or (n_data, n_obs) if alternative != 'two-sided'
-        statMapNull, # (n_data, n_permutations)
-        alternative: Literal['two-sided', 'greater', 'less'] = 'two-sided', 
-        n_for_pval_recalculation: int | None = 9, # None to disable recalculation, 0 to only do something past all the nulls, 9 to match Knijenberg, n_permutations to do all
-        n_for_tail_estimation: int | Sequence[int] = tuple(range(250, 2, -10)), # match Knijenburg
-        gof_acceptance_level: float | None = 0.05, # match Knijenburg, but perhaps 0.10 is better?
-        return_tail = False # TODO add overloads
-): 
+        stat_map: NDArray[np.floating], # (n_data,) or (n_data, n_obs) if alternative != 'two-sided'
+        stat_map_nulls: NDArray[np.floating], # (n_data, n_permutations)
+        alternative: AlternativeLiteral = 'two-sided', 
+        fit_trigger: int | None = 9, # None to disable recalculation, 0 to only do something past all the nulls, 9 to match Knijenberg, n_permutations to do all
+        fit_candidate_sizes: int | Sequence[int] = tuple(range(250, 2, -10)), # match Knijenburg
+        fit_alpha: float | None = 0.05, # match Knijnenburg, but perhaps 0.10 is better?
+        *,
+        return_tail: bool = False,
+        return_fit: bool = False,
+) -> NDArray[np.floating] \
+    | tuple[NDArray[np.floating], NDArray[np.bool_]] \
+    | tuple[NDArray[np.floating], TailFitResult] \
+    | tuple[NDArray[np.floating], NDArray[np.bool_], TailFitResult]: 
 
-    # Note that n_for_tail_estimation and n_for_pval_recalculation should be specified as 
+    # Note that fit_candidate_sizes and fit_trigger should be specified as 
     # integers (like in Knijnenberg et al. 2009), NOT as fractions (like in PALM).
 
     # 0. Input validation
-    if is_vector_obs := observedStatMap.ndim == 1:
-        observedStatMap = observedStatMap[:, None] # reshape to (n_data, 1) for consistent processing
-    elif observedStatMap.ndim == 2:
+    if is_vector_obs := stat_map.ndim == 1:
+        stat_map = stat_map[:, None] # reshape to (n_data, 1) for consistent processing
+    elif stat_map.ndim == 2:
         if alternative == 'two-sided':
             # If you would like this to be implemented, please leave a GitHub issue and we can have a look
             raise NotImplementedError("observedStatMap cannot be 2D for two-sided alternative. Please provide a 1D array of observed statistics.")
     else:
-        raise ValueError(f"observedStatMap must be 1D or 2D, got shape {observedStatMap.shape}")
+        raise ValueError(f"observedStatMap must be 1D or 2D, got shape {stat_map.shape}")
 
-    if statMapNull.ndim != 2:
-        raise ValueError(f"statMapNull must be 2D, got shape {statMapNull.shape}")
-    if statMapNull.shape[0] != observedStatMap.shape[0]:
-        raise ValueError(f"statMapNull and observedStatMap must have the same number of rows. Got {statMapNull.shape[0]} and {observedStatMap.shape[0]}.")
-    n_permutations = statMapNull.shape[1]
+    if stat_map_nulls.ndim != 2:
+        raise ValueError(f"statMapNull must be 2D, got shape {stat_map_nulls.shape}")
+    if stat_map_nulls.shape[0] != stat_map.shape[0]:
+        raise ValueError(f"statMapNull and observedStatMap must have the same number of rows. Got {stat_map_nulls.shape[0]} and {stat_map.shape[0]}.")
+    n_permutations = stat_map_nulls.shape[1]
 
     # If we need to do tail estimation
-    if n_for_pval_recalculation is not None:
-        # check n_for_pval_recalculation
-        if n_for_pval_recalculation < 0:
-            warn(f"n_for_pval_recalculation ({n_for_pval_recalculation}) is less than 0. No p-values will be recalculated.")
-        if n_for_pval_recalculation > n_permutations: # Don't warn for n_permutations (allow user to force recalculation))
-            warn(f"n_for_pval_recalculation ({n_for_pval_recalculation}) is greater than n_permutations ({n_permutations}). All p-values will be recalculated.")
+    if fit_trigger is not None:
+        # check fit_trigger
+        if fit_trigger < 0:
+            warn(f"fit_trigger ({fit_trigger}) is less than 0. No p-values will be recalculated.")
+        if fit_trigger > n_permutations: # Don't warn for n_permutations (allow user to force recalculation))
+            warn(f"fit_trigger ({fit_trigger}) is greater than n_permutations ({n_permutations}). All p-values will be recalculated.")
 
-        # and check n_for_tail_estimation
-        if isinstance(n_for_tail_estimation, int):
-            n_for_tail_estimation = (n_for_tail_estimation,)
-        if not isinstance(n_for_tail_estimation, Sequence):
-            raise TypeError(f"n_for_tail_estimation must be an integer or iterable, got {type(n_for_tail_estimation)}")
-        for n in n_for_tail_estimation:
+        # and check fit_candidate_sizes
+        if isinstance(fit_candidate_sizes, int):
+            fit_candidate_sizes = (fit_candidate_sizes,)
+        if not isinstance(fit_candidate_sizes, Sequence):
+            raise TypeError(f"fit_candidate_sizes must be an integer or iterable, got {type(fit_candidate_sizes)}")
+        for n in fit_candidate_sizes:
             if not isinstance(n, int):
-                raise TypeError(f"All values in n_for_tail_estimation must be integers, got {type(n)}")
+                raise TypeError(f"All values in fit_candidate_sizes must be integers, got {type(n)}")
             if n > n_permutations:
-                warn(f"Some values in n_for_tail_estimation are greater than n_permutations ({n_permutations}). These will be ignored.")
+                warn(f"Some values in fit_candidate_sizes are greater than n_permutations ({n_permutations}). These will be ignored.")
             if n < 2:
-                warn(f"Some values in n_for_tail_estimation are less than 2. These will be ignored.")
-        nte_copy = [nte for nte in n_for_tail_estimation if 2 <= nte <= n_permutations]
-        if n_for_tail_estimation and not nte_copy:
-            warn(f"All values in n_for_tail_estimation ({n_for_tail_estimation}) are invalid. No p-values will be recalculated.")
+                warn(f"Some values in fit_candidate_sizes are less than 2. These will be ignored.")
+        nte_copy = [nte for nte in fit_candidate_sizes if 2 <= nte <= n_permutations]
+        if fit_candidate_sizes and not nte_copy:
+            warn(f"All values in fit_candidate_sizes ({fit_candidate_sizes}) are invalid. No p-values will be recalculated.")
     else: # for pyright
         nte_copy = []
     
     # 1. Get naive p values (P'_ecdf) and setup for calculation of P_gpd
-    tail_counts, tail_dir = _count_tails(observedStatMap, statMapNull, alternative)
-    mask_2d = (tail_counts <= n_for_pval_recalculation
-            if n_for_pval_recalculation is not None
+    tail_counts, tail_dir = _count_tails(stat_map, stat_map_nulls, alternative)
+    mask_2d = (tail_counts <= fit_trigger
+            if fit_trigger is not None
             else np.zeros_like(tail_counts, dtype=bool))
     mask_1d = np.any(mask_2d, axis=1)
 
     # Orient observed statistics and null distributions so all tails act as upper/right tails
     factor = 1 - 2 * tail_dir[mask_1d].astype(int) # (n_recalc, n_obs)
-    obs = observedStatMap[mask_1d] * factor  # (n_recalc, n_obs)
-    nulls_nondesc = np.sort(statMapNull[mask_1d, :] * factor[:,:1], axis=1)  # (n_recalc, n_permutations)
+    obs = stat_map[mask_1d] * factor  # (n_recalc, n_obs)
+    nulls_nondesc = np.sort(stat_map_nulls[mask_1d, :] * factor[:,:1], axis=1)  # (n_recalc, n_permutations)
+
+    fit_n = np.full(stat_map.shape, -1, dtype=np.intp)
+    fit_params = np.full((*stat_map.shape, 3), np.nan, dtype=np.float64)
+    fit_pvalue = np.full(stat_map.shape, np.nan, dtype=np.float64)
 
     # 2. Main loop: iterate over each row that needs recalculation
     # Try different numbers of tail elements for GPD fitting, until AD test passes
@@ -322,13 +410,19 @@ def mbm_calc_p_vals(
             # Fit GPD with location fixed to threshold t
             # Could use try-catch to continue to other nte/vertices if one fit errors out
             # TODO FUTURE: consider how to return these fit values and AD stats/result to user
-            fit, adp = _fit_and_ad_exceedances(exceedances, gof_acceptance_level)
+            fit, adp = _fit_and_ad_exceedances(exceedances, fit_alpha)
             if fit[0] <= -0.5 or fit[0] > 1.0 or fit[2] <= 0.0: # shape parameter k <= -0.5 or scale parameter a <= 0.0
                 continue
-            if gof_acceptance_level is not None and adp <= gof_acceptance_level: # next iter if fit is poor
+            if fit_alpha is not None and adp <= fit_alpha: # next iter if fit is poor
                 continue
 
             tail_counts[ii, ob_mask] = exceedances.size * genpareto.sf(ob[ob_mask] - thr, *fit)
+            fit_n[ii, ob_mask] = nte
+            fit_params[ii, ob_mask, 0] = fit[0]
+            fit_params[ii, ob_mask, 1] = np.where(tail_dir[ii, ob_mask], -thr, thr)
+            fit_params[ii, ob_mask, 2] = fit[2]
+            fit_pvalue[ii, ob_mask] = adp
+
             mask_row[ob_mask] = False
             if not np.any(mask_row):
                 break
@@ -337,19 +431,32 @@ def mbm_calc_p_vals(
             warn(f"GPD fitting failed for vertex {ii}. Using non-parametric p-value.")
 
     # 3. Output
-    permPMap = _counts_to_pvals(tail_counts, n_permutations, alternative)
-    output = [permPMap]
-    if return_tail:
-        output.append(tail_dir)
-    # TODO FUTURE if return_fit: output.append(...)
-    # TODO FUTURE if return_ad: output.append(...)
+    p_values = _counts_to_pvals(tail_counts, n_permutations, alternative)
 
     if is_vector_obs:
-        output = [np.squeeze(arr, axis=1) for arr in output]
+        sqz1 = partial(np.squeeze, axis=1)
+        p_values = sqz1(p_values)
+        tail_dir = sqz1(tail_dir)
+        fit_n = sqz1(fit_n)
+        fit_params = sqz1(fit_params)
+        fit_pvalue = sqz1(fit_pvalue)
 
-    return tuple(output) if len(output) > 1 else output[0]
+    fit_result = TailFitResult(n=fit_n, fit=fit_params, pvalue=fit_pvalue)
 
-def _count_tails(obs_2d, nulls_2d, alternative): 
+    if not return_tail and not return_fit:
+        return p_values
+    elif return_tail and not return_fit:
+        return p_values, tail_dir
+    elif not return_tail and return_fit:
+        return p_values, fit_result
+    else: # return_tail and return_fit
+        return p_values, tail_dir, fit_result
+
+def _count_tails(
+        obs_2d: NDArray[np.floating], 
+        nulls_2d: NDArray[np.floating], 
+        alternative: AlternativeLiteral
+) -> tuple[NDArray[np.integer], NDArray[np.bool_]]: 
     obs_3d = obs_2d[:, np.newaxis, :]
     null_3d = nulls_2d[:, :, np.newaxis]
     geq = np.sum(null_3d >= obs_3d, axis=1).astype(float)
@@ -367,16 +474,28 @@ def _count_tails(obs_2d, nulls_2d, alternative):
         raise ValueError(f"Unsupported alternative hypothesis: {alternative}")
     return tail_counts, tail_dir
 
-def _counts_to_pvals(tail_counts, n_permutations, alternative):
+def _counts_to_pvals(
+        tail_counts: NDArray[np.integer], 
+        n_permutations: int, 
+        alternative: AlternativeLiteral
+) -> NDArray[np.floating]:
     if alternative == 'two-sided':
         tail_counts = 2 * tail_counts
     return np.clip(tail_counts / n_permutations, 0.0, 1.0)
 
-def _naive_pvals(obs_2d, nulls_2d, alternative):
+# This function can be used (and perhaps formalised) to get p-values without any tail fitting
+def _naive_pvals(
+        obs_2d: NDArray[np.floating], 
+        nulls_2d: NDArray[np.floating], 
+        alternative: AlternativeLiteral
+) -> tuple[NDArray[np.floating], NDArray[np.bool_]]:
     tail_counts, tail_dir = _count_tails(obs_2d, nulls_2d, alternative)
     return _counts_to_pvals(tail_counts, nulls_2d.shape[1], alternative), tail_dir
 
-def _get_threshold_and_exceedances(nulls_nondesc, n_tail): 
+def _get_threshold_and_exceedances(
+        nulls_nondesc: NDArray[np.floating], 
+        n_tail: int
+) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     tidx = np.searchsorted(nulls_nondesc, nulls_nondesc[-n_tail], side='left')
     if tidx != 0: 
         thr = (nulls_nondesc[tidx-1] + nulls_nondesc[tidx]) / 2.0
@@ -385,9 +504,12 @@ def _get_threshold_and_exceedances(nulls_nondesc, n_tail):
     exceedances = nulls_nondesc[tidx:] - thr # same as nulls_nondesc[nulls_nondesc > thr] 
     return thr, exceedances
 
-def _fit_and_ad_exceedances(exceedences, gof_acceptance_level: float | None = 0.05):
+def _fit_and_ad_exceedances(
+        exceedences: NDArray[np.floating], 
+        fit_alpha: float | None = 0.05
+) -> tuple[tuple[float, float, float], float]:
     fit = genpareto.fit(exceedences, floc=0.0) # floc forced to 0
-    if gof_acceptance_level is not None: 
+    if fit_alpha is not None: 
         adp = _andersondarling(
             np.sort(genpareto.cdf(exceedences, *fit)), 
             k=-fit[0])[0] # Choulakian & Stephens parameterize shape parameter k = -c
@@ -395,7 +517,10 @@ def _fit_and_ad_exceedances(exceedences, gof_acceptance_level: float | None = 0.
         adp = np.nan # adp = 1.0 # could instead use dummy p value
     return fit, adp
 
-def _andersondarling(z_ascending, k):
+def _andersondarling(
+        z_ascending: NDArray[np.floating], 
+        k: float
+) -> tuple[float, np.floating]:
     """
     Compute the Anderson-Darling statistic and return an
     approximated p-value based on the tables provided in:
@@ -450,20 +575,20 @@ def _andersondarling(z_ascending, k):
 # # These functions may be useful if freedman-lane permutations are incorporated in the future, 
 # # or for regression testing (comparing with MATLAB using a known set of permutated designs)
 # def iter_permuted_design_stat_maps(
-#     permuted_designs: Iterable[np.ndarray],
-#     response: np.ndarray,
-#     contrast: np.ndarray,
+#     permuted_designs: Iterable[NDArray],
+#     response: NDArray,
+#     contrast: NDArray,
 #     statistic: StatLiteral,
-# ) -> Iterator[np.ndarray]:
+# ) -> Iterator[NDArray]:
 #     for perm_design in permuted_designs:
 #         yield stat_map(perm_design, response, contrast, statistic)
 
 # def compute_permuted_design_stat_maps(
-#     permuted_designs: Iterable[np.ndarray],
-#     response: np.ndarray,
-#     contrast: np.ndarray,
+#     permuted_designs: Iterable[NDArray],
+#     response: NDArray,
+#     contrast: NDArray,
 #     statistic: StatLiteral,
 #     n_permutations: int | None = None,
-# ) -> np.ndarray:
+# ) -> NDArray:
 #     stream = iter_permuted_design_stat_maps(permuted_designs, response, contrast, statistic)
 #     return _stack_arrays(stream, n=n_permutations)

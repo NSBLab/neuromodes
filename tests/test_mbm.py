@@ -7,7 +7,7 @@ import pytest
 from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
 from neuromodes.mbm import (permute_design, compute_stat_map, generate_null_stat_maps, 
-                            mbm_calc_p_vals, _fit_and_ad_exceedances)
+                            compute_p_values, _fit_and_ad_exceedances)
 
 class TestPermutations:
     @pytest.mark.parametrize("method", ['flip', 'shuffle', 'flip_shuffle'])
@@ -431,13 +431,13 @@ class TestFitAndAD:
         return genpareto.ppf((np.arange(10)+0.5) / 10, c=0.1)
 
     def test_output_shape_and_gof_none(self, basic_exceedances):
-        fit, adp = _fit_and_ad_exceedances(basic_exceedances, gof_acceptance_level=None)
+        fit, adp = _fit_and_ad_exceedances(basic_exceedances, fit_alpha=None)
         assert len(fit) == 3
         assert fit[1] == 0.0  # floc is strictly fixed to 0.0
         assert np.isnan(adp)
 
     def test_output_shape_and_gof_active(self, basic_exceedances):
-        fit, adp = _fit_and_ad_exceedances(basic_exceedances, gof_acceptance_level=0.05)
+        fit, adp = _fit_and_ad_exceedances(basic_exceedances, fit_alpha=0.05)
         assert len(fit) == 3
         assert isinstance(adp, float)
         assert 0.0 <= adp <= 1.0
@@ -446,7 +446,7 @@ class TestFitAndAD:
         # SciPy's fit or the AD calculation should raise on invalid numeric inputs
         bad_data = np.array([0.1, 0.5, np.nan, np.inf])
         with pytest.raises(ValueError):
-            _fit_and_ad_exceedances(bad_data, gof_acceptance_level=0.05)
+            _fit_and_ad_exceedances(bad_data, fit_alpha=0.05)
 
     @pytest.mark.parametrize("c", [-0.45, 0, 0.85])
     @pytest.mark.parametrize("scale", [1.0])
@@ -456,7 +456,7 @@ class TestFitAndAD:
         p_grid = (np.arange(n_samples)+0.5) / n_samples
         exact_data = genpareto.ppf(p_grid, c, loc=0.0, scale=scale)
         
-        fit, adp = _fit_and_ad_exceedances(exact_data, gof_acceptance_level=0.05)
+        fit, adp = _fit_and_ad_exceedances(exact_data, fit_alpha=0.05)
         fit_c, fit_loc, fit_scale = fit
         
         assert fit_loc == 0.0
@@ -480,7 +480,7 @@ class TestFitAndAD:
                 genpareto.rvs(c, loc=0.0, scale=scale, size=n_samples, random_state=seed+ii)
             )
         
-            fit, p_values[ii] = _fit_and_ad_exceedances(random_data, gof_acceptance_level=0.05)
+            fit, p_values[ii] = _fit_and_ad_exceedances(random_data, fit_alpha=0.05)
             fit_c, fit_loc, fit_scale = fit
             
             assert fit_loc == 0.0
@@ -511,7 +511,7 @@ class TestFitAndAD:
             random_data = np.sort(
                 lognorm.rvs(s=s, loc=0.0, scale=scale, size=n_samples, random_state=seed+ii)
             )
-            _, p_values[ii] = _fit_and_ad_exceedances(random_data, gof_acceptance_level=0.05)
+            _, p_values[ii] = _fit_and_ad_exceedances(random_data, fit_alpha=0.05)
 
         # 1. Most individual p-values should directly fail the GOF threshold (< 0.05)
         assert np.mean(p_values < 0.05) > 0.80, "GPD model failed to reject non-GPD data"
@@ -541,8 +541,8 @@ class TestPVals():
         }
         
         for alternative, expected in tests.items():
-            p_act, tail = mbm_calc_p_vals(observed, nulls, alternative,   # type: ignore
-                                   n_for_pval_recalculation=None, # turn off fitting
+            p_act, tail = compute_p_values(observed, nulls, alternative,   # type: ignore
+                                   fit_trigger=None, # turn off fitting
                                    return_tail=True
                                    )
             
@@ -569,8 +569,8 @@ class TestPVals():
         }
 
         for alternative, expected in tests.items():
-            p_act, tail = mbm_calc_p_vals(observed, nulls, alternative,   # type: ignore
-                                   n_for_pval_recalculation=None, # turn off fitting
+            p_act, tail = compute_p_values(observed, nulls, alternative,   # type: ignore
+                                   fit_trigger=None, # turn off fitting
                                    return_tail=True
                                    )
 
@@ -581,8 +581,8 @@ class TestPVals():
     @pytest.mark.parametrize("scale", [1.0, 2.0])
     @pytest.mark.parametrize("loc", [0.0, 1.0])
     @pytest.mark.parametrize("n_permutations", [1000, 10000])
-    @pytest.mark.parametrize("n_for_tail_estimation", [range(1000, 1, -10)])
-    def test_gpd_fit_near_exact(self, c, scale, loc, n_permutations, n_for_tail_estimation):
+    @pytest.mark.parametrize("fit_candidate_sizes", [range(1000, 1, -10)])
+    def test_gpd_fit_near_exact(self, c, scale, loc, n_permutations, fit_candidate_sizes):
         """Use exact GPD distribution to generate tails and verify the extrapolation."""
         
         # 1. Uniformly spaced quantile midpoints over N=n_permutations
@@ -595,22 +595,22 @@ class TestPVals():
         observedStatMap = genpareto.ppf(1 - p_target, c, loc=loc, scale=scale)
     
         # 3. Check naive empirical p-value
-        p_naive = mbm_calc_p_vals(
-            observedStatMap=observedStatMap,
-            statMapNull=statMapNull,
+        p_naive = compute_p_values(
+            stat_map=observedStatMap,
+            stat_map_nulls=statMapNull,
             alternative="greater",
-            n_for_pval_recalculation=None
+            fit_trigger=None
         )
         assert np.all(p_naive == 0.0)
     
         # 4. Call function with correct range direction
-        p_fit = mbm_calc_p_vals(
-            observedStatMap=observedStatMap,
-            statMapNull=statMapNull,
+        p_fit = compute_p_values(
+            stat_map=observedStatMap,
+            stat_map_nulls=statMapNull,
             alternative="greater",
-            n_for_pval_recalculation=10,
-            n_for_tail_estimation=n_for_tail_estimation,
-            gof_acceptance_level=0.9, # could even be 1 as the data are from the exact distribution
+            fit_trigger=10,
+            fit_candidate_sizes=fit_candidate_sizes,
+            fit_alpha=0.9, # could even be 1 as the data are from the exact distribution
             return_tail=False,
         )
     
@@ -640,18 +640,18 @@ class TestPVals():
         fit = genpareto.fit(factor * nulls[:,-n_tail:] - floc, floc = 0.0)
         p_exp = genpareto.sf(factor * obs - floc, *fit) * n_tail/n_null
 
-        p_test = mbm_calc_p_vals(obs, 
+        p_test = compute_p_values(obs, 
                              nulls,
                              alternative=alternative, 
-                             n_for_pval_recalculation=nulls.size, 
-                             n_for_tail_estimation=n_tail,
-                             gof_acceptance_level=None,
+                             fit_trigger=nulls.size, 
+                             fit_candidate_sizes=n_tail,
+                             fit_alpha=None,
                              )
 
-        p_naive = mbm_calc_p_vals(obs, 
+        p_naive = compute_p_values(obs, 
                              nulls,
                              alternative=alternative, 
-                             n_for_pval_recalculation=None, # no recalculation
+                             fit_trigger=None, # no recalculation
                              )
      
         print(f"p: {p}, p_exp: {p_exp}, p_test: {p_test}, p_naive: {p_naive}")
@@ -673,36 +673,36 @@ class TestPVals():
         obs = genpareto.ppf(1-p, c=0.2, loc=3.0, scale=1.0)
 
         # Call 1
-        p_test = mbm_calc_p_vals(
+        p_test = compute_p_values(
             obs, nulls,
             alternative='greater',
-            n_for_tail_estimation=(10*n_tail, n_tail),
-            n_for_pval_recalculation=nulls.size, # force recalculation
-            gof_acceptance_level=0.05 # check that first is rejected
+            fit_candidate_sizes=(10*n_tail, n_tail),
+            fit_trigger=nulls.size, # force recalculation
+            fit_alpha=0.05 # check that first is rejected
         )
 
         # Call 2
-        p_good = mbm_calc_p_vals(
+        p_good = compute_p_values(
             obs, nulls,
             alternative='greater',
-            n_for_tail_estimation=(n_tail,),
-            n_for_pval_recalculation=nulls.size,
-            gof_acceptance_level=0.05
+            fit_candidate_sizes=(n_tail,),
+            fit_trigger=nulls.size,
+            fit_alpha=0.05
         )
 
         # Call 3
-        p_bad = mbm_calc_p_vals(
+        p_bad = compute_p_values(
             obs, nulls,
             alternative='greater',
-            n_for_tail_estimation=(10*n_tail,),
-            n_for_pval_recalculation=nulls.size,
-            gof_acceptance_level=None # force this to be accepted here so that we can get a value
+            fit_candidate_sizes=(10*n_tail,),
+            fit_trigger=nulls.size,
+            fit_alpha=None # force this to be accepted here so that we can get a value
         )
 
-        p_naive = mbm_calc_p_vals(
+        p_naive = compute_p_values(
             obs, nulls,
             alternative='greater',
-            n_for_pval_recalculation=None, # no recalculation
+            fit_trigger=None, # no recalculation
         )
 
         print(f"p: {p}, p_test: {p_test}, p_good: {p_good}, p_bad: {p_bad}, p_naive: {p_naive}")

@@ -1,58 +1,64 @@
+from __future__ import annotations
+from types import SimpleNamespace
+from typing import TYPE_CHECKING
 import numpy as np
 import scipy.stats as sps
-from types import SimpleNamespace
 
 from neuromodes.eigen import EigenData
 from neuromodes.stats import ssqw, solvew
 
+if TYPE_CHECKING:
+    from typing import Literal
+    from scipy.sparse import csc_matrix
+
 # TODO check performace on unequal variance data (Welch's t-test/ANOVA)
 
 def _glmw(
-        X, # (n_vertices, n_predictors)
-        Y, # (n_vertices, n_data)
-        contrast, # (n_contrasts, n_predictors)
-        mass, # (n_vertices, n_vertices)
+    design: np.ndarray, # (n_vertices, n_predictors)
+    response: np.ndarray, # (n_vertices, n_data)
+    contrast: np.ndarray, # (n_contrasts, n_predictors)
+    mass: csc_matrix, # (n_vertices, n_vertices)
 ):
     # 0. Input validation
-    ved = EigenData(data=(X, Y), mass=mass)
-    X, Y = ved.data
+    ved = EigenData(data=(design, response), mass=mass)
+    design, response = ved.data
     mass = ved.mass
 
-    if X.ndim != 2:
-        raise ValueError(f"Design matrix X must be 2D. Received shape: {X.shape}.")
-    if Y.ndim != 2:
-        raise ValueError(f"Data matrix Y must be 2D. Received shape: {Y.shape}.")
-    if np.isscalar(contrast):
-        contrast = np.array([[contrast]])
-    elif contrast.ndim != 2: 
-        raise ValueError("Contrast must be a 2D array or a scalar.")
-    if X.shape[0] != Y.shape[0]:
+    if design.ndim != 2:
+        raise ValueError(f"Design matrix X must be 2D. Received shape: {design.shape}.")
+    if response.ndim != 2:
+        raise ValueError(f"Data matrix Y must be 2D. Received shape: {response.shape}.")
+    if design.shape[0] != response.shape[0]:
         raise ValueError(
             f"Number of rows in X and Y must match. "
-            f"Received X shape: {X.shape}, Y shape: {Y.shape}."
+            f"Received X shape: {design.shape}, Y shape: {response.shape}."
         )
-    if contrast.shape[1] != X.shape[1]:
+    
+    contrast = np.asarray(contrast)
+    if contrast.ndim == 0:
+        contrast = np.atleast_2d(contrast)
+    if contrast.ndim != 2:
+        raise ValueError("Contrast must be a 2D array or a scalar. Received shape: {contrast.shape}.")
+    if contrast.shape[1] != design.shape[1]:
         raise ValueError(
             f"Contrast matrix must have the same number of columns as X. "
-            f"Received contrast shape: {contrast.shape}, X shape: {X.shape}."
+            f"Received contrast shape: {contrast.shape}, X shape: {design.shape}."
         )
 
-    # C = np.atleast_2d(contrast)
-
     # 1. Fit GLM. TODO Should probably return beta 
-    beta = solvew(X, Y, mass) # Shape: (n_predictors, n_data)
+    beta = solvew(design, response, mass) # Shape: (n_predictors, n_data)
     
     # 2. Shared Data Metrics
-    df = X.shape[0] - np.linalg.matrix_rank(X) # TODO check this is correct for different mass matrices
+    df = design.shape[0] - np.linalg.matrix_rank(design) # TODO check this is correct for different mass matrices
 
-    ssr = ssqw(Y - X.dot(beta), mass)
+    ssr = ssqw(response - design.dot(beta), mass)
     sigma_sq = ssr / df # finish ssr
     
     # 3. Contrast Analysis
     D = contrast.dot(beta)  # Shape: (n_contrasts, n_data)
 
     # TODO check use of solve here? what if input is deficient rank? overdetermined contrast matrix?
-    A = (mass.dot(X)).T.dot(X)
+    A = (mass.dot(design)).T.dot(design)
     G = contrast.dot(np.linalg.solve(A, contrast.T))  # Shape: (n_contrasts, n_contrasts)
     V = np.linalg.solve(G, D)
 
@@ -63,16 +69,22 @@ def _glmw(
 # TODO consider making mass optional and warning (as in stats.py)
 # TODO consider making that part of EigenData (flag to return speye mass if None input)
 # TODO consider writing wrapper for ttest_1samp, f_oneway etc. 
-def ttestw(X, Y, contrast, mass, alternative='two-sided'):
+def ttestw(
+    design: np.ndarray, 
+    response: np.ndarray, 
+    contrast: np.ndarray, 
+    mass: csc_matrix, 
+    alternative: Literal['two-sided', 'greater', 'less'] = 'two-sided'
+) -> SimpleNamespace:
     """Weighted t-test for one or two samples."""
 
-    if not np.isscalar(contrast) and contrast.shape[0] != 1:
+    if  np.atleast_2d(contrast).shape[0] != 1:
         raise ValueError(
             f"ttestw requires exactly 1 contrast (1 degree of freedom). "
             f"Received {contrast.shape[0]}. Use ftestw for multi-row contrasts."
         )
 
-    Q, D, df = _glmw(X, Y, contrast, mass)
+    Q, D, df = _glmw(design, response, contrast, mass)
     
     # Recover directional t-statistic: t = sign(D) * sqrt(Q)
     statistic = np.sign(D.flatten()) * np.sqrt(Q)
@@ -96,9 +108,15 @@ def ttestw(X, Y, contrast, mass, alternative='two-sided'):
     )
 
 # TODO add tests for this
-def ztestw(X, Y, contrast, mass, alternative='two-sided'):
+def ztestw(
+    design: np.ndarray, 
+    response: np.ndarray, 
+    contrast: np.ndarray, 
+    mass: csc_matrix, 
+    alternative: Literal['two-sided', 'greater', 'less'] = 'two-sided'
+) -> SimpleNamespace:
     """Weighted z-test derived from ttestw."""
-    res = ttestw(X, Y, contrast, mass, alternative=alternative)
+    res = ttestw(design, response, contrast, mass, alternative=alternative)
     
     # Convert t-statistic to Z-score using probability integral transform
     p = sps.t.logsf(np.abs(res.statistic), df=res.df) # log p half
@@ -114,9 +132,14 @@ def ztestw(X, Y, contrast, mass, alternative='two-sided'):
         df=res.df
     )
 
-def ftestw(X, Y, contrast, mass):
+def ftestw(
+    design: np.ndarray, 
+    response: np.ndarray, 
+    contrast: np.ndarray, 
+    mass: csc_matrix
+) -> tuple:
     """Weighted F-test for one-way ANOVA and ANCOVA."""
-    Q, _, df = _glmw(X, Y, contrast, mass)
+    Q, _, df = _glmw(design, response, contrast, mass)
     
     # Compute omnibus F-statistic: F = Q / rank(C)
     rank_C = np.linalg.matrix_rank(contrast)
