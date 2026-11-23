@@ -13,7 +13,7 @@ import numpy as np
 from scipy.sparse import diags, issparse
 
 from neuromodes.stats import cdistw, lstsqw, _multiply_nd, _dot_nd
-from neuromodes.validation import _create_mass_matrix, _process_mode_ids, _check_n_verts
+from neuromodes.validation import _process_mass_matrix, _process_mode_ids, _check_n_verts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -158,7 +158,7 @@ def decompose(
     #     ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
     #     emodes, mass, data = ved.emodes, ved.mass, ved.data
 
-    mass = _create_mass_matrix(mass, data.shape[0])
+    mass = _process_mass_matrix(mass, data.shape[0])
     _check_n_verts(data=data, emodes=emodes, mass=mass)
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
 
@@ -418,7 +418,7 @@ def calc_recon_error(
         If ``data`` and ``recon`` have incompatible shapes.
     """
 
-    mass = _create_mass_matrix(mass, data.shape[0])
+    mass = _process_mass_matrix(mass, data.shape[0])
     _check_n_verts(data=data, recon=recon, mass=mass)
 
     # Get and check data/recon shapes

@@ -14,7 +14,7 @@ from scipy.sparse import csc_matrix, spmatrix, diags, issparse
 from scipy.spatial.distance import cdist as scipy_cdist, squareform as scipy_squareform
 
 # from neuromodes.eigen import EigenData
-from neuromodes.validation import _create_mass_matrix, _process_parcellation_matrix, _mass_to_areas, _check_n_verts
+from neuromodes.validation import _process_mass_matrix, _process_parcellation_matrix, _process_area_vector, _check_n_verts
 
 if TYPE_CHECKING:
     from typing import Any
@@ -334,7 +334,7 @@ def meanw(
     # ved = EigenData(data=data, mass=mass)
     # data, mass = ved.data, ved.mass
     data = np.asarray(data)
-    areas = _mass_to_areas(mass, data.shape[0], keepdims=keepdims)
+    areas = _process_area_vector(mass, data.shape[0], keepdims=keepdims)
     num = _dot_nd(areas, data)
     return num / areas.sum() # np.float
 
@@ -426,7 +426,7 @@ def momentw(
         return varw(data, mass, keepdims=keepdims)
     else:
         # Approximate by lumping
-        areas = _mass_to_areas(mass, data.shape[0])
+        areas = _process_area_vector(mass, data.shape[0])
         data_dm = demeanw(data, areas)
         return meanw(data_dm ** order, areas, keepdims=keepdims)
 
@@ -618,7 +618,7 @@ def cdistw(
         D = cdistw(demeanw(a, mass), demeanw(b, mass), mass, 'cosine')
         
     else:
-        areas = _mass_to_areas(mass, a.shape[0])
+        areas = _process_area_vector(mass, a.shape[0])
         D = scipy_cdist(a, b, metric=metric, w=areas)
 
     return np.maximum(D, 0)
@@ -681,7 +681,7 @@ def solvew(
     # ved = EigenData(data=(data_a, data_b), mass=mass)
     # a, b = ved.data
     a, b = data_a, data_b
-    mass = _create_mass_matrix(mass, a.shape[0])
+    mass = _process_mass_matrix(mass, a.shape[0])
     _check_n_verts(a=a, b=b, mass=mass)
     # Solves (a'Wa)x = (a'Wb)
     return np.linalg.solve(a.T @ mass @ a, a.T @ mass @ b)
@@ -719,11 +719,11 @@ def lstsqw(
     """
     # ved = EigenData(data=(data_a, data_b), mass=mass)
     # a, b = ved.data
-    mass = _create_mass_matrix(mass, data_a.shape[0])
+    mass = _process_mass_matrix(mass, data_a.shape[0])
     a, b = data_a, data_b
     _check_n_verts(a=a, b=b, mass=mass)
 
-    va = np.sqrt(_mass_to_areas(mass, a.shape[0])) # (n_verts,)
+    va = np.sqrt(_process_area_vector(mass, a.shape[0])) # (n_verts,)
     aw = a * va[:, np.newaxis]
     bw = b * va[:, np.newaxis] if b.ndim != 1 else b * va
     return np.linalg.lstsq(aw, bw, rcond=rcond)
@@ -773,7 +773,7 @@ def parcellate(
     # output = p.T @ mass @ data; or 
     # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
     parc_mat = _process_parcellation_matrix(parcellation)
-    parc_mass = _dot_nd(parc_mat, _create_mass_matrix(mass, data.shape[0]))
+    parc_mass = _dot_nd(parc_mat, _process_mass_matrix(mass, data.shape[0]))
     if method == 'mean':
         parc_mass /= parc_mass.sum(axis=1) 
 

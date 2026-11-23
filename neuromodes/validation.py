@@ -159,18 +159,18 @@ def _process_parcellation_matrix(
     return parc_mat
 
 
-def _mass_to_areas(
+def _process_area_vector(
     mass: csc_matrix | NDArray[np.floating] | None = None,
-    n_verts: int | None = None,
+    n_verts: int | None = None, 
+    dtype: np.dtype | None = None,
     keepdims: bool = False
 ) -> NDArray[np.floating]:
-    mass = np.asarray(_create_mass_matrix(mass=mass, n_verts=n_verts).sum(axis=1))
+    mass = np.asarray(_process_mass_matrix(mass=mass, n_verts=n_verts, dtype=dtype).sum(axis=1))
     if not keepdims:
         mass = mass.squeeze(axis=1)
     return mass
 
-# TODO P3: consider adding dtype parameter to _create_mass_matrix for w=None case
-def _create_mass_matrix(
+def _process_mass_matrix(
     mass: csc_matrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None, 
     dtype: np.dtype | None = None

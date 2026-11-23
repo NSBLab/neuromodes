@@ -10,7 +10,7 @@ from warnings import warn
 import numpy as np
 
 from neuromodes.stats import _dot_nd, _multiply_nd
-from neuromodes.validation import _create_mass_matrix, _check_n_verts, _check_n_modes, _process_mode_ids
+from neuromodes.validation import _process_mass_matrix, _check_n_verts, _check_n_modes, _process_mode_ids
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -94,7 +94,7 @@ def compute_gem(
     output_dtype = np.result_type(emodes, evals)
 
     if weighted_pinv: 
-        mass = _create_mass_matrix(mass, n_verts, dtype=output_dtype)
+        mass = _process_mass_matrix(mass, n_verts, dtype=output_dtype)
     elif mass is not None:
         warn("Mass matrix provided but weighted_pinv is False; mass will be ignored.", UserWarning)
     

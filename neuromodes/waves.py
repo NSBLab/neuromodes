@@ -15,7 +15,7 @@ from scipy.sparse import linalg
 
 from neuromodes.basis import decompose
 # from neuromodes.eigen import EigenData
-from neuromodes.validation import _check_n_verts, _create_mass_matrix
+from neuromodes.validation import _check_n_verts, _process_mass_matrix
 from neuromodes.stats import _multiply_nd
 
 if TYPE_CHECKING:
@@ -276,7 +276,7 @@ def balloon_model(
     # if checks is not False:
     #     ved = EigenData(emodes=emodes, mass=mass, data=activity, checks=checks)
     #     emodes, mass, activity = ved.emodes, ved.mass, ved.data
-    mass = _create_mass_matrix(mass, emodes.shape[0])
+    mass = _process_mass_matrix(mass, emodes.shape[0])
     _check_n_verts(emodes=emodes, activity=activity, mass=mass)
 
     if np.isnan(activity).any():

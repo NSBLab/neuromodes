@@ -14,7 +14,7 @@ from scipy.sparse import csc_matrix
 
 from neuromodes.io import read_vol, read_surf
 from neuromodes.mesh import check_geometry, mask_geometry, is_vol, is_surf
-from neuromodes.validation import _create_mass_matrix, _check_n_verts
+from neuromodes.validation import _process_mass_matrix, _check_n_verts
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -670,7 +670,7 @@ def is_orthonormal_basis(
     # Format / validate arguments
     # ved = EigenData(emodes=emodes, mass=mass, checks=checks)
     # emodes, mass = ved.emodes, ved.mass
-    mass = _create_mass_matrix(mass, emodes.shape[0])
+    mass = _process_mass_matrix(mass, emodes.shape[0])
     _check_n_verts(emodes=emodes, mass=mass)
 
     # Check Euclidean or mass-orthonormality
