@@ -2,65 +2,34 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from heapq import heappop, heappush
+from itertools import count
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from lapy import Solver, TetMesh, TriaMesh
-from numpy.typing import NDArray
 
 from neuromodes.mesh import check_surf, check_vol, mask_mesh
 
-
-def _queue_child_or_finalize(
-    geometry: TriaMesh | TetMesh,
-    child_mask: NDArray[np.bool_],
-    heap: list,
-    parcel_masks: list[NDArray[np.bool_]],
-    counter: int,
-    seed: int | None,
-) -> int:
-    """Queue a splittable child or record it as one terminal parcel."""
-    if not np.any(child_mask):
-        # Empty mask, cannot split
-        return counter
-    
-    min_vertices = (3 if isinstance(geometry, TriaMesh) else 4)
-    if child_mask.sum() < min_vertices:
-        # Cannot split the atom (no complete cells)
-        parcel_masks.append(child_mask)
-        return counter
-    
-    try:
-        submesh, child_mapping = mask_mesh(
-            geometry, child_mask, return_mapping=True
-        )
-    except ValueError as error:
-        if "mask does not retain any complete cell" not in str(error):
-            raise
-        # Cannot split the atom (no complete cells)
-        parcel_masks.append(child_mask)
-        return counter
-
-    # Compute the second eigenpair and push split onto heap
-    evals, emodes = Solver(submesh).eigs(2, rng=seed)
-    queued_mask = np.zeros(len(child_mask), dtype=bool)
-    queued_mask[child_mapping] = True
-
-    counter += 1
-    heappush(heap, (evals[1], counter, emodes[:, 1] >= 0, queued_mask))
-    return counter
+if TYPE_CHECKING:
+    from numpy.random import Generator
+    from numpy.typing import NDArray
 
 def make_parcellation(
     geometry: TriaMesh | TetMesh,
-    n_parcels: int | list[int] | tuple[int, ...],
-    check_mesh: bool = True,
-    seed: int | None = None
-) -> NDArray[np.floating]:
+    n_parcels: int | Sequence[int],
+    check_geometry: bool = True,
+    # TODO: consider adding repair="remesh", if it's meaningfully different and not too slow
+    repair: Literal["nearest"] | None = "nearest",
+    seed: int | Generator | None = None
+    # TODO: add equal_areas=False for MGH method
+    # TODO: add use_cholmod=False
+) -> NDArray[np.integer]:
     """
     Generate a parcellation for a surface or volume mesh using the hierarchical algorithm from Pang
     et al. (2025) [1]_, where the mesh is iteratively split using the sign of the second (first
-    non-constant) Laplace-Beltrami eigenmode. Vertices omitted by broken induced cells remain ``-1``
-    in the returned integer labels.
+    non-constant) Laplace-Beltrami eigenmode.
 
     Parameters
     ----------
@@ -69,8 +38,11 @@ def make_parcellation(
         component.
     n_parcels : int or sequence of int
         Number(s) of parcels requested.
-    check_mesh : bool
-        Whether to check that the input mesh is manifold with one connected component.
+    check_geometry : bool
+        Whether to check that the input mesh ``geometry`` is manifold with one connected component.
+    repair : 'nearest' or None, optional
+        Method for assigning vertices omitted from complete induced cells. ``'nearest'`` assigns to
+        the closest labelled adjacent vertex.
     seed : int or None, optional
         Random seed for reproducibility.
 
@@ -88,29 +60,33 @@ def make_parcellation(
         If ``n_parcels`` is not an integer or a sequence of integers in the range [1, ``n_verts``].
     RuntimeError
         If the highest requested number of parcels failed to be reached due to mesh topology.
+    ValueError
+        If ``repair`` is not ``None`` or ``'nearest'``.
 
     References
     ----------
     ..  [1] Pang, J.C., et al. (2025). Geometric influences on the regional organization of the
         mammalian brain. bioRxiv. https://doi.org/10.1101/2025.01.30.635820
     """
-    # TODO: add equal_areas=False for MGH mode
-    # TODO: add repair=True to repair masks with unreferenced vertices
     # Format / validate inputs
     if isinstance(geometry, TriaMesh):
-        if check_mesh:
+        if check_geometry:
             check_surf(geometry)
     elif isinstance(geometry, TetMesh):
-        if check_mesh:
+        if check_geometry:
             check_vol(geometry)
     else:
         raise TypeError("geometry must be an instance of either lapy.TriaMesh or lapy.TetMesh")
+    if repair not in (None, "nearest"):
+        raise ValueError("repair must be None or 'nearest'")
     n_verts = geometry.v.shape[0]
 
     err_msg = ("n_parcels must be an integer or a sequence of integers in the range [1, n_verts = "
                f"{n_verts}]")
     if scalar_request := isinstance(n_parcels, (int, np.integer)):
         n_parcels = [n_parcels]
+    elif isinstance(n_parcels, np.ndarray) and n_parcels.ndim == 1:
+        n_parcels = n_parcels.tolist()
     elif not (isinstance(n_parcels, (list, tuple)) and len(n_parcels) > 0
               and all(isinstance(val, (int, np.integer)) for val in n_parcels)):
         raise ValueError(err_msg)
@@ -119,48 +95,159 @@ def make_parcellation(
     
     n_parcels_set = sorted(set(n_parcels))
     parcellations = {}
+    rng = np.random.default_rng(seed)
 
-    # Handle special / trivial case of one parcel
+    # Handle trivial case of one parcel
     if 1 in n_parcels_set:
         parcellations[1] = np.ones(n_verts, dtype=int)
     if n_parcels_set == [1]:
         return parcellations[1] if scalar_request else parcellations[1][:, None]
 
     # Initialise the heap with the first eigenpair
-    evals, emodes = Solver(geometry).eigs(2, rng=seed)
-    counter = 0  # Tiebreaker for degen evals
-    heap = [(evals[1], counter, emodes[:, 1] >= 0, np.ones(n_verts, dtype=bool))]
+    evals, emodes = Solver(geometry).eigs(2, rng=rng)
+    counter = count()  # Tiebreaker for degen evals
+    heap = [(evals[1], next(counter), emodes[:, 1] >= 0, np.ones(n_verts, dtype=bool))]
 
     # Split parcel with lowest eigenvalue until we reach the largest requested parcel count
-    parcel_masks = []
+    leaf_masks = []
     for parcel_count in range(2, n_parcels_set[-1] + 1):
-        emode2_pos, parent_mask = heappop(heap)[2:]
+        # TODO: consider a multiple connected components approach for potential speedup
+        _split_parcel(geometry, leaf_masks, heap, counter, rng)
 
-        # Split the parent parcel into two child parcels according to emode2 sign
-        daughter_mask = np.zeros(len(parent_mask), dtype=bool)
-        son_mask = daughter_mask.copy()
-        son_mask[parent_mask] = emode2_pos
-        daughter_mask[parent_mask] = ~emode2_pos
-
-        for child_mask in (son_mask, daughter_mask):
-            counter = _queue_child_or_finalize(
-                geometry, child_mask, heap, parcel_masks, counter, seed
-            )
-
-        current_count = len(parcel_masks) + len(heap)
-        err_msg = (f"Cannot create the highest requested number of parcels; reached {current_count}"
-                   " parcels")
-        if any(target < current_count and target not in parcellations for target in n_parcels_set):
-            raise RuntimeError(err_msg)
+        current_count = len(leaf_masks) + len(heap)
         if not heap and current_count < n_parcels_set[-1]:
-            raise RuntimeError(err_msg)
+            raise RuntimeError("Cannot create the highest requested number of parcels; reached "
+                               f"{current_count} parcels")
 
         if parcel_count in n_parcels_set:
             # Use the current masks to create the parcellation
             parcellation_i = np.full(n_verts, -1, dtype=int)
-            for j, parcel in enumerate(parcel_masks + [item[3] for item in heap], start=1):
+            for j, parcel in enumerate([item[3] for item in heap] + leaf_masks, start=1):
                 parcellation_i[parcel] = j
             parcellations[parcel_count] = parcellation_i
 
+    if repair is not None:
+        parcellations = _fill_omitted_vertices(geometry, parcellations)
+
     parcellations = np.column_stack([parcellations[i] for i in n_parcels])
     return parcellations[:, 0] if scalar_request else parcellations
+
+def _split_parcel(
+    geometry: TriaMesh | TetMesh,
+    leaf_masks: list[NDArray[np.bool_]],
+    heap: list,
+    counter: count,
+    rng: Generator,
+) -> None:
+    """
+    Split a parcel using its second Laplace-Beltrami eigenmode and push the resulting child parcels
+    onto the heap. If a child parcel does not contain any cells (triangles for ``TriaMesh`` or
+    tetrahedra for ``TetMesh``), its second eigenpair cannot be computed and so it is not split
+    further (leaf node in the hierarchy).
+
+    Parameters
+    ----------
+    geometry : lapy.TriaMesh or lapy.TetMesh
+        Surface or volume mesh containing ``n_verts`` vertices. Must be manifold with one connected
+        component.
+    leaf_masks: list
+        List of small terminated parcel masks (leaf nodes in the hierarchy).
+    heap: list
+        List of tuples (eigenvalue, tiebreaker, eigenmode_sign, mask) representing the current state
+        of the hierarchy.
+    counter: count
+        A counter to break ties in the heap (degenerate eigenvalues).
+    rng: Generator
+        numpy random number generator for reproducibility.
+    """
+    # Get parcel with lowest eigenvalue
+    emode2_ispos, parent_mask = heappop(heap)[2:]
+
+    # Create two child masks using the emode2 sign
+    empty_mask = np.zeros(geometry.v.shape[0], dtype=bool)
+    child1_mask = empty_mask.copy()
+    child2_mask = empty_mask.copy()
+    child1_mask[parent_mask] = emode2_ispos
+    child2_mask[parent_mask] = ~emode2_ispos
+
+    for child_mask in (child1_mask, child2_mask):
+        try:
+            submesh, mapping = mask_mesh(geometry, child_mask, return_mapping=True)
+        except ValueError:
+            # Parcel has no cells, so it cannot be split further (leaf node in the hierarchy)
+            leaf_masks.append(child_mask)
+            continue
+
+        # Compute the second eigenpair of child parcel and push with updated mask onto heap
+        evals, emodes = Solver(submesh).eigs(2, rng=rng)
+        child_mask = empty_mask.copy()
+        child_mask[mapping] = True
+
+        heappush(heap, (evals[1], next(counter), emodes[:, 1] >= 0, child_mask))
+
+def _fill_omitted_vertices(
+    geometry: TriaMesh | TetMesh,
+    parcellations: dict[int, NDArray[np.integer]],
+) -> dict[int, NDArray[np.integer]]:
+    """
+    Relabel parcellations' omitted vertices (denoted by -1) using the label of the nearest
+    non-omitted neighbour.
+
+    Parameters
+    ----------
+    geometry : lapy.TriaMesh or lapy.TetMesh
+        Surface or volume mesh containing ``n_verts`` vertices. Must be manifold with one connected
+        component.
+    parcellations : dict
+        Dictionary of parcellations keyed by number of parcels.
+
+    Returns
+    -------
+    dict
+        Dictionary of parcellations with omitted vertices relabelled, keyed by number of parcels.
+
+    Raises
+    ------
+    RuntimeError
+        If a vertex cannot be repaired because it has no labelled neighbours.
+    """
+    # Splits never resolve omitted vertices, thus the set of omitted vertices across all
+    # parcellations is given by that of the finest/maximum parcellation
+    n_parcels_max = max(parcellations.keys())
+    omitted_max = np.flatnonzero(parcellations[n_parcels_max] == -1)
+    if len(omitted_max) == 0:
+        return parcellations
+
+    adj_sym = geometry.adj_sym.tocsr()
+    neighbours_max = {}
+    neighbour_distances_max = {}
+    for vertex in omitted_max:
+        # Get distances to all neighbours
+        neighbours = adj_sym[vertex].indices
+        distances = np.linalg.norm(geometry.v[neighbours] - geometry.v[vertex], axis=1)
+
+        # Cache sorted distances and neighbour indices
+        order = np.argsort(distances, kind="stable")
+        neighbours_max[vertex] = neighbours[order]
+        neighbour_distances_max[vertex] = distances[order]
+
+    # Repair each parcellation independently
+    for n_parcels, parcellation in parcellations.items():
+        omitted = omitted_max if n_parcels == n_parcels_max else np.flatnonzero(parcellation == -1)
+
+        for vertex in omitted:
+            # Get indices of non-omitted neighbours
+            neighbours = neighbours_max[vertex]
+            candidates = np.flatnonzero(parcellation[neighbours] >= 0)
+            if len(candidates) == 0:
+                # TODO: consider if this can happen and if we should expand search to 2 steps
+                raise RuntimeError("cannot repair an unresolved vertex with no labelled neighbour")
+
+            # Assign label of nearest non-omitted neighbour (for ties, use lowest label)
+            distances = neighbour_distances_max[vertex][candidates]
+            nearest_indices = neighbours[candidates[distances == np.min(distances)]]
+            parcellation[vertex] = np.min(parcellation[nearest_indices])
+
+        parcellations[n_parcels] = parcellation
+
+    return parcellations

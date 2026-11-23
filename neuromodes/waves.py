@@ -23,6 +23,7 @@ from neuromodes.stats import _mult_by_cholesky
 if TYPE_CHECKING:
     from typing import Literal
 
+    from numpy.random import Generator
     from scipy.sparse import csc_matrix
 
     from neuromodes.eigen import _CheckKind
@@ -43,7 +44,7 @@ def sim_nft_waves(
     hetero: NDArray[np.floating] | None = None,
     fft_pad_tol: np.floating | Literal['nt'] = 1e-4,
     checks: _CheckKind = True,
-    seed: int | None = None,
+    seed: int | Generator | None = None,
     cache_input: bool = False,
     n_jobs: int = 1,
     verbose: int = 0
@@ -98,7 +99,7 @@ def sim_nft_waves(
         https://github.com/NSBLab/neuromodes/blob/main/docs/validation/waves_fourier_padding.ipynb.
     checks : bool, optional
         Whether to validate the input arguments. Default is ``True``.
-    seed : int, optional
+    seed : int | Generator | None, optional
         Random seed for generating external input. Default is ``None``.
     cache_input : bool, optional
         If ``True`` and ``ext_input`` is ``None``, cache the generated random input to avoid
@@ -639,7 +640,7 @@ def _gen_noise(
     n_samples: int,
     nt: int,
     mass: csc_matrix | None = None,
-    seed: int | None = None
+    seed: int | Generator | None = None
 ) -> NDArray[np.floating]:
     """
     Generate reproducible white noise of shape ``(n_samples, nt)`` for a given ``seed``, derived
@@ -658,7 +659,7 @@ def _gen_noise(
         The mass matrix of shape ``(n_verts, n_verts)`` used for combined normalization /
         mass-weighting (for wave PDE). If ``None``, no corrections are applied (e.g., modal
         noise). Default is ``None``.
-    seed : int
+    seed : int | Generator | None, optional
         Random seed for reproducibility.
 
     Returns

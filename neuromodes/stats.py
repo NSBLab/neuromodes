@@ -670,13 +670,16 @@ def _create_parcellation_matrix(
         raise ValueError("Parcellation map must be 1D.")
     
     n_verts = parcellation.shape[0]
-    mask = parcellation >= 0 # medial wall should be negative
-    
+    mask = parcellation > 0 # medial wall should be non-positive (e.g., Schaefer uses 0)
+
+    labels = np.unique(parcellation[mask]) # MGH won't like these lines, may die in merge conflicts
+    label_cols = np.searchsorted(labels, parcellation[mask])
+
     # Construct sparse parcellation matrix as (n_parcels, n_verts)
     parc_mat = csc_matrix(
         (np.ones(np.sum(mask)),
-         (np.arange(n_verts)[mask], parcellation[mask])),
-        shape=(n_verts, np.max(parcellation)+1)
+         (np.arange(n_verts)[mask], label_cols)),
+        shape=(n_verts, len(labels))
         )
     
     return parc_mat

@@ -700,14 +700,15 @@ class EigenSolver(Solver):
     ) -> NDArray[np.floating]:
         """
         This is a wrapper for :func:`~neuromodes.parcellation.make_parcellation`. Note that
-        ``geometry`` and ``check_mesh`` are passed automatically by the ``EigenSolver`` instance.
+        ``geometry`` and ``check_geometry`` are passed automatically by the ``EigenSolver``
+        instance.
         """
         from neuromodes.parcellation import make_parcellation as _make_parcellation
 
         return _make_parcellation(
             n_parcels=n_parcels,
             geometry=self.geometry,
-            check_mesh=False,
+            check_geometry=False,
             **kwargs
     )
 

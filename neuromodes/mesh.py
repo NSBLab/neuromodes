@@ -236,7 +236,8 @@ def check_vol(
     vol: TetMesh
 ) -> None:
     """
-    Check if the volume mesh has no unreferenced vertices and a contiguous surface boundary.
+    Check if the volume mesh is manifold, has no unreferenced vertices, and has a contiguous surface
+    boundary.
     
     Parameters
     ----------
