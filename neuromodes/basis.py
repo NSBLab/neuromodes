@@ -13,7 +13,7 @@ import numpy as np
 from scipy.sparse import diags, issparse
 
 from neuromodes.stats import cdistw, lstsqw, _multiply_nd, _dot_nd
-from neuromodes.validation import _process_mass_matrix, _process_mode_ids, _check_n_verts
+from neuromodes.validation import _process_mass_matrix, _process_mode_ids, _check_n_verts, _check_n_modes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -149,23 +149,13 @@ def decompose(
     provides no constraint. Consider instead interpolating missing data prior to decomposition.
     """
     # Format / validate inputs
-    if method not in ['project', 'regress']:
-        raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
-    
-    # if checks is None:
-    #     checks = True if method == 'project' else 'maps'
-    # if checks is not False: 
-    #     ved = EigenData(emodes=emodes, mass=mass, data=data, checks=checks)
-    #     emodes, mass, data = ved.emodes, ved.mass, ved.data
-
     mass = _process_mass_matrix(mass, data.shape[0])
-    _check_n_verts(data=data, emodes=emodes, mass=mass)
+    n_verts = _check_n_verts(data=data, emodes=emodes, mass=mass)
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
 
     # Manipulate input/output shapes
-    n_modes = [len(x) for x in mode_ids]
-    output_shapes = [(i,) + data.shape[1:] for i in n_modes]
-    coeffs = [np.empty(shape, dtype=data.dtype) for shape in output_shapes]
+    # output_shapes = [(len(m),) + data.shape[1:] for m in mode_ids]
+    coeffs = [np.empty((len(m),) + data.shape[1:], dtype=data.dtype) for m in mode_ids]
 
     if method == 'project': 
         # Find the unique mode IDs requested, and the inverse mapping back to mode_ids
@@ -181,7 +171,7 @@ def decompose(
 
     elif method == 'regress':
         # Find all the nan patterns
-        data_2d = data.reshape(data.shape[0], -1) # guaranteed 2d
+        data_2d = data.reshape(n_verts, -1) # guaranteed 2d
         data_isnan = np.isnan(data_2d)
         if np.any(data_isnan):
             masks, mask_indices = np.unique(~data_isnan, axis=1, return_inverse=True)
@@ -190,8 +180,8 @@ def decompose(
             mask_indices = np.zeros(data_2d.shape[1], dtype=int)
 
         # Have to loop over each set of mode indices
-        for j in range(len(mode_ids)):
-            coeffs_current = np.empty((n_modes[j], data_2d.shape[1]), dtype=data.dtype)
+        for j, mids in enumerate(mode_ids):
+            coeffs_current = np.empty((len(mids), data_2d.shape[1]), dtype=data.dtype)
             # as well as each NaN pattern
             for i, mask in enumerate(masks.T):
                 # Get indices of maps with this NaN/Inf pattern
@@ -199,11 +189,14 @@ def decompose(
                 # Calculate coefficients for subset of data
                 map_indices = np.where(mask_indices == i)[0]
                 coeffs_current[:, map_indices] = lstsqw(
-                    emodes[mask][:, mode_ids[j]],
+                    emodes[mask][:, mids],
                     data_2d[mask][:, map_indices],
                     mass=mass[mask][:, mask]
                 )[0]
-            coeffs[j] = coeffs_current.reshape(output_shapes[j])
+            coeffs[j] = coeffs_current.reshape(coeffs[j].shape)
+
+    else: 
+        raise ValueError(f"Invalid method '{method}'; must be 'project' or 'regress'.")
 
     return coeffs[0] if squeeze_output else coeffs # convert back to array if mode_counts was None/scalar
 
@@ -278,33 +271,12 @@ def reconstruct(
     Note that extreme values may accumulate in the reconstructed data at these vertices, where data
     provides no constraint. Consider instead interpolating missing data prior to decomposition.
     """
-    # Format / validate inputs
-    # if checks is None:
-    #     if method == 'regress':
-    #         checks = 'maps'
-    #     else:
-    #         checks = True
-    # if checks is not False:
-    #     ved = EigenData(emodes=emodes, mass=mass, checks=checks)
-    #     emodes, mass = ved.emodes, ved.mass
-
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
-    # coeffs_same_shape = all(c.shape[1:] == coeffs[0].shape[1:] for c in coeffs)
-    # output_dtype = np.result_type(*[c.dtype for c in coeffs], emodes.dtype)
 
     if squeeze_output and isinstance(coeffs, np.ndarray): # mode_counts is None or scalar, so coeffs is a single array
         recon_nd = _multiply_nd(emodes[:, mode_ids[0]], coeffs)
     elif squeeze_output: 
         raise ValueError("If mode_counts is None or scalar, coeffs must be a single array, not a list.")
-    # elif isinstance(coeffs, np.ndarray):
-    #     output_dtype = np.result_type(coeffs.dtype, emodes.dtype)
-    #     recon_nd = np.empty((emodes.shape[0], *coeffs.shape[1:]), dtype=output_dtype)
-    #     for j, mids in enumerate(mode_ids):
-    #         recon_nd[..., j] = _multiply_nd(emodes[:, mids], coeffs[...,j])
-    # elif coeffs_same_shape:
-    #     recon_nd = np.empty((emodes.shape[0], *coeffs[0].shape[1:], len(coeffs)), dtype=output_dtype)
-    #     for j, mids in enumerate(mode_ids):
-    #         recon_nd[..., j] = _multiply_nd(emodes[:, mids], coeffs[j])
     else:
         recon_nd = [_multiply_nd(emodes[:, mids], coeffs[j]) for j, mids in enumerate(mode_ids)]
     return recon_nd
@@ -328,25 +300,24 @@ def filter_spectrum(
     (ii) a numpy or scipy.sparse square matrix of shape of the same length.
     Note that only the corresponding modes in mode_ids/mode_counts will be used for each iteration.
 
-    if mode_counts is used, or if mode_ids is used to request multiple sets of modes,
-    output will be of shape (n_verts, ..., n_recons), where n_recons is the number of reconstructions
-    otherwise, output will be of shape (n_verts, ...), where ... is the shape of data after the first axis.
+    if mode_counts or mode_ids are used to request a single reconstruction, 
+    the output will be an array of the same shape as data. 
+    if mode_counts or mode_ids are used to request multiple reconstructions,
+    the output will be an array of shape (*data.shape, n_recons)
     """
 
-    mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, emodes.shape[1])
-
     # check n_verts and check_mass are inside decompose, so we don't need to do them here
-    coeffs = decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids)
+    n_modes = _check_n_modes(emodes=emodes, evals=evals)
+    mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, n_modes)
 
-    # TODO add check_n_modes 
+    coeffs = decompose(data, emodes, method=method, mass=mass, mode_ids=mode_ids)
 
     filtered_evals = transfer_function(evals)
     if filtered_evals.ndim == 1:
         filtered_evals = diags(filtered_evals, dtype=evals.dtype).tocsc()
     if (filtered_evals.shape is None 
-        or filtered_evals.shape[0] != filtered_evals.shape[1] 
-        or filtered_evals.shape[0] != emodes.shape[1]): 
-        raise ValueError(f"Transfer function output must be a square matrix of shape (n_modes, n_modes); got {filtered_evals.shape}.")
+        or filtered_evals.shape != (n_modes, n_modes)): 
+        raise ValueError(f"Transfer function output must be a square matrix of shape ({n_modes}, {n_modes}); got {filtered_evals.shape}.")
     filtered_emodes = _multiply_nd(emodes, filtered_evals)
 
     output = np.empty((*data.shape, len(mode_ids)), 
@@ -418,8 +389,9 @@ def calc_recon_error(
         If ``data`` and ``recon`` have incompatible shapes.
     """
 
-    mass = _process_mass_matrix(mass, data.shape[0])
-    _check_n_verts(data=data, recon=recon, mass=mass)
+    n_verts = _check_n_verts(data=data, recon=recon, mass=mass)
+    result_dtype = np.result_type(data, recon)
+    mass = _process_mass_matrix(mass, n_verts=n_verts, dtype=result_dtype)
 
     # Get and check data/recon shapes
     data_shape = data.shape
@@ -437,11 +409,11 @@ def calc_recon_error(
         n_recons = recon_shape[-1]
 
     # Main computation
-    data_2d = data.reshape(data.shape[0], -1)
-    recon_3d = recon.reshape(recon.shape[0], -1, n_recons)
+    data_2d = data.reshape(n_verts, -1)
+    recon_3d = recon.reshape(n_verts, -1, n_recons)
 
     error_2d_shape = (data_2d.shape[1],) + (n_recons,)
-    recon_error_2d = np.empty(error_2d_shape, dtype=data.dtype)
+    recon_error_2d = np.empty(error_2d_shape, dtype=result_dtype)
     for i in range(data_2d.shape[1]):
         recon_error_2d[i, :] = cdistw(
             data_2d[:, [i]], recon_3d[:, i, :], mass=mass, metric=metric, **cdist_kwargs

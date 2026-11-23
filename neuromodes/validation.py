@@ -5,7 +5,8 @@ from warnings import warn
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.sparse import diags, spmatrix, csc_matrix
+from scipy.sparse import diags, csc_matrix
+from scipy.sparse.csgraph import connected_components
 
 if TYPE_CHECKING:
     from typing import Any, TypeAlias, TypeGuard
@@ -47,8 +48,6 @@ def _check_n_verts(
         if not _is_positive_integer(n_verts):
             raise ValueError(f"n_verts must be a positive integer; got {n_verts} of type {type(n_verts).__name__}.")
 
-    target_nverts = n_verts
-
     for name, arr in kwargs.items():
         if arr is None:
             continue
@@ -60,13 +59,13 @@ def _check_n_verts(
             )
 
         curr_height = int(arr.shape[0])
-        if target_nverts is None:
-            target_nverts = curr_height
+        if n_verts is None:
+            n_verts = curr_height
 
-        if curr_height != target_nverts:
+        if curr_height != n_verts:
             msg = (
                 f"Spatial dimension mismatch in argument '{name}': got shape[0] = {curr_height}, "
-                f"but expected {target_nverts}"
+                f"but expected {n_verts}"
             )
             if n_verts is None:
                 msg += " (inferred from preceding inputs)."
@@ -74,48 +73,189 @@ def _check_n_verts(
                 msg += " (specified by n_verts)."
             raise ValueError(msg)
 
-    if target_nverts is None:
+    if n_verts is None:
         raise ValueError("No valid arrays were provided to infer n_verts, and n_verts was not specified.")
-    return target_nverts
+    return n_verts
 
-# TODO P1 this function!
 def _check_n_modes(
-        n_modes_max = None, 
-        mode_counts = None, 
-        mode_ids = None,
-        emodes = None, 
-        evals = None,
-):
+        emodes: NDArray | None = None,
+        evals: NDArray | None = None,
+        n_modes: int | None = None, # the number of modes you are seeking to get from the emodes/evals
+) -> int:
+    if n_modes is None:
+        if emodes is not None:
+            n_modes = emodes.shape[1]
+        elif evals is not None:
+            n_modes = evals.shape[0]
+    if n_modes is None: 
+        raise ValueError("Unable to determine n_modes; please provide at least one of n_modes, emodes, or evals.")
     if emodes is not None and evals is not None:
         if emodes.shape[1] != evals.shape[0]: # TODO P1 change wording of this error and above (and tests)
-            raise ValueError(f"must have shape Number of modes in emodes ({emodes.shape[1]}) does not match number of evals ({evals.shape[0]}).")
-        n_modes_max = emodes.shape[1]
-    # raise NotImplementedError("This function is not yet implemented. It will validate that the number of modes specified by mode_counts or mode_ids is consistent with the number of modes in emodes and evals.")
+            raise ValueError(f"emodes ({emodes.shape[1]}) and evals ({evals.shape[0]}) must have shapes that are compatible")
+    if emodes is not None and emodes.shape[1] < n_modes:
+        raise ValueError(f"emodes ({emodes.shape[1]}) must have at least n_modes ({n_modes}) columns")
+    if evals is not None and evals.shape[0] < n_modes:
+        raise ValueError(f"evals ({evals.shape[0]}) must have at least n_modes ({n_modes}) entries")
+    return n_modes
 
+def _check_csc(
+    mat: csc_matrix,
+    name: str = "Input",
+) -> None:
+    if not isinstance(mat, csc_matrix):
+        raise TypeError(f"{name} must be a scipy sparse csc_matrix; got {type(mat)}.")
 
-# check square
-# check csc
-def _check_mass(mass, 
-                lump = None
-                ):
-    raise NotImplementedError("This function is not yet implemented. It will validate that the mass matrix is consistent with the number of vertices in emodes and evals.")
-def _check_stiffness(stiffness,
-                            ):
-        raise NotImplementedError("This function is not yet implemented. It will validate that the stiffness matrix is consistent with the number of vertices in emodes and evals.")
+def _check_symmetric(
+    mat: csc_matrix,
+    name: str = "Input",
+    rtol: float = 1e-8,
+    atol: float = 1e-12,
+) -> None:
+    if mat.shape is None or mat.ndim != 2 or mat.shape[0] != mat.shape[1]:
+        raise ValueError(f"{name} matrix must be square; got shape {mat.shape}.")
 
-def _check_emodes_evals(emodes,
-                  evals,
-                  mass, 
-                  stiffness
-                  ):
-    # check emodes.T @ mass @ emodes == I
-    # check emodes.T @ stiffness @ emodes == diag(evals)
-    # check first emode (only) is constant
-    # check first eval (only) is zero 
-    raise NotImplementedError("This function is not yet implemented. It will validate that the eigenmodes are consistent with the mass and stiffness matrices and the eigenvalues.")
+    diff = mat - mat.T
+    if diff.nnz > 0:
+        max_entry = float(np.max(np.abs(mat.data))) if mat.nnz > 0 else 0.0
+        if float(np.max(np.abs(diff.data))) > atol + rtol * max_entry:
+            raise ValueError(
+                f"{name} matrix must be symmetric within rtol={rtol}, atol={atol}."
+            )
 
+def _check_one_component(
+    mat: csc_matrix,
+    name: str = "Input",
+) -> None:
+    n_components = connected_components(mat, directed=False, return_labels=False)
+    if n_components != 1:
+        raise ValueError(
+            f"{name} matrix must have exactly 1 connected component; got {n_components}."
+        )
 
+def _is_diagonal_dominant(
+    sqsymmatrix: csc_matrix,
+    strict: bool = False,
+    rtol: float = 1e-8,
+    atol: float = 1e-12,
+) -> bool:
+    diag = sqsymmatrix.diagonal()
+    col_sum = np.asarray(abs(sqsymmatrix).sum(axis=0)).ravel()
+    off_diag_sum = col_sum - np.abs(diag)
+    margin = atol + rtol * np.abs(diag)
 
+    if strict:
+        return bool(np.all(diag > margin) and np.all(diag - off_diag_sum > margin))
+    return bool(np.all(diag >= -margin) and np.all(diag - off_diag_sum >= -margin))
+
+def _check_mass(
+    mass: csc_matrix,
+    lump: bool | None = None,
+    rtol: float = 1e-8,
+    atol: float = 1e-12,
+) -> None:
+    _check_csc(mass, "Mass")
+    _check_symmetric(mass, "Mass", rtol=rtol, atol=atol)
+
+    if not _is_diagonal_dominant(mass, strict=False, rtol=rtol, atol=atol):
+        raise ValueError("Mass matrix is not positive semi-definite (diagonally dominant).")
+
+    diag = mass.diagonal()
+    max_diag = float(np.max(np.abs(diag))) if diag.size > 0 else 0.0
+    off_diag = mass - diags(diag, format="csc")
+    off_diag_tol = atol + rtol * max_diag
+    is_lumped = off_diag.nnz == 0 or float(np.max(np.abs(off_diag.data))) <= off_diag_tol
+
+    if lump is not None:
+        if not lump and is_lumped:
+            raise ValueError("Mass matrix expected not to be lumped, but it is lumped.")
+        if lump and not is_lumped:
+            raise ValueError("Mass matrix expected to be lumped, but it is not lumped.")
+
+    if not is_lumped:
+        _check_one_component(mass, "Mass")
+        col_sum = np.asarray(mass.sum(axis=0)).ravel()
+        if not np.allclose(col_sum, 2.0 * diag, rtol=rtol, atol=atol):
+            raise ValueError(
+                "Unlumped mass matrix column sums must equal twice the diagonal."
+            )
+
+    if np.any(np.abs(diag) <= atol + rtol * max_diag):
+        warn(
+            "Mass matrix diagonal contains values close to zero; "
+            "this may lead to numerical instability. Are any vertices isolated?",
+            UserWarning,
+        )
+
+def _check_stiffness(
+    stiffness: csc_matrix,
+    rtol: float = 1e-8,
+    atol: float = 1e-12,
+) -> None:
+    _check_csc(stiffness, "Stiffness")
+    _check_symmetric(stiffness, "Stiffness", rtol=rtol, atol=atol)
+    _check_one_component(stiffness, "Stiffness")
+
+    diag = stiffness.diagonal()
+    max_diag = float(np.max(np.abs(diag))) if diag.size > 0 else 0.0
+    if np.any(diag < -(atol + rtol * max_diag)):
+        raise ValueError("Stiffness matrix has negative diagonal entries (not SPSD).")
+
+    col_sum = np.asarray(stiffness.sum(axis=0)).ravel()
+    if np.any(np.abs(col_sum) > atol + rtol * np.abs(diag)):
+        raise ValueError("Stiffness matrix column sums must equal zero.")
+
+    if not _is_diagonal_dominant(stiffness, strict=False, rtol=rtol, atol=atol):
+        warn(
+            "Stiffness matrix is not diagonally dominant (e.g. non-Delaunay mesh with obtuse triangles); "
+            "positive semi-definiteness is not guaranteed.",
+            UserWarning,
+        )
+
+def _check_emodes_evals(
+    emodes: np.ndarray,
+    evals: np.ndarray,
+    mass: csc_matrix,
+    stiffness: csc_matrix,
+    rtol: float = 1e-8,
+    atol: float = 1e-12,
+) -> None:
+
+    n_modes = _check_n_modes(emodes=emodes, evals=evals)
+    _check_n_verts(emodes=emodes, mass=mass, stiffness=stiffness)
+    
+    # 1. Check M-orthonormality: emodes.T @ mass @ emodes == I
+    gram_mass = emodes.T @ (mass @ emodes)
+    if not np.allclose(gram_mass, np.eye(n_modes), rtol=rtol, atol=atol):
+        raise ValueError("Eigenmodes are not M-orthonormal (emodes.T @ mass @ emodes != I).")
+
+    # 2. Check S-orthogonality / Rayleigh-Ritz diagonalization: emodes.T @ stiffness @ emodes == diag(evals)
+    gram_stiff = emodes.T @ (stiffness @ emodes)
+    if not np.allclose(gram_stiff, np.diag(evals), rtol=rtol, atol=atol):
+        raise ValueError(
+            "Eigenmodes do not diagonalize stiffness (emodes.T @ stiffness @ emodes != diag(evals))."
+        )
+
+    # 3. Check first eigenmode (and only the first) is constant
+    mode0 = emodes[:, 0]
+    if not np.allclose(mode0, np.mean(mode0), rtol=rtol, atol=atol):
+        raise ValueError("First eigenmode must be constant across all vertices.")
+
+    for j in range(1, n_modes):
+        mode_j = emodes[:, j]
+        if np.allclose(mode_j, np.mean(mode_j), rtol=rtol, atol=atol):
+            raise ValueError(f"Eigenmode {j} is constant; only the first eigenmode may be constant.")
+
+    # 4. Check first eigenvalue (and only the first) is zero
+    if not np.isclose(evals[0], 0.0, atol=atol):
+        raise ValueError(f"First eigenvalue must be zero; got {evals[0]}.")
+
+    if np.any(np.isclose(evals[1:], 0.0, atol=atol)):
+        raise ValueError("Only the first eigenvalue may be zero; all others must be positive.")
+
+    # 5. Check eigenvalues are non-decreasing
+    if np.any(np.diff(evals[1:]) < 0):
+        raise ValueError("Eigenvalues must be sorted in non-decreasing order.")
+    
 def _process_parcellation_matrix(
     parcellation: csc_matrix | NDArray[np.integer], 
     mask: NDArray[np.bool] | None = None
@@ -158,17 +298,16 @@ def _process_parcellation_matrix(
 
     return parc_mat
 
-
 def _process_area_vector(
     mass: csc_matrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None, 
     dtype: np.dtype | None = None,
     keepdims: bool = False
 ) -> NDArray[np.floating]:
-    mass = np.asarray(_process_mass_matrix(mass=mass, n_verts=n_verts, dtype=dtype).sum(axis=1))
+    areas = np.asarray(_process_mass_matrix(mass=mass, n_verts=n_verts, dtype=dtype).sum(axis=1))
     if not keepdims:
-        mass = mass.squeeze(axis=1)
-    return mass
+        areas = areas.squeeze(axis=1)
+    return areas
 
 def _process_mass_matrix(
     mass: csc_matrix | NDArray[np.floating] | None = None,
@@ -207,13 +346,10 @@ def _process_mass_matrix(
 
     return output
 
-
-
-
 def _process_mode_ids(
     mode_counts: ModeCountInput | None,
     mode_ids: ModeIdInput | None,
-    n_modes_max: int | np.integer
+    n_modes_max: int | np.integer # the max number of modes that the emodes/evals contain
 ) -> tuple[list[list[int]], bool]:
     """
     Process mode_counts and mode_ids into a consistent format for use in decompose/reconstruct.
@@ -256,9 +392,6 @@ def _process_mode_ids(
 
     return output, squeeze_output
 
-
-# TODO consider raising an error in these functions
-# TODO consider returning the cleaned data of a specific type 
 def _is_nonstring_sequence(x) -> TypeGuard[Sequence[Any]]:
     """
     Check if x is an sequence of numeric types (int or float).

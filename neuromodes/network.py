@@ -79,31 +79,25 @@ def compute_gem(
         cortical connectomes. BioRxiv. https://doi.org/10.1101/2025.09.17.676944
     """
     # Format / validate arguments
-    # if checks is not False:
-    #     ved = EigenData(emodes=emodes, evals=evals, checks=checks)
-    #     emodes, evals = ved.emodes, ved.evals
-
-    r = float(r)
-    n_verts, n_modes = emodes.shape
     if r < 0:
         raise ValueError("Parameter r must be a non-negative number.")
-
+    n_verts = _check_n_verts(emodes=emodes, mass=mass)
+    n_modes = _check_n_modes(emodes=emodes, evals=evals)
     mode_ids, squeeze_output = _process_mode_ids(mode_counts, mode_ids, n_modes)
 
-    _check_n_modes(emodes=emodes, evals=evals)
     output_dtype = np.result_type(emodes, evals)
 
     if weighted_pinv: 
         mass = _process_mass_matrix(mass, n_verts, dtype=output_dtype)
     elif mass is not None:
         warn("Mass matrix provided but weighted_pinv is False; mass will be ignored.", UserWarning)
-    
-    out = np.empty((n_verts, n_verts, len(mode_ids)), dtype=output_dtype)
 
+    # Main
+    out = np.empty((n_verts, n_verts, len(mode_ids)), dtype=output_dtype)
     filtered_emodes = emodes / (1 + evals * r**2)
     for j, mids in enumerate(mode_ids): 
         if weighted_pinv:
-            assert mass is not None
+            assert mass is not None # appease pyright
             c = _dot_nd(emodes[:, mids], mass)
         else: 
             c = np.linalg.pinv(emodes[:, mids])
@@ -116,18 +110,3 @@ def compute_gem(
         out[:, :, j] = curr / np.max(curr)
 
     return out.squeeze(axis=-1) if squeeze_output else out
-
-
-    # Compute the Geometric Eigenmode Model
-    denom = 1/(1 + evals[:k] * r**2)
-    gem = emodes[:, :k] @ (denom[:, np.newaxis] * np.linalg.pinv(emodes[:, :k]))
-
-    # Replace diagonal and negative values with zero
-    np.fill_diagonal(gem, 0)
-    gem = np.maximum(gem, 0)
-
-    # Symmetrise
-    gem = (gem + gem.T) / 2
-
-    # Normalise
-    return gem / np.max(gem)

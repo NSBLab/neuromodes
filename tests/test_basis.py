@@ -266,7 +266,7 @@ class TestInvalid:
     def test_decompose_invalid_method(self, solver):
         with pytest.raises(ValueError,
                         match="Invalid method 'foo'; must be 'project' or 'regress'."):
-            decompose(np.ones(solver.n_verts), solver.emodes, method='foo') # type: ignore
+            decompose(np.ones(solver.n_verts), solver.emodes, method='foo', mass=solver.mass) # type: ignore
 
 
 # TODO: more complicated version of nan test, where three maps have two unique patterns of NaNs

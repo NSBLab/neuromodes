@@ -272,32 +272,24 @@ def eigenstrap(
         Imaging Neuroscience. https://doi.org/10.1162/IMAG.a.71
     """
     # Format / validate arguments
-    # if checks is not False:
-    #     ved = EigenData(emodes=emodes, evals=evals, mass=mass, checks=checks)
-    #     emodes, evals, mass = ved.emodes, ved.evals, ved.mass
-    mass = _process_mass_matrix(mass, data.shape[0])
-    _check_n_verts(emodes=emodes, data=data, mass=mass)
-    _check_n_modes(evals=evals, emodes=emodes)
+    n_verts = _check_n_verts(emodes=emodes, data=data, mass=mass)
+    mass = _process_mass_matrix(mass, n_verts)
 
-    data = np.asarray(data)
     if (is_vector_data := data.ndim == 1):
         data = data[:, np.newaxis]
     n_maps = data.shape[1]
 
     # n_groups : Determine number of eigengroups, and trim emodes and evals to match
     n_cols = emodes.shape[1]
-    if n_groups is None:
-        n_groups = int(np.sqrt(n_cols))  # floor of root
-        if n_groups**2 != n_cols:
-              warn("`emodes` contains an incomplete eigengroup (i.e., number of modes is not a "
-                 f"perfect square). Last {n_cols - n_groups**2} modes will be excluded.")
-    elif n_groups**2 > n_cols:
-        raise ValueError(f"`n_groups`={n_groups} implies n_modes={n_groups**2}, which exceeds the "
-                         f"number of columns in `emodes` ({n_cols}).")
-    n_modes = n_groups**2
-    groups = get_eigengroup_inds(n_modes)
+    if n_groups is None: 
+        n_groups = int(np.sqrt(n_cols))
+        if diff_n := n_cols - n_groups**2:
+            warn("`emodes` contains an incomplete eigengroup (i.e., number of modes is not a "
+                f"perfect square). Last {diff_n} modes will be excluded.")
+    n_modes = _check_n_modes(evals=evals, emodes=emodes, n_modes=n_groups**2)
     emodes = emodes[:, :n_modes].copy()
     evals = evals[:n_modes].copy()
+    groups = get_eigengroup_inds(n_modes)
     
     # residual and resample
     if residual not in (None, 'add', 'permute'):
