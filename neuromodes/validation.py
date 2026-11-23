@@ -116,7 +116,7 @@ def _check_emodes_evals(emodes,
 
 
 
-def _create_parcellation_matrix(
+def _process_parcellation_matrix(
     parcellation: csc_matrix | NDArray[np.integer], 
     mask: NDArray[np.bool] | None = None
 ) -> csc_matrix:

@@ -14,7 +14,7 @@ from scipy.sparse import csc_matrix, spmatrix, diags, issparse
 from scipy.spatial.distance import cdist as scipy_cdist, squareform as scipy_squareform
 
 # from neuromodes.eigen import EigenData
-from neuromodes.validation import _create_mass_matrix, _create_parcellation_matrix, _mass_to_areas, _check_n_verts
+from neuromodes.validation import _create_mass_matrix, _process_parcellation_matrix, _mass_to_areas, _check_n_verts
 
 if TYPE_CHECKING:
     from typing import Any
@@ -772,7 +772,7 @@ def parcellate(
     # Construct p = sparse parcellation matrix as (n_verts, n_parcels)
     # output = p.T @ mass @ data; or 
     # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
-    parc_mat = _create_parcellation_matrix(parcellation)
+    parc_mat = _process_parcellation_matrix(parcellation)
     parc_mass = _dot_nd(parc_mat, _create_mass_matrix(mass, data.shape[0]))
     if method == 'mean':
         parc_mass /= parc_mass.sum(axis=1) 
