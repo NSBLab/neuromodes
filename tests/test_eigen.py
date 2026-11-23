@@ -39,7 +39,7 @@ def surf_medmask():
 def solver(surf_medmask):
     surf, medmask = surf_medmask
     myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
-    solver = EigenSolver(surf, mask=medmask) # TODO: just use surf_medmask?
+    solver = EigenSolver(surf, mask=medmask)
     hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=0.5, upper=2.0)
     return solver.compute_lbo(hetero=hetero)
 
@@ -204,80 +204,61 @@ def test_invalid_vector_seed(solver):
                        match=r"v0 must have shape \(n_verts,\) = \(3619,\)."):
         solver.solve(2400, v0=np.ones(10))
 
-def test_reading_writing_h5_all_features(solver, tmp_path):
-    h5_path = tmp_path / "solver.h5"    
-    solver.write_h5(h5_path, mode='w')
+def test_reading_writing_h5_all_modes(solver, tmp_path):
+    h5_path = tmp_path / "solver.h5"
+    solver.write_h5(h5_path)
     solver2 = EigenSolver.read_h5(h5_path)
 
-    attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
-    for attr in attrs:
-        assert getattr(solver2, attr) == getattr(solver, attr), f"Attribute '{attr}' read from HDF5 does not match."
+    for attr in ['lump', 'use_cholmod', 'n_verts', 'n_modes']:
+        assert getattr(solver2, attr) == getattr(solver, attr), \
+            f"Attribute '{attr}' read from HDF5 does not match."
 
-    dense = ['hetero', 'mask', 'emodes', 'evals']
-    for d in dense:
-        assert np.allclose(getattr(solver2, d), getattr(solver, d)), f"Dataset '{d}' read from HDF5 does not match."
+    for dense in ['hetero', 'mask', 'emodes', 'evals']:
+        assert np.allclose(getattr(solver2, dense), getattr(solver, dense)), \
+            f"Dataset '{dense}' read from HDF5 does not match."
 
-    sparse = ['mass', 'stiffness']
-    for s in sparse:
-        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), f"Sparse dataset '{s}' read from HDF5 does not match."
+    for sparse in ['mass', 'stiffness']:
+        assert np.allclose(getattr(solver2, sparse).toarray(), getattr(solver, sparse).toarray()), \
+            f"Sparse dataset '{sparse}' read from HDF5 does not match."
 
-def test_reading_writing_h5_some_modes(solver, tmp_path):
-    alln = solver.n_modes
-    halfn = solver.n_modes // 2
-    error_msg = "Unexpected number of modes read from HDF5."
+def test_reading_writing_h5_zero_modes(solver, tmp_path):
+    h5_path = tmp_path / "solver_zero.h5"
+    solver.write_h5(h5_path, n_modes=0)
+    solver2 = EigenSolver.read_h5(h5_path, n_modes=0)
 
-    # write default modes and see how many are read back
-    h5_path = tmp_path / "solver_default.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=None)
-    
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes, err_msg=error_msg)
+    assert solver2.emodes.shape[1] == 0, "Expected zero modes read from HDF5."
+    assert solver2.evals.shape[0] == 0, "Expected zero eigenvalues read from HDF5."
 
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+def test_reading_writing_h5_more_modes(solver, tmp_path):
+    h5_path = tmp_path / "solver_more.h5"
+    solver.write_h5(h5_path, n_modes=solver.n_modes + 1)
 
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=alln)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :alln], err_msg=error_msg)
+    # Requesting more modes functions the same as requesting more data from an array
+    # e.g. `a = np.arange(10); a[:20]` returns all 10 elements, not 20, and does not error
+    solver2 = EigenSolver.read_h5(h5_path, n_modes=solver.n_modes + 1)
 
-    # write alln modes and see how many are read back
-    h5_path = tmp_path / "solver_all.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=alln)
+    # Test that n_modes gets reset to the actual number, not the requested number
+    np.testing.assert_equal(solver2.n_modes, solver.n_modes)
+    np.testing.assert_allclose(solver2.emodes, solver.emodes)
+    np.testing.assert_allclose(solver2.evals, solver.evals)
 
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes, err_msg=error_msg)
+@pytest.mark.parametrize("n_modes", [0, 1])
+def test_reading_writing_h5_unsolved_modes(surf_medmask, n_modes, tmp_path):
+    h5_path = tmp_path / "solver_unsolved.h5"
+    s = EigenSolver(*surf_medmask)
 
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+    with pytest.raises(ValueError, match="Eigenmodes not found. Please run the solve"):
+        s.write_h5(h5_path, n_modes=n_modes)
 
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=alln)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :alln], err_msg=error_msg)
+    s.write_h5(h5_path)
 
-    # write halfn modes and see how many are read back
-    h5_path = tmp_path / "solver_half.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=halfn)
+    with pytest.raises(ValueError, match="No modes were saved, but n_modes"):
+        EigenSolver.read_h5(h5_path, n_modes=n_modes)
 
-    solver4 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
-
-    solver4 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
-
-def test_reading_writing_h5_all_features(solver, tmp_path):
-    h5_path = tmp_path / "solver.h5"    
-    solver.write_h5(h5_path, mode='w')
-    solver2 = EigenSolver.read_h5(h5_path)
-
-    attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
-    for attr in attrs:
-        assert getattr(solver2, attr) == getattr(solver, attr), f"Attribute '{attr}' read from HDF5 does not match."
-
-    dense = ['hetero', 'mask', 'emodes', 'evals']
-    for d in dense:
-        assert np.allclose(getattr(solver2, d), getattr(solver, d)), f"Dataset '{d}' read from HDF5 does not match."
-
-    sparse = ['mass', 'stiffness']
-    for s in sparse:
-        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), f"Sparse dataset '{s}' read from HDF5 does not match."
+    s2 = EigenSolver.read_h5(h5_path)
+    assert s2._emodes is None, "Expected no modes read from HDF5."
+    assert s2._evals is None, "Expected no eigenvalues read from HDF5."
+    assert s2._n_modes is None, "Expected n_modes to be None for unsolved solver read from HDF5."
 
 def test_reading_writing_h5_some_modes(solver, tmp_path):
     alln = solver.n_modes
@@ -286,7 +267,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
 
     # write default modes and see how many are read back
     h5_path = tmp_path / "solver_default.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=None)
+    solver.write_h5(h5_path, n_modes=None)
     
     solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
     np.testing.assert_allclose(solver2.emodes, solver.emodes, err_msg=error_msg)
@@ -299,7 +280,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
 
     # write alln modes and see how many are read back
     h5_path = tmp_path / "solver_all.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=alln)
+    solver.write_h5(h5_path, n_modes=alln)
 
     solver3 = EigenSolver.read_h5(h5_path, n_modes=None)
     np.testing.assert_allclose(solver3.emodes, solver.emodes, err_msg=error_msg)
@@ -312,7 +293,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
 
     # write halfn modes and see how many are read back
     h5_path = tmp_path / "solver_half.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=halfn)
+    solver.write_h5(h5_path, n_modes=halfn)
 
     solver4 = EigenSolver.read_h5(h5_path, n_modes=None)
     np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
