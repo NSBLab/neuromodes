@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from lapy.shapedna import normalize_ev
 
-from neuromodes.eigen import EigenSolver, align_basis, get_eigengroup_inds, is_orthonormal_basis
+from neuromodes.eigen import EigenSolver, get_eigengroup_inds, is_orthonormal_basis
 from neuromodes.io import fetch_example_map, fetch_example_surf, fetch_example_vol
 from neuromodes.mesh import normalize_vol
 from neuromodes.stats import sigmoid_rescale, zscorew
@@ -21,7 +21,9 @@ def test_vol_modes():
 
             # test hetero while we're at it
             hetero = np.abs(np.random.default_rng(0).standard_normal(vol.v.shape[0]))
-            solver = EigenSolver(vol).solve(10, hetero=hetero, seed=0)
+            solver = EigenSolver(vol)
+            solver.hetero = hetero
+            solver.solve(10, seed=0)
 
             # check that evals are in ascending order
             assert np.all(np.diff(solver.evals) > 0), \
@@ -39,9 +41,9 @@ def surf_medmask():
 def solver(surf_medmask):
     surf, medmask = surf_medmask
     myelinmap = fetch_example_map(data="myelinmap", res="4k")[medmask]
-    solver = EigenSolver(surf, mask=medmask) # TODO: just use surf_medmask?
-    hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=0.5, upper=2.0)
-    return solver.compute_lbo(hetero=hetero)
+    solver = EigenSolver(surf, mask=medmask)
+    solver.hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=0.5, upper=2.0)
+    return solver
 
 @pytest.fixture(scope="module")
 def hetero(solver):
@@ -52,6 +54,29 @@ def test_invalid_mask_shape(surf_medmask):
     bad_mask = np.ones(10)
     with pytest.raises(ValueError, match=r"mask must have shape \(4002,\)"):
         EigenSolver(surf, mask=bad_mask)
+
+def test_lump_init(surf_medmask):
+    surf, medmask = surf_medmask
+    solver = EigenSolver(surf, mask=medmask, lump=True)
+
+    assert solver.lump
+    assert solver.mass.nnz == solver.n_verts
+
+def test_invalid_lump(surf_medmask):
+    surf, medmask = surf_medmask
+    with pytest.raises(TypeError, match="lump must be True or False"):
+        EigenSolver(surf, mask=medmask, lump='you tell me')
+
+def test_hetero_init(surf_medmask):
+    surf, medmask = surf_medmask
+    hetero = np.arange(sum(medmask))
+    solver = EigenSolver(surf, mask=medmask)
+    solver.hetero = hetero
+    solver_h = EigenSolver(surf, mask=medmask, hetero=hetero)
+
+    assert np.allclose(solver_h.hetero, hetero)
+    assert np.array_equal(solver_h.stiffness.data, solver.stiffness.data), \
+        'Stiffness matrices do not match when hetero is set in init vs. after init.'
 
 def test_no_hetero(surf_medmask):
     surf, medmask = surf_medmask
@@ -73,18 +98,18 @@ def test_invalid_hetero_shape(surf_medmask):
     surf, medmask = surf_medmask
     bad_hetero = np.ones(10)
     with pytest.raises(ValueError, match=r"shape \(n_verts,\) = \(3619,\)"):
-        EigenSolver(surf, mask=medmask).compute_lbo(hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask).hetero = bad_hetero
 
 def test_nan_hetero(surf_medmask):
     surf, medmask = surf_medmask
     bad_hetero = np.ones(medmask.sum())
     bad_hetero[0] = np.nan
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, mask=medmask).compute_lbo(hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask).hetero = bad_hetero
 
     bad_hetero[0] = np.inf
     with pytest.raises(ValueError, match="array must not contain infs or NaNs"):
-        EigenSolver(surf, mask=medmask).compute_lbo(hetero=bad_hetero)
+        EigenSolver(surf, mask=medmask).hetero = bad_hetero
 
 def test_hetero_ones(surf_medmask):
     surf, medmask = surf_medmask
@@ -92,7 +117,9 @@ def test_hetero_ones(surf_medmask):
 
     # If hetero is all ones, this should give the same stiffness matrix
     homo_solver = EigenSolver(surf, mask=medmask).solve(20)
-    hetero_solver = EigenSolver(surf, mask=medmask).solve(20, hetero=hetero)
+    hetero_solver = EigenSolver(surf, mask=medmask)
+    hetero_solver.hetero = hetero
+    hetero_solver.solve(20)
 
     assert np.allclose(hetero_solver.evals, homo_solver.evals), \
         'Eigenvalues with hetero=ones do not match homogeneous eigenvalues.'
@@ -111,7 +138,7 @@ def test_real_heteromaps():
 
     # just test that LBO can be computed without error
     for i in range(len(map_names)):
-        solver.compute_lbo(hetero=heteros_zsig[:, i])
+        solver.hetero = heteros_zsig[:, i]
 
 def test_symmetric_mass(solver):
     diff = solver.mass - solver.mass.transpose()
@@ -119,7 +146,9 @@ def test_symmetric_mass(solver):
 
 def test_mass_rowsums(solver):
     mass_rowsums = solver.mass.sum(axis=1).A1
-    mass_lumped = EigenSolver(solver.geometry).compute_lbo(lump=True).mass.data
+    mass_lumped_solver = EigenSolver(solver.geometry)
+    mass_lumped_solver.lump = True
+    mass_lumped = mass_lumped_solver.mass.data
     np.testing.assert_allclose(mass_rowsums, mass_lumped,
                                   err_msg='Mass matrix row sums do not match lumped mass diagonal.')
 
@@ -132,18 +161,18 @@ def test_stiffness_rowsums(solver):
         
 def test_seeded_modes(solver):
     n_modes = 16
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False, seed=36)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=36)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False, seed=36)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
 
     assert (emodes1 == emodes2).all(), 'Modes from same seed are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed are not identical.'
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=37)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False, seed=37)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
 
@@ -153,20 +182,23 @@ def test_seeded_modes(solver):
 def test_generator_seeded_modes(solver):
     n_modes = 16
     rng = np.random.default_rng(0)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False,
+                    seed=rng)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
     # Reset the generator to ensure the same sequence of random numbers
     rng = np.random.default_rng(0)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False,
+                    seed=rng)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
     assert (emodes1 == emodes2).all(), 'Modes from same seed generator are not identical.'
     assert (evals1 == evals2).all(), 'Eigenvalues from same seed generator are not identical.'
 
     rng = np.random.default_rng(1)
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, seed=rng)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False,
+                    seed=rng)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
     assert not (emodes1 == emodes3).all(), 'Modes from different seed generators are identical.'
@@ -177,12 +209,12 @@ def test_vector_seeded_modes(solver):
     rng = np.random.default_rng(0)
     v0 = rng.standard_normal(size=solver.n_verts)
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False, v0=v0)
     emodes1 = solver.emodes.copy()
     evals1 = solver.evals.copy()
 
     # Reuse the same seed vector
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False, v0=v0)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False, v0=v0)
     emodes2 = solver.emodes.copy()
     evals2 = solver.evals.copy()
 
@@ -191,8 +223,8 @@ def test_vector_seeded_modes(solver):
 
     v0_diff = rng.standard_normal(size=solver.n_verts)
 
-    solver.solve(n_modes, hetero=solver.hetero, align_emodes=False, set_emode1=False,
-                 v0=v0_diff)
+    solver.solve(n_modes, align_emodes=False, set_first_emode=False,
+                    v0=v0_diff)
     emodes3 = solver.emodes.copy()
     evals3 = solver.evals.copy()
 
@@ -211,15 +243,18 @@ def test_reading_writing_h5_all_features(solver, tmp_path):
 
     attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
     for attr in attrs:
-        assert getattr(solver2, attr) == getattr(solver, attr), f"Attribute '{attr}' read from HDF5 does not match."
+        assert getattr(solver2, attr) == getattr(solver, attr), \
+            f"Attribute '{attr}' read from HDF5 does not match."
 
     dense = ['hetero', 'mask', 'emodes', 'evals']
     for d in dense:
-        assert np.allclose(getattr(solver2, d), getattr(solver, d)), f"Dataset '{d}' read from HDF5 does not match."
+        assert np.allclose(getattr(solver2, d), getattr(solver, d)), \
+            f"Dataset '{d}' read from HDF5 does not match."
 
     sparse = ['mass', 'stiffness']
     for s in sparse:
-        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), f"Sparse dataset '{s}' read from HDF5 does not match."
+        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), \
+            f"Sparse dataset '{s}' read from HDF5 does not match."
 
 def test_reading_writing_h5_some_modes(solver, tmp_path):
     alln = solver.n_modes
@@ -229,7 +264,7 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
     # write default modes and see how many are read back
     h5_path = tmp_path / "solver_default.h5"
     solver.write_h5(h5_path, mode='w', n_modes=None)
-    
+
     solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
     np.testing.assert_allclose(solver2.emodes, solver.emodes, err_msg=error_msg)
 
@@ -262,71 +297,68 @@ def test_reading_writing_h5_some_modes(solver, tmp_path):
     solver4 = EigenSolver.read_h5(h5_path, n_modes=halfn)
     np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
 
-def test_reading_writing_h5_all_features(solver, tmp_path):
-    h5_path = tmp_path / "solver.h5"    
-    solver.write_h5(h5_path, mode='w')
-    solver2 = EigenSolver.read_h5(h5_path)
+def test_eigs_alias_cache_setters(solver):
+    solver = solver.solve(2)
 
-    attrs = ['lump', 'use_cholmod', 'n_verts', 'n_modes']
-    for attr in attrs:
-        assert getattr(solver2, attr) == getattr(solver, attr), f"Attribute '{attr}' read from HDF5 does not match."
+    original_hetero = solver.hetero.copy()
+    hetero = np.ones(solver.n_verts)
 
-    dense = ['hetero', 'mask', 'emodes', 'evals']
-    for d in dense:
-        assert np.allclose(getattr(solver2, d), getattr(solver, d)), f"Dataset '{d}' read from HDF5 does not match."
+    # Changing hetero should clear the cached eigenpairs
+    solver.hetero = hetero
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.emodes
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.n_modes
+    with pytest.raises(ValueError, match="Eigenvalues not found"):
+        _ = solver.evals
 
-    sparse = ['mass', 'stiffness']
-    for s in sparse:
-        assert np.allclose(getattr(solver2, s).toarray(), getattr(solver, s).toarray()), f"Sparse dataset '{s}' read from HDF5 does not match."
+    solver.solve(2)
 
-def test_reading_writing_h5_some_modes(solver, tmp_path):
-    alln = solver.n_modes
-    halfn = solver.n_modes // 2
-    error_msg = f"Unexpected number of modes read from HDF5."
+    # Supplying the same hetero should not clear the cached eigenpairs
+    solver.hetero = solver.hetero
+    assert solver.emodes is not None
+    assert solver.n_modes == 2
+    assert solver.evals is not None
 
-    # write default modes and see how many are read back
-    h5_path = tmp_path / "solver_default.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=None)
-    
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes, err_msg=error_msg)
+    # Changing lump should clear the cached eigenpairs
+    solver.lump = True
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.emodes
+    with pytest.raises(ValueError, match="Eigenmodes not found"):
+        _ = solver.n_modes
+    with pytest.raises(ValueError, match="Eigenvalues not found"):
+        _ = solver.evals
+    solver.hetero = original_hetero
+    solver.lump = False
 
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+    solver.solve(2)
 
-    solver2 = EigenSolver.read_h5(h5_path, n_modes=alln)
-    np.testing.assert_allclose(solver2.emodes, solver.emodes[:, :alln], err_msg=error_msg)
+    # Supplying the same lump should not clear the cached eigenpairs
+    solver.lump = solver.lump
+    assert solver.emodes is not None
+    assert solver.n_modes == 2
+    assert solver.evals is not None
 
-    # write alln modes and see how many are read back
-    h5_path = tmp_path / "solver_all.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=alln)
+def test_unsettables(surf_medmask):
+    surf, medmask = surf_medmask
+    solver = EigenSolver(surf, mask=medmask)
 
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes, err_msg=error_msg)
-
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
-
-    solver3 = EigenSolver.read_h5(h5_path, n_modes=alln)
-    np.testing.assert_allclose(solver3.emodes, solver.emodes[:, :alln], err_msg=error_msg)
-
-    # write halfn modes and see how many are read back
-    h5_path = tmp_path / "solver_half.h5"
-    solver.write_h5(h5_path, mode='w', n_modes=halfn)
-
-    solver4 = EigenSolver.read_h5(h5_path, n_modes=None)
-    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
-
-    solver4 = EigenSolver.read_h5(h5_path, n_modes=halfn)
-    np.testing.assert_allclose(solver4.emodes, solver.emodes[:, :halfn], err_msg=error_msg)
+    with pytest.raises(AttributeError, match="mass is read-only"):
+        solver.mass = solver.mass
+    with pytest.raises(AttributeError, match="stiffness is read-only"):
+        solver.stiffness = solver.stiffness
+    with pytest.raises(AttributeError):
+        solver.geometry = solver.geometry
+    with pytest.raises(AttributeError):
+        solver.mask = solver.mask
 
 def test_unaligned_modes(solver, surf_medmask):
+    solver.solve(16, align_emodes=True)
     emodes = solver.emodes
     surf, medmask = surf_medmask
-    emodes_unalign = EigenSolver(
-        surf, mask=medmask
-    ).solve(solver.n_modes, hetero=solver.hetero, align_emodes=False).emodes
-    emodes = align_basis(emodes_unalign)
+    unalign_solver = EigenSolver(surf, mask=medmask)
+    unalign_solver.hetero = solver.hetero
+    emodes_unalign = unalign_solver.solve(solver.n_modes, align_emodes=False).emodes
     
     assert not np.all(emodes_unalign[0, :] >= 0), \
         'Unaligned first vertex should have both positive and negative values.'
@@ -336,12 +368,15 @@ def test_unaligned_modes(solver, surf_medmask):
 
 def test_solve_lumped_mass(solver, surf_medmask):
     surf, medmask = surf_medmask
+    n_modes = 16
+    solver.solve(n_modes)
 
     # Get modes after solving with lumped mass matrix
-    emodes_lump = EigenSolver(surf, mask=medmask).solve(solver.n_modes, hetero=solver.hetero,
-                                                        lump=True).emodes
+    emodes_lump = EigenSolver(surf, mask=medmask, lump=True, hetero=solver.hetero).solve(
+        n_modes
+        ).emodes
 
-    for i in range(1, solver.n_modes):
+    for i in range(n_modes):
         mse = np.mean((solver.emodes[:, i] - emodes_lump[:, i])**2)
         assert mse < 1e-4, f'Mode {i} has MSE {mse:.2e} between lumped and consistent mass ' \
             'solutions, which is above the threshold of 1e-4.'
@@ -362,15 +397,15 @@ def test_n_modes_consistency(solver, surf_medmask):
 
     # Solve for more modes and check that the first 16 modes are approximately the same
     # TODO: may as well use 100 modes in the fixture and instead solve for fewer here?
-    solver.solve(16, hetero=solver.hetero, set_emode1=False, align_emodes=True)
-    solver2 = EigenSolver(surf, mask=medmask).solve(100, hetero=solver.hetero, set_emode1=False,
-                                                    align_emodes=True)
-    assert np.allclose(solver.emodes, solver2.emodes[:, :16], atol=1e-4), \
+    solver_more_modes = EigenSolver(surf, mask=medmask)
+    solver_more_modes.hetero = solver.hetero
+    solver_more_modes.solve(100)
+    assert np.allclose(solver.emodes, solver_more_modes.emodes[:, :16], atol=1e-4), \
         'Modes differ when solving for different n_modes.'
     
 def test_normalized_surf(solver):
     surf = solver.geometry
-    solver.solve(16, hetero=solver.hetero)
+    solver.solve(16)
 
     # Use LaPy to normalize evals
     evals_lapy = normalize_ev(surf, solver.evals)
@@ -378,7 +413,9 @@ def test_normalized_surf(solver):
     # Normalize mesh before EigenSolver
     surf_norm = surf.__class__(surf.v, surf.t)  # Avoid in-place modification
     surf_norm.normalize_()
-    solver_norm = EigenSolver(surf_norm).solve(16, hetero=solver.hetero)
+    solver_norm = EigenSolver(surf_norm)
+    solver_norm.hetero = solver.hetero
+    solver_norm.solve(16)
 
     # Check that evals match between the two normalization approaches
     assert np.allclose(evals_lapy, solver_norm.evals, atol=1e-20), \
@@ -387,10 +424,13 @@ def test_normalized_surf(solver):
 def test_normalized_vol():
     # Above test but for volumes
     hippo = fetch_example_vol('hippocampus')
-
-    volser = EigenSolver(hippo).solve(16, seed=0)
+    volser = EigenSolver(hippo)
+    volser.hetero = np.arange(volser.n_verts) * 2 / volser.n_verts
+    volser.solve(16, seed=0)
     evals_lapy = normalize_ev(volser.geometry, volser.evals)
-    volser_norm = EigenSolver(normalize_vol(hippo)).solve(16, seed=0)
+    volser_norm = EigenSolver(normalize_vol(hippo))
+    volser_norm.hetero = volser.hetero
+    volser_norm.solve(16, seed=0)
 
     assert np.allclose(evals_lapy, volser_norm.evals, atol=1e-20), \
     'Evals from LaPy normalization do not match evals from EigenSolver normalization.'
@@ -399,7 +439,9 @@ def test_constant_mode1(solver, surf_medmask):
     surf, medmask = surf_medmask
     emode1 = solver.emodes[:, 0]
     
-    solver_unset = EigenSolver(surf, mask=medmask).solve(2, hetero=solver.hetero, set_emode1=False)
+    solver_unset = EigenSolver(surf, mask=medmask)
+    solver_unset.hetero = solver.hetero
+    solver_unset.solve(2, set_first_emode=False)
     emode1_unfixed = solver_unset.emodes[:, 0]
     eval1_unfixed = solver_unset.evals[0]
 
@@ -417,9 +459,10 @@ def test_positive_sigma(solver, surf_medmask):
     emodes = solver.emodes
     evals = solver.evals
 
+    solver_pos_sigma = EigenSolver(surf, mask=medmask)
+    solver_pos_sigma.hetero = solver.hetero
     with pytest.warns(UserWarning, match=r"emodes\[:, 0\] will not be set"):
-        solver_pos_sigma = EigenSolver(surf, mask=medmask).solve(solver.n_modes,
-                                                                 hetero=solver.hetero, sigma=1e-4)
+        solver_pos_sigma.solve(solver.n_modes, sigma=1e-4)
     emodes_pos_sigma = solver_pos_sigma.emodes
     evals_pos_sigma = solver_pos_sigma.evals
 
@@ -458,5 +501,3 @@ def test_get_eigengroup_inds(solver):
     last_mode = groups[-1][-1] + 1
     assert solver.emodes[:, :last_mode].shape == solver.emodes.shape, \
         'Last eigengroup indices do not match number of modes.'
-
-# TODO: cache validation tests

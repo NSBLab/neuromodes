@@ -34,7 +34,6 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   compute_lbo
    solve
    write_h5
    read_h5

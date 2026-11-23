@@ -5,7 +5,6 @@ Module for loading brain meshes and maps, as well as setting up caching.
 from __future__ import annotations
 
 from importlib.resources import as_file, files
-from importlib.util import find_spec
 from os import getenv
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -317,13 +316,14 @@ def _cache_output(
     ImportError
         If ``joblib`` is not installed.
     """
-    # Check for and import joblib
-    if find_spec("joblib") is None:
+    # EAFP
+    try:
+        from joblib import Memory
+    except ImportError:
         raise ImportError(
             "joblib is required for caching. Neuromodes can be installed with the 'cache' extra to "
             "include joblib as a dependency (e.g., pip install neuromodes[cache])."
         )
-    from joblib import Memory
 
     # Set up cache directory
     if cache_dir is None:
