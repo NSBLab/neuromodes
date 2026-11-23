@@ -54,16 +54,16 @@ def compute_gem(
 
     Notes
     -----
-    If comparing this model to empirical connectomes, it is recommended to threshold the returned
-    matrix to match the density of the empirical data.
+    1. If comparing this model to empirical connectomes, it is recommended to threshold the returned
+       matrix to match the density of the empirical data.
 
-    Prior work has treated ``r`` and ``k`` as free parameters to fit empirical data [1]_, with the
-    default value reflecting an optimal fit to human diffusion MRI data. Consider adjusting these
-    parameters, as their optima can vary across analyses (e.g., different surfaces, heterogeneous
-    modes, parcellated connectomes, empirical data, fitting metrics, etc.).
+    2. Prior work has treated ``r`` and ``k`` as free parameters to fit empirical data [1]_, with the
+       default value reflecting an optimal fit to human diffusion MRI data. Consider adjusting these
+       parameters, as their optima can vary across analyses (e.g., different surfaces, heterogeneous
+       modes, parcellated connectomes, empirical data, fitting metrics, etc.).
     
-    While the model can be computed using non-cortical modes, users should consider whether this is
-    theoretically sensible and physiologically plausible.
+    3. While the model can be computed using non-cortical modes, users should consider whether this is
+       theoretically sensible and physiologically plausible.
 
     References
     ----------
