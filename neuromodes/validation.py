@@ -5,31 +5,20 @@ from warnings import warn
 from collections.abc import Sequence
 
 import numpy as np
-from scipy.sparse import diags, spmatrix, csc_matrix, issparse
-
-# from neuromodes.eigen import EigenData
-
+from scipy.sparse import diags, spmatrix, csc_matrix
 
 if TYPE_CHECKING:
-    from typing import Any, Literal, TypeAlias, TypeGuard
+    from typing import Any, TypeAlias, TypeGuard
 
     from numpy.typing import NDArray
-    from scipy.sparse import csc_matrix
 
-    # _IntSequenceKind: TypeAlias = Sequence[int | np.integer]
-    # _SeqSequenceKind: TypeAlias = Sequence[_IntSequenceKind]
-
-    # Flexible Input Type Aliases (Accepts lists, tuples, ranges, ndarrays)
     ModeCountInput: TypeAlias = Sequence[int] | int
     ModeIdInput: TypeAlias = Sequence[Sequence[int]] | Sequence[int]
-
-    # Concrete Output Type Alias (Guarantees NumPy-compatible indexing)
-    # ModeIdOutput: TypeAlias = list[NDArray[np.integer]]
 
 def _check_n_verts(
     n_verts: int | np.integer | None = None,
     **kwargs
-) -> int | None:
+) -> int:
     """Validate that all supplied matrices share the same spatial dimension (axis 0).
 
     Parameters
@@ -55,12 +44,8 @@ def _check_n_verts(
         If ``n_verts <= 0``, or if any matrix's ``shape[0]`` fails to match ``n_verts``.
     """
     if n_verts is not None:
-        if not _is_integer(n_verts):
-            raise TypeError(
-                f"n_verts must be an integer or None; got {n_verts} of type {type(n_verts).__name__}."
-            )
-        if n_verts <= 0:
-            raise ValueError(f"n_verts must be positive; got {n_verts}.")
+        if not _is_positive_integer(n_verts):
+            raise ValueError(f"n_verts must be a positive integer; got {n_verts} of type {type(n_verts).__name__}.")
 
     target_nverts = n_verts
 
@@ -74,13 +59,13 @@ def _check_n_verts(
                 f"got type {type(arr).__name__}."
             )
 
-        first_dim = arr.shape[0]
-
+        curr_height = int(arr.shape[0])
         if target_nverts is None:
-            target_nverts = first_dim
-        elif first_dim != target_nverts:
+            target_nverts = curr_height
+
+        if curr_height != target_nverts:
             msg = (
-                f"Spatial dimension mismatch in argument '{name}': got shape[0] = {first_dim}, "
+                f"Spatial dimension mismatch in argument '{name}': got shape[0] = {curr_height}, "
                 f"but expected {target_nverts}"
             )
             if n_verts is None:
@@ -89,7 +74,9 @@ def _check_n_verts(
                 msg += " (specified by n_verts)."
             raise ValueError(msg)
 
-    return int(target_nverts) if target_nverts is not None else None
+    if target_nverts is None:
+        raise ValueError("No valid arrays were provided to infer n_verts, and n_verts was not specified.")
+    return target_nverts
 
 # TODO P1 this function!
 def _check_n_modes(
@@ -152,11 +139,10 @@ def _create_parcellation_matrix(
     ValueError
         If ``parcellation`` is not 1D.
     """
-    _check_n_verts(mask=mask, parcellation=parcellation)
 
     if parcellation.shape is None: 
         raise ValueError("Parcellation map has undefined shape.")
-    n_verts = int(parcellation.shape[0])
+    n_verts = _check_n_verts(parcellation=parcellation, mask=mask)
     mask = mask if mask is not None else np.ones(n_verts, dtype=bool)
 
     if parcellation.ndim == 2:
@@ -184,34 +170,32 @@ def _mass_to_areas(
     return mass
 
 # TODO P3: consider adding dtype parameter to _create_mass_matrix for w=None case
-# TODO: consider moving to EigenData
 def _create_mass_matrix(
     mass: csc_matrix | NDArray[np.floating] | None = None,
     n_verts: int | None = None, 
     dtype: np.dtype | None = None
 ) -> csc_matrix:
     
-    if mass is None and n_verts is None:
-        raise ValueError("Either mass or n_verts must be provided.")
-    
-    elif mass is None and n_verts is not None: # appease: pyright
-        warn("Mass matrix not provided; assuming that area at each vertex is 1", UserWarning)
-        output = diags(np.ones(n_verts, dtype=dtype)).tocsc()
+    if mass is None:
+        if n_verts is None:
+            raise ValueError("Either mass or n_verts must be provided.")
+        else:
+            warn("Mass matrix not provided; assuming that area at each vertex is 1", UserWarning)
+            output = csc_matrix(diags(np.ones(n_verts, dtype=dtype)))
 
-    elif isinstance(mass, spmatrix) and mass.shape is not None: # appease: pyright
-        if mass.shape[0] == mass.shape[1]: 
-            output = mass.tocsc()
+    elif mass.ndim == 2 and mass.shape is not None: # appease: pyright 
+        if mass.shape[0] != mass.shape[1]:
+            raise ValueError(f"2D mass matrix must be square; got shape {mass.shape}.")
+        output = csc_matrix(mass)
+
+    elif isinstance(mass, np.ndarray):
+        if mass.ndim == 1:
+            output = csc_matrix(diags(mass))
         else: 
-            raise ValueError(f"Sparse mass matrix has invalid shape: {mass.shape} (should be square).")
+            raise ValueError(f"Dense mass matrix has invalid ndim: {mass.shape} (should be 1D or 2D).")
 
-    elif isinstance(mass, np.ndarray) and mass.ndim == 2:
-        if mass.shape[0] == mass.shape[1]:
-            output = csc_matrix(mass)
-        else: 
-            raise ValueError(f"Dense mass matrix has invalid shape: {mass.shape} (should be square).")
-
-    else: # 1D array, list, tuple, etc. 
-        output = diags(np.ravel(np.asarray(mass))).tocsc()
+    else: 
+        raise TypeError(f"Mass matrix must be a scipy sparse matrix or numpy dense array; got {type(mass)}.")
     
     if output.shape is None: 
         raise ValueError("Mass matrix has undefined shape.")
@@ -239,37 +223,31 @@ def _process_mode_ids(
     if mode_counts is not None and mode_ids is not None:
         raise UserWarning("Both mode_counts and mode_ids provided; mode_counts will be ignored.")
 
+    # We don't do squeeze_output = len(output) == 1 to have better type checking
+    # ie determine squeeze_output based on the input type rather than the output length
     if _is_integer_sequence(mode_ids):
         output = [list(mode_ids),]
         squeeze_output = True
     elif _is_integer_sequence_of_sequences(mode_ids):
-        # if not _is_integer_sequence_of_sequences(mode_ids):
-        #     raise TypeError(f"mode_ids must be an sequence of sequences of integers; got {type(mode_ids)}.")
         output = [list(mids) for mids in mode_ids]
         squeeze_output = False
+    elif mode_ids is not None:
+        raise TypeError(f"mode_ids must be of type Sequence[int] or Sequence[Sequence[int]]; got {type(mode_ids)}.")
     elif mode_counts is None:
         output = [list(range(n_modes_max)),]
         squeeze_output = True
     elif _is_integer(mode_counts):
-        # if mode_counts <= 0:
-        #     raise ValueError(f"mode_counts must be a positive integer; got {mode_counts}.")
-        # if mode_counts > n_modes_max:
-        #     raise ValueError(f"mode_counts must be in the range [1, n_modes = {n_modes_max}]; "
-        #                      f"got {mode_counts}.")
         output = [list(range(mode_counts)),]
         squeeze_output = True
     elif _is_integer_sequence(mode_counts):
         output = [list(range(mc)) for mc in mode_counts]
         squeeze_output = False
     else: 
-        raise TypeError(f"mode_counts must be a positive integer or an sequence of positive "
-                        f"integers; got {type(mode_counts)}.")
-
-    # We don't do squeeze_output = len(output) == 1 to have stronger type checking
+        raise TypeError(f"mode_counts must be of type int or Sequence[int]; got {type(mode_counts)}.")
 
     for i in output:
         if len(i) == 0:
-            raise ValueError("mode_counts/mode_ids must not be empty. mode_counts must be a positive integer or sequence of positive integers.")
+            raise ValueError("mode_counts/mode_ids must not be empty.")
         for j in i: 
             if not _is_integer(j):
                 raise TypeError(f"mode_counts/mode_ids must be integers; got {j} of type {type(j)}.")
@@ -292,6 +270,18 @@ def _is_integer(x) -> TypeGuard[int]:
     Check if x is an integer or an sequence of integers.
     """
     return isinstance(x, (int, )) and not isinstance(x, bool) 
+
+def _is_positive_integer(x) -> TypeGuard[int]:
+    """
+    Check if x is a positive integer.
+    """
+    return _is_integer(x) and x > 0
+
+def _is_nonnegative_integer(x) -> TypeGuard[int]:
+    """
+    Check if x is a non-negative integer.
+    """
+    return _is_integer(x) and x >= 0
 
 def _is_integer_sequence(x) -> TypeGuard[Sequence[int]]:
     """
