@@ -34,7 +34,7 @@ API Reference
    :template: function.rst
    :toctree: generated/
 
-   eigs
+   solve
    write_h5
    read_h5
    decompose

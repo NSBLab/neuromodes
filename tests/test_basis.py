@@ -15,7 +15,7 @@ def solver():
     solver = EigenSolver(surf, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), steepness=0.5, upper=2.0)
     solver.hetero = hetero
-    return solver.eigs(n_modes=10)
+    return solver.solve(n_modes=10)
 
 def test_decompose_eigenmodes_1d(solver):
     for i in range(solver.n_modes):
@@ -82,7 +82,7 @@ def solver_32k():
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(randmap, solver.mass), upper=2.0)
     solver.hetero = hetero
-    solver.eigs(10)
+    solver.solve(10)
     return solver
 
 def test_decompose_nans(solver_32k):

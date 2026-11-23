@@ -25,7 +25,7 @@ def solver():
     solver = EigenSolver(mesh, mask=medmask)
     hetero = sigmoid_rescale(zscorew(myelinmap, solver.mass), steepness=1.0, upper=2.0)
     solver.hetero = hetero
-    return solver.eigs(n_modes=100)
+    return solver.solve(n_modes=100)
 
 def test_unusual_wave_speed(solver):
     with pytest.warns(UserWarning, match=r'range of 0-150 m/s \(calculated 47.1-162.6 m/s\).'):

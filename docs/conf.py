@@ -82,7 +82,7 @@ def linkcode_resolve(domain, info):
         return None
 
     # Walk from the imported module to the exact object Sphinx is documenting,
-    # such as a class method like ``EigenSolver.eigs``.
+    # such as a class method like ``EigenSolver.solve()``.
     obj = module
     for part in full_name.split("."):
         obj = getattr(obj, part, None)

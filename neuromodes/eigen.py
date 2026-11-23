@@ -246,7 +246,7 @@ class EigenSolver(Solver):
         The Laplace-Beltrami eigenmodes of the mesh.
         """
         if self._emodes is None:
-            raise ValueError("Eigenmodes not found. Please run the eigs() method first.")
+            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
         return self._emodes
     
     @property
@@ -255,7 +255,7 @@ class EigenSolver(Solver):
         The Laplace-Beltrami eigenvalues of the mesh.
         """
         if self._evals is None:
-            raise ValueError("Eigenvalues not found. Please run the eigs() method first.")
+            raise ValueError("Eigenvalues not found. Please run the solve() method first.")
         return self._evals
     
     @property
@@ -264,7 +264,7 @@ class EigenSolver(Solver):
         The number of computed eigenmodes and eigenvalues.
         """
         if self._n_modes is None:
-            raise ValueError("Eigenmodes not found. Please run the eigs() method first.")
+            raise ValueError("Eigenmodes not found. Please run the solve() method first.")
         return self._n_modes
 
     def __str__(self) -> str:
@@ -348,10 +348,10 @@ class EigenSolver(Solver):
         self._stiffness = stiffness
         self._mass = mass
 
-    def eigs(
+    def solve(
         self,
         n_modes: int,
-        set_emode1: bool = True,
+        set_first_emode: bool = True,
         align_emodes: bool = True,
         sigma: float = -0.01, # EASIEST way is to hard-code this to LaPy default (2026/03)
         seed: int | Generator | None = 0, 
@@ -367,7 +367,7 @@ class EigenSolver(Solver):
         n_modes : int
             Number of eigenmodes and eigenvalues to compute. Must be a positive integer less than
             the number of vertices.
-        set_emode1 : bool, optional
+        set_first_emode : bool, optional
             Whether to set the first eigenmode to a constant ``1/sqrt(sum(mass))`` and the first
             eigenvalue to ``0``, as is expected analytically for a single connected component.
             Default is ``True``.
@@ -420,7 +420,7 @@ class EigenSolver(Solver):
         evals, emodes = super().eigs(k=n_modes, sigma=sigma, v0=v0, rng=seed)
 
         ## Post-process
-        if set_emode1:
+        if set_first_emode:
             if sigma >= 0:
                 warn("emodes[:, 0] will not be set to its analytical constant value when sigma >= "
                      "0, as it may not correspond to the constant eigenmode.")
