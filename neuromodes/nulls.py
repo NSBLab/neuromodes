@@ -289,6 +289,7 @@ def eigenstrap(
     n_modes = _check_n_modes(evals=evals, emodes=emodes, n_modes=n_groups**2)
     emodes = emodes[:, :n_modes].copy()
     evals = evals[:n_modes].copy()
+    evals[0] = 1 # No transform for constant mode (avoids division by zero)
     groups = get_eigengroup_inds(n_modes)
     
     # residual and resample
@@ -338,14 +339,6 @@ def eigenstrap(
     else: 
         raise ValueError(f"Invalid rotation method '{rotation_method}'; must be 'qr' or 'scipy'.")
 
-    if evals[0] != 0:
-        warn("First eigenvalue is not exactly zero, as is analytically expected for geometric "
-             "eigenmodes. However, since the first mode is not rotated, this will not affect the "
-             "nulls.")
-    if emodes[:, 0].std() > 1e-12:
-        warn("First eigenmode is not exactly constant across vertices, as is analytically expected "
-             "for geometric eigenmodes. Computed nulls may be biased.")
-    evals[0] = 1 # No transform for constant mode (avoids division by zero)
 
     # Main calculations
     # Precompute transformed modes (ellipsoid -> spheroid for each eigengroup)
