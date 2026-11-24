@@ -82,6 +82,9 @@ def _check_n_modes(
         evals: NDArray | None = None,
         n_modes: int | None = None, # the number of modes you are seeking to get from the emodes/evals
 ) -> int:
+    if emodes is not None and evals is not None:
+        if emodes.shape[1] != evals.shape[0]: # TODO P1 change wording of this error and above (and tests)
+            raise ValueError(f"emodes ({emodes.shape[1]}) and evals ({evals.shape[0]}) must have shapes that are compatible")
     if n_modes is None:
         if emodes is not None:
             n_modes = emodes.shape[1]
@@ -89,9 +92,6 @@ def _check_n_modes(
             n_modes = evals.shape[0]
     if n_modes is None: 
         raise ValueError("Unable to determine n_modes; please provide at least one of n_modes, emodes, or evals.")
-    if emodes is not None and evals is not None:
-        if emodes.shape[1] != evals.shape[0]: # TODO P1 change wording of this error and above (and tests)
-            raise ValueError(f"emodes ({emodes.shape[1]}) and evals ({evals.shape[0]}) must have shapes that are compatible")
     if emodes is not None and emodes.shape[1] < n_modes:
         raise ValueError(f"emodes ({emodes.shape[1]}) must have at least n_modes ({n_modes}) columns")
     if evals is not None and evals.shape[0] < n_modes:
@@ -160,10 +160,7 @@ def _check_mass(
         raise ValueError("Mass matrix is not positive semi-definite (diagonally dominant).")
 
     diag = mass.diagonal()
-    max_diag = float(np.max(np.abs(diag))) if diag.size > 0 else 0.0
-    off_diag = mass - diags(diag, format="csc")
-    off_diag_tol = atol + rtol * max_diag
-    is_lumped = off_diag.nnz == 0 or float(np.max(np.abs(off_diag.data))) <= off_diag_tol
+    is_lumped = np.count_nonzero(np.abs(mass.data) > atol) == np.count_nonzero(np.abs(diag) > atol)
 
     if lump is not None:
         if not lump and is_lumped:
@@ -179,7 +176,7 @@ def _check_mass(
                 "Unlumped mass matrix column sums must equal twice the diagonal."
             )
 
-    if np.any(np.abs(diag) <= atol + rtol * max_diag):
+    if np.any(np.isclose(diag, 0.0, atol=atol)):
         warn(
             "Mass matrix diagonal contains values close to zero; "
             "this may lead to numerical instability. Are any vertices isolated?",
@@ -195,13 +192,11 @@ def _check_stiffness(
     _check_symmetric(stiffness, "Stiffness", rtol=rtol, atol=atol)
     _check_one_component(stiffness, "Stiffness")
 
-    diag = stiffness.diagonal()
-    max_diag = float(np.max(np.abs(diag))) if diag.size > 0 else 0.0
-    if np.any(diag < -(atol + rtol * max_diag)):
+    if np.any(stiffness.diagonal() < -atol):
         raise ValueError("Stiffness matrix has negative diagonal entries (not SPSD).")
 
     col_sum = np.asarray(stiffness.sum(axis=0)).ravel()
-    if np.any(np.abs(col_sum) > atol + rtol * np.abs(diag)):
+    if not np.allclose(col_sum, 0.0, atol=atol):
         raise ValueError("Stiffness matrix column sums must equal zero.")
 
     if not _is_diagonal_dominant(stiffness, strict=False, rtol=rtol, atol=atol):
