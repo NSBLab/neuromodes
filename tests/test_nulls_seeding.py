@@ -142,12 +142,12 @@ def test_seed_single_multiple(solver, test_data, rotation_method, randomize, res
     for i in range(2):
         # If the input seed is a tuple or array, it should use that seed directly
         a2 = solver.eigenstrap(test_data, n_nulls=1, seed=(i,), rotation_method=rotation_method, randomize=randomize, residual=residual)
-        assert np.allclose(a1[:, i:i+1, :], a2, atol=1e-10), \
+        assert np.allclose(a1[..., [i]], a2, atol=1e-10), \
             f"Nulls generated with seed {i} should be identical"
         
         # If the input seed is a single integer, it should use that to spawn a new set of seed(s)
         b1 = solver.eigenstrap(test_data, n_nulls=1, seed=i, rotation_method=rotation_method, randomize=randomize, residual=residual)
-        assert not np.allclose(a1[:, i:i+1, :], b1, atol=1e-10), \
+        assert not np.allclose(a1[..., [i]], b1, atol=1e-10), \
             f"Nulls generated with seed {i} should be different when passed as single integer vs array"
 
 @pytest.mark.parametrize("randomize", [False])  # only rotation_method may be affected by global state
