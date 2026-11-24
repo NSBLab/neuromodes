@@ -118,7 +118,7 @@ def test_seeds_reordered(solver, test_data, rotation_method, randomize, residual
     a1 = solver.eigenstrap(test_data, n_nulls=n_nulls, seed=np.arange(n_nulls), rotation_method=rotation_method, randomize=randomize, residual=residual)
     a2 = solver.eigenstrap(test_data, n_nulls=n_nulls, seed=np.flip(np.arange(n_nulls)), rotation_method=rotation_method, randomize=randomize, residual=residual)
 
-    assert np.allclose(np.flip(a1,axis=1), a2, atol=1e-10), \
+    assert np.allclose(np.flip(a1,axis=-1), a2, atol=1e-10), \
         "Nulls generated with the same seed should be identical regardless of seed position"
 
 @pytest.mark.parametrize("rotation_method", rotation_options)
