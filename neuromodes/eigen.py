@@ -480,6 +480,26 @@ class EigenSolver(Solver):
             **kwargs
         )
     
+    def filter_spectrum(
+        self, 
+        data: NDArray[np.floating],
+        **kwargs
+    ) -> NDArray[np.floating]:
+        """
+        This is a wrapper for :func:`~neuromodes.basis.filter_spectrum`. Note that ``emodes``,
+        ``evals``, ``mass``, and ``checks`` are passed automatically by the ``EigenSolver``
+        instance.
+        """
+        from neuromodes.basis import filter_spectrum as _filter_spectrum
+
+        return _filter_spectrum(
+            data=data,
+            emodes=self.emodes,
+            evals=self.evals,
+            mass=self.mass,
+            **kwargs
+        )
+    
     def calc_recon_error(
         self,
         data: NDArray[np.floating],
