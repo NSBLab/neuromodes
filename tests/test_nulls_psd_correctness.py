@@ -1,3 +1,5 @@
+from typing import Final
+
 import numpy as np
 import pytest
 
@@ -5,8 +7,8 @@ from neuromodes.eigen import EigenSolver
 from neuromodes.io import fetch_example_surf
 
 # Params
-res = '4k'
-hemi = 'L'
+res: Final = '4k'
+hemi: Final = 'L'
 n_modes = 100 # should be perfect square
 n_maps = 3
 n_nulls = 20
@@ -37,14 +39,14 @@ def test_psd_preservation(solver, rotation_method, randomize, decomp_method, see
 
     # Compute group level PSD for original map and nulls
     psd0_mode = beta0_mode**2
-    psd1_mode = solver.decompose(nulls.reshape(solver.n_verts, -1), method=decomp_method).reshape(-1, n_nulls, n_maps)**2
+    psd1_mode = solver.decompose(nulls, method=decomp_method)**2
 
     split_indices = np.arange(int(np.ceil(np.sqrt(solver.n_modes))))**2
     psd0_group = np.add.reduceat(psd0_mode, split_indices, axis=0) # (n_groups, n_maps)
     psd1_group = np.add.reduceat(psd1_mode, split_indices, axis=0) # (n_groups, n_nulls, n_maps)
 
     # Check
-    assert np.allclose(psd0_group[:, np.newaxis, :], psd1_group, rtol=0.01), \
+    assert np.allclose(psd0_group[:, :, np.newaxis], psd1_group, rtol=0.01), \
         f"Nulls do not preserve eigengroup PSD (rotation_method={rotation_method}, randomize={randomize}, decomp_method={decomp_method}, seed={seed})"
 
 @pytest.mark.parametrize("n_nulls", [10000]) # need to use a large number of nulls to get good estimate of mean
