@@ -202,7 +202,7 @@ def test_reproducibility_number_nulls(solver, test_data, rotation_method, random
     a1 = solver.eigenstrap(test_data, n_nulls=n_nulls, seed=1, rotation_method=rotation_method, randomize=randomize, residual=residual)
     a2 = solver.eigenstrap(test_data, n_nulls=n_nulls-1, seed=1, rotation_method=rotation_method, randomize=randomize, residual=residual)
 
-    assert np.allclose(a1[:,:-1], a2, atol=1e-10), \
+    assert np.allclose(a1[...,:-1], a2, atol=1e-10), \
         "Nulls with the same seed should be identical"
 
 @pytest.mark.parametrize("rotation_method", rotation_options)
@@ -213,7 +213,7 @@ def test_reproducibility_number_data(solver, test_data, rotation_method, randomi
     a1 = solver.eigenstrap(test_data, n_nulls=n_nulls, seed=1, rotation_method=rotation_method, randomize=randomize, residual=residual)
     a2 = solver.eigenstrap(test_data[:,:-1], n_nulls=n_nulls, seed=1, rotation_method=rotation_method, randomize=randomize, residual=residual)
 
-    assert np.allclose(a1[:,:,:-1], a2, atol=1e-10), \
+    assert np.allclose(a1[:,:-1], a2, atol=1e-10), \
         "Nulls with the same seed should be identical"
 
 @pytest.mark.parametrize("rotation_method", ['qr']) # only new method supports this
@@ -228,8 +228,8 @@ def test_reproducibility_number_groups_qr(solver, test_data, rotation_method, ra
     a2 = solver.eigenstrap(test_data[:,:1], n_nulls=n_nulls, seed=seed, rotation_method=rotation_method, 
                            randomize=randomize, residual=residual, n_groups=n_groups)
     # Nulls won't be exactly equal, but betas should be
-    beta1 = solver.decompose(np.squeeze(a1, axis=2))
-    beta2 = solver.decompose(np.squeeze(a2, axis=2))
+    beta1 = solver.decompose(a1)
+    beta2 = solver.decompose(a2)
 
     assert np.allclose(beta1[:n_groups**2,:], beta2[:n_groups**2,:], atol=1e-10), \
         "Nulls with the same seed should be identical regardless of number of groups"
@@ -246,8 +246,8 @@ def test_reproducibility_number_groups_scipy(solver, test_data, rotation_method,
     a2 = solver.eigenstrap(test_data[:,:1], n_nulls=n_nulls, seed=seed, rotation_method=rotation_method, 
                            randomize=False, residual=residual, n_groups=n_groups)
     # Nulls won't be exactly equal, but betas should be
-    beta1 = solver.decompose(np.squeeze(a1, axis=2))
-    beta2 = solver.decompose(np.squeeze(a2, axis=2))
+    beta1 = solver.decompose(a1)
+    beta2 = solver.decompose(a2)
 
     assert np.allclose(beta1[:n_groups**2,:], beta2[:n_groups**2,:], atol=1e-10), \
         "Nulls with the same seed should be identical regardless of number of groups"
