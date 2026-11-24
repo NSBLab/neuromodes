@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Final
 
 import numpy as np
 import pytest
@@ -10,7 +11,7 @@ from neuromodes.io import fetch_example_map, fetch_example_surf
 from neuromodes.nulls import eigenstrap
 
 # Params
-res = '4k'
+res: Final = '4k'
 n_modes = 100 # should be a square number
 n_maps = 3
 n_nulls = 20
@@ -53,26 +54,16 @@ def nulls_orig():
         
     return np.load(nulls_file)
 
+@pytest.mark.parametrize("shape", [(), (1,), (n_maps,), (1, 1), (n_maps, 1), (1, n_maps), (n_maps, n_maps)])
 @pytest.mark.parametrize("rotation_method", rotation_options)
 @pytest.mark.parametrize("randomize", randomize_options)
 @pytest.mark.parametrize("residual", residual_options) 
 @pytest.mark.parametrize("seed", [None, 0, 42, np.random.choice(n_nulls, n_nulls, replace=False)])
-def test_seed_options_1d(solver, test_data, seed, rotation_method, randomize, residual):
-    """Test different seed options run without errors (1D data)"""
-    test_data_1d = test_data[:, 0]
-    nulls = solver.eigenstrap(test_data_1d, n_nulls=n_nulls, seed=seed, rotation_method=rotation_method, randomize=randomize, residual=residual)
-    assert nulls.shape == (solver.n_verts, n_nulls)
-    assert np.isfinite(nulls).all(), \
-        f"Nulls contain non-finite values for seed={seed}"
-
-@pytest.mark.parametrize("rotation_method", rotation_options)
-@pytest.mark.parametrize("randomize", randomize_options)
-@pytest.mark.parametrize("residual", residual_options) 
-@pytest.mark.parametrize("seed", [None, 0, 42, np.random.choice(n_nulls, n_nulls, replace=False)])
-def test_seed_options(solver, test_data, seed, rotation_method, randomize, residual):
+def test_seed_options(solver, shape, seed, rotation_method, randomize, residual):
     """Test different seed options run without errors (2D data)"""
+    test_data = np.random.rand(solver.n_verts, *shape)
     nulls = solver.eigenstrap(test_data, n_nulls=n_nulls, seed=seed, rotation_method=rotation_method, randomize=randomize, residual=residual)
-    assert nulls.shape == (solver.n_verts, n_nulls, test_data.shape[1])
+    assert nulls.shape == test_data.shape + (n_nulls,)
     assert np.isfinite(nulls).all(), \
         f"Nulls contain non-finite values for seed={seed}"
     
