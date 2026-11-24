@@ -14,7 +14,7 @@ from scipy.stats import special_ortho_group
 
 from neuromodes.basis import decompose, reconstruct
 from neuromodes.eigen import get_eigengroup_inds
-from neuromodes.stats import meanw, stdw
+from neuromodes.stats import _multiply_nd
 from neuromodes.validation import _check_n_verts, _process_mass_matrix, _check_n_modes
 
 if TYPE_CHECKING:
@@ -275,10 +275,6 @@ def eigenstrap(
     n_verts = _check_n_verts(emodes=emodes, data=data, mass=mass)
     mass = _process_mass_matrix(mass, n_verts)
 
-    if (is_vector_data := data.ndim == 1):
-        data = data[:, np.newaxis]
-    n_maps = data.shape[1]
-
     # n_groups : Determine number of eigengroups, and trim emodes and evals to match
     n_cols = emodes.shape[1]
     if n_groups is None: 
@@ -287,9 +283,6 @@ def eigenstrap(
             warn("`emodes` contains an incomplete eigengroup (i.e., number of modes is not a "
                 f"perfect square). Last {diff_n} modes will be excluded.")
     n_modes = _check_n_modes(evals=evals, emodes=emodes, n_modes=n_groups**2)
-    emodes = emodes[:, :n_modes].copy()
-    evals = evals[:n_modes].copy()
-    evals[0] = 1 # No transform for constant mode (avoids division by zero)
     groups = get_eigengroup_inds(n_modes)
     
     # residual and resample
@@ -341,81 +334,61 @@ def eigenstrap(
 
 
     # Main calculations
-    # Precompute transformed modes (ellipsoid -> spheroid for each eigengroup)
-    sqrt_evals = np.sqrt(evals)
-    norm_emodes = emodes / sqrt_evals[np.newaxis, :] # sqrt_evals behaves like a row vector
-    sqrt_evals = sqrt_evals[:, np.newaxis, np.newaxis] # turn it into 3D column vector for below broadcasting
+    sqrt_evals = np.sqrt(evals[:n_modes])
+    sqrt_evals[0] = 1 # No transform for constant mode (avoids division by zero)
 
-    # Eigendecompose maps (coeffs is n_modes x n_maps)
-    coeffs = decompose(data, emodes, method=decomp_method, mass=mass, checks=False)
-    # Turn coeffs into inv_coeffs, a 3D array of shape (n_modes, n_nulls, n_maps)
+    # Eigendecompose maps
+    coeffs = decompose(data, emodes, method=decomp_method, mass=mass, mode_counts=n_modes)
+
+    # Precompute transformed modes (ellipsoid -> spheroid for each eigengroup)
+    # Turn coeffs into inv_coeffs, an array of shape coeffs.shape + (n_nulls, )
     # This is the precomputed inverse-transformed coefficients (spheroid -> ellipsoid for each eigengroup)
-    if randomize:
-        inv_coeffs = np.empty((n_modes, n_nulls, n_maps))
-        for i, s in enumerate(seeds_randomize):
+    inv_coeffs_shape = coeffs.shape + (n_nulls, )
+    if randomize: # permute the coeffs with eigengroups and then scale by sqrt_evals
+        inv_coeffs = np.empty(inv_coeffs_shape)
+        for i, s in enumerate(seeds_randomize):  # TODO P2 use the same permutation as MBM?
             rng = np.random.default_rng(s)
             for group in groups:
-                inv_coeffs[group, i, :] = rng.permutation(coeffs[group, :], axis=0) 
-        inv_coeffs *= sqrt_evals
-    else:
-        inv_coeffs = np.broadcast_to((coeffs[:, np.newaxis, :] * sqrt_evals), (n_modes, n_nulls, n_maps))
+                inv_coeffs[group, ..., i] = rng.permutation(coeffs[group], axis=0)
+        inv_coeffs *= np.broadcast_to(sqrt_evals, inv_coeffs_shape[::-1]).T
+    else: # just scale by sqrt_evals (with some broadcasting trickery)
+        inv_coeffs = np.broadcast_to(
+            (coeffs.T * sqrt_evals).T[..., np.newaxis],
+            inv_coeffs_shape,
+        )
 
-    # Generate nulls using tforms of shape (n_modes, n_nulls, n_maps)
+    # Generate nulls using tforms of shape (n_modes, ..., n_nulls)
     tforms = _rotate_coeffs(
         inv_coeffs=inv_coeffs,
         groups=groups,
         seeds=seeds_rotate
     )
-    # tensordot appears faster than einsum
-    nulls = np.tensordot(norm_emodes, tforms, axes=(1, 0)) # (n_verts, n_nulls, n_maps)
+    nulls = _multiply_nd(emodes[:, :n_modes] / sqrt_evals, tforms) # (n_verts, ..., n_maps)
 
     # Optional post-processing steps
     # Add residuals of reconstruction
     if residual is not None:
-        residual_data = data - reconstruct(coeffs, emodes) # shape (n_verts, n_maps)
+        residual_data = data - reconstruct(coeffs, emodes, mode_counts=n_modes)
         if residual == 'add':
-            nulls += residual_data[:, np.newaxis, :]
+            nulls += residual_data[..., np.newaxis]
         elif residual == 'permute':
             for i, s in enumerate(seeds_residual):
-                nulls[:, i, :] += np.random.default_rng(s).permutation(residual_data, axis=0)
+                nulls[..., i] += np.random.default_rng(s).permutation(residual_data, axis=0)
 
-    # Resample values to match stats of original data (TODO: move to stats.py)
+    # Resample values to match the original distribution or its range
     if resample == 'exact':
-        # check for NaNs / Infs
-        data_finite = np.isfinite(data)
-        if data_finite.all():
-            sorted_data = np.sort(data, axis=0)[:, np.newaxis, :]
-            ranks = np.argsort(np.argsort(nulls, axis=0), axis=0)
-            nulls = np.take_along_axis(sorted_data, ranks, axis=0)
-        else:
-            # Handle each pattern of non-finite values separately
-            unique_masks, mask_indices = np.unique(data_finite, axis=1, return_inverse=True)
-            for i, mask in enumerate(unique_masks.T):
-                map_idx = np.where(mask_indices == i)[0]
-                nulls_masked = nulls[mask][:, :, map_idx]
-
-                # Resample finite values
-                sorted_vals = np.sort(data[mask][:, map_idx], axis=0)[:, np.newaxis, :]
-                ranks = np.argsort(np.argsort(nulls_masked, axis=0), axis=0)
-                resampled = np.take_along_axis(sorted_vals, ranks, axis=0)
-
-                # Reinsert resampled values and preserve non-finite values
-                for j, map in enumerate(map_idx):
-                    nulls[mask, :, map] = resampled[:, :, j]
-                    nulls[~mask, :, map] = data[~mask, map][:, np.newaxis]
-    elif resample == 'affine':
-        nulls -= meanw(nulls, mass, keepdims=True)
-        nulls /= stdw(nulls, mass, keepdims=True)
-        nulls *= stdw(data, mass, keepdims=True)
-        nulls += meanw(data, mass, keepdims=True)
-    elif resample == 'range': # to match original
-        nulls -= nulls.min(axis=0, keepdims=True)
-        nulls /= nulls.max(axis=0, keepdims=True)
-        nulls *= np.nanmax(data, axis=0) - np.nanmin(data, axis=0)
-        nulls += np.nanmin(data, axis=0)
-
-    if is_vector_data:
-        nulls = nulls.squeeze(axis=2)
+        nulls = np.take_along_axis(
+            np.sort(data, axis=0)[..., np.newaxis],
+            indices=np.argsort(np.argsort(nulls, axis=0), axis=0),
+            axis=0
+            )
+    elif resample == 'range':
+        nulls_min = nulls.min(axis=0, keepdims=True)
+        nulls_max = nulls.max(axis=0, keepdims=True)
+        data_min = data.min(axis=0, keepdims=True)[..., np.newaxis]
+        data_max = data.max(axis=0, keepdims=True)[..., np.newaxis]
+        nulls = ((nulls - nulls_min) / (nulls_max - nulls_min)
+                 * (data_max - data_min) + data_min)
 
     return nulls
 
@@ -434,8 +407,7 @@ def _rotate_coeffs_scipy(
     Parameters
     ----------
     inv_coeffs : array-like
-        The inverse-transformed coefficients (spheroid -> ellipsoid) of shape (n_modes, n_nulls,
-        n_maps) to rotate.
+        The inverse-transformed coefficients (spheroid -> ellipsoid) of shape (..., n_nulls) to rotate.
     groups : list of arrays
         A list of arrays, where each array contains the indices of modes belonging to the same
         eigengroup.
@@ -445,7 +417,7 @@ def _rotate_coeffs_scipy(
 
     Returns
     -------
-    np.ndarray of shape ``(n_modes, n_nulls, n_maps)``
+    np.ndarray of shape ``(..., n_nulls)``
         The rotated coefficients (spheroid -> ellipsoid) to use for generating null maps.
 
     Notes
@@ -469,7 +441,7 @@ def _rotate_coeffs_scipy(
         for group in groups:        # ie can't switch order of loops (even though it would be better)
             Q = _get_so(len(group), rng)
             # NumPy slicing trickery as second dims of tforms and inv_coeffs are collapsed:
-            tforms[group, i, :] = Q @ inv_coeffs[group, i, :] 
+            tforms[group, ..., i] = _multiply_nd(Q, inv_coeffs[group, ..., i])
 
     return tforms
 
@@ -485,8 +457,7 @@ def _rotate_coeffs_qr(
     Parameters
     ----------
     inv_coeffs : np.ndarray
-        The inverse-transformed coefficients (spheroid -> ellipsoid) of shape ``(n_modes, n_nulls,
-        n_maps)`` to rotate.
+        The inverse-transformed coefficients (spheroid -> ellipsoid) of shape ``(..., n_nulls)`` to rotate.
     groups : list of np.ndarrays
         A list of arrays, where each array contains the indices of modes belonging to the same
         eigengroup.
@@ -496,7 +467,7 @@ def _rotate_coeffs_qr(
 
     Returns
     -------
-    np.ndarray of shape ``(n_modes, n_nulls, n_maps)``
+    np.ndarray of shape ``(..., n_nulls)``
         The rotated coefficients (spheroid -> ellipsoid) to use for generating null maps.
 
     Notes
@@ -530,7 +501,8 @@ def _rotate_coeffs_qr(
     tforms = np.empty_like(inv_coeffs)
     for group in groups: # unlike scipy, can loop over groups only (don't also have to loop over nulls)
         Q = _generate_so(len(group), rngs) # as we can generate rotations for all nulls at once
-        # Batched matmul (equiv of @) appears faster than einsum or tensordot:
-        tforms[group, :, :] = np.matmul(Q, inv_coeffs[group, :, :], axes=[(1, 2), (0, 2), (0, 2)])
+        # Batched matmul (equiv of @) may be faster than einsum or tensordot
+        # but we use einsum for clarity in the first instance
+        tforms[group] = np.einsum('nij,j...n->i...n', Q, inv_coeffs[group])
 
     return tforms
