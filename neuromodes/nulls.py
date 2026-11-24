@@ -50,9 +50,9 @@ def eigenstrap(
     Parameters
     ----------
     data : array-like
-        Empirical brain map(s) of shape ``(n_verts,)`` or ``(n_verts, n_maps)`` to generate nulls
-        from. If ``n_maps > 1``, the same set of randomized rotations is applied to all maps for
-        each null (see Notes). 
+        Empirical brain map(s) of shape ``(n_verts,)`` or ``(n_verts, ...)`` to generate nulls
+        from. If there is more than one map, the same set of randomized rotations is applied to 
+        all maps for each null (see Notes). 
     emodes : array-like
         The eigenmodes array of shape ``(n_verts, n_modes)``. This function rotates modes within
         eigengroups. By default (if ``n_groups`` is None), if the number of eigenmodes is not a
@@ -101,8 +101,7 @@ def eigenstrap(
     Returns
     -------
     np.ndarray
-        Generated null maps of shape ``(n_verts, n_nulls)`` if ``data`` has shape ``(n_verts,)``, or
-        ``(n_verts, n_nulls, n_maps)`` if ``data`` has shape ``(n_verts, n_maps)``.
+        Generated null maps of shape ``(*data.shape, n_nulls)``.
 
     Raises
     ------
@@ -118,10 +117,10 @@ def eigenstrap(
 
     Notes
     -----
-    1. Same transformations for each map. When ``data`` contains multiple maps (n_maps > 1), the
+    1. Same transformations for each map. When ``data`` contains multiple maps, the
        same set of randomized rotations is applied to all maps for each null. This means that null i
-       for map A and null i for map B use identical eigenmode rotations (± coefficient
-       randomizations and residual permutations).
+       for map A and null i for map B use identical eigenmode rotations (and coefficient
+       randomizations and residual permutations, if utilised).
 
     2. ``n_groups`` and ``residual``. The choice of ``n_groups`` and ``residual`` will affect the
        spatial autocorrelation similarity between the nulls and empirical data. See ref [1]_ for a
@@ -136,13 +135,12 @@ def eigenstrap(
        the notes below.
 
     4. ``resample``. The choice of ``resample`` will affect the distribution of values in the nulls.
-       ``'affine'`` and ``'range'`` are linear transformations, while ``'exact'`` is a non-linear
-       transformation. ``'affine'`` preserves the "relative PSD" of the distribution. In contrast,
-       ``'range'`` and ``'exact'`` do not preserve the relative PSD of the distribution, as they
-       change the location and scale of the reconstructed nulls. The choice of ``resample`` should
-       be guided by the importance of matching the original distribution of values and ultimately by
-       whichever option produces the lowest false discovery rate (FDR). See ref [1]_ for an example
-       of how to compute the FDR.
+       ``'range'`` is a linear transformations, while ``'exact'`` is a non-linear transformation.
+       Unlike ``None``, ``'range'`` and ``'exact'`` do not preserve the eigengroup-wise PSD of the
+       distribution, as they change the location and scale of the reconstructed nulls. The choice of
+       ``resample`` should be guided by the importance of matching the original distribution of
+       values and ultimately by whichever option produces the lowest false discovery rate (FDR). See
+       ref [1]_ for an example of how to compute the FDR.
 
     5. ``seed``. Seeding is handled in one or two stages. First, if ``seed`` is None or a scalar
        integer, it is used to generate an array of size ``(n_nulls,)``. (If ``seed`` is already an
@@ -289,9 +287,9 @@ def eigenstrap(
     if residual not in (None, 'add', 'permute'):
         raise ValueError(f"Invalid residual method '{residual}'; must be 'add', 'permute', or "
                          "None.")
-    if resample not in (None, 'exact', 'affine', 'range'):
-        raise ValueError(f"Invalid resampling method '{resample}'; must be 'exact', 'affine', "
-                         "'range', or None.")
+    if resample not in (None, 'exact', 'range'):
+        raise ValueError(f"Invalid resampling method '{resample}'; must be 'exact', 'range', or "
+                         "None.")
     
     # seed : Need to ultimately generate n_nulls * 3 Generators to use for each step of the process
     # (randomize, residual, rotate). (i) If `seed` is an array of shape (n_nulls,), we use each seed
