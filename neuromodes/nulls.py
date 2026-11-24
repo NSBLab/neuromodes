@@ -12,7 +12,7 @@ from warnings import warn
 import numpy as np
 from scipy.stats import special_ortho_group
 
-from neuromodes.basis import decompose
+from neuromodes.basis import decompose, reconstruct
 from neuromodes.eigen import get_eigengroup_inds
 from neuromodes.stats import meanw, stdw
 from neuromodes.validation import _check_n_verts, _process_mass_matrix, _check_n_modes
@@ -372,7 +372,7 @@ def eigenstrap(
     # Optional post-processing steps
     # Add residuals of reconstruction
     if residual is not None:
-        residual_data = data - emodes @ coeffs # shape (n_verts, n_maps)
+        residual_data = data - reconstruct(coeffs, emodes) # shape (n_verts, n_maps)
         if residual == 'add':
             nulls += residual_data[:, np.newaxis, :]
         elif residual == 'permute':
