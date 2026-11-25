@@ -276,9 +276,11 @@ def reconstruct(
     if squeeze_output and isinstance(coeffs, np.ndarray): # mode_counts is None or scalar, so coeffs is a single array
         recon_nd = _multiply_nd(emodes[:, mode_ids[0]], coeffs)
     elif squeeze_output: 
-        raise ValueError("If mode_counts is None or scalar, coeffs must be a single array, not a list.")
-    else:
+        raise ValueError("`coeffs` must be an array (not a list) if mode_counts is None or scalar, or mode_ids is a Sequence[int].")
+    elif isinstance(coeffs, list):
         recon_nd = [_multiply_nd(emodes[:, mids], coeffs[j]) for j, mids in enumerate(mode_ids)]
+    else: 
+        raise ValueError("`coeffs` must be a list (not an array) if mode_counts is Sequence[int], or mode_ids is a Sequence[Sequence[int]].")
     return recon_nd
 
 # TODO P1: add to EigenSolver
