@@ -100,12 +100,13 @@ def make_parcellation(
     # Handle trivial case of one parcel
     if 1 in n_parcels_set:
         parcellations[1] = np.ones(n_verts, dtype=int)
-    if n_parcels_set == [1]:
-        return parcellations[1] if scalar_request else parcellations[1][:, None]
+        if n_parcels_set == [1]:
+            return (parcellations[1] if scalar_request
+                    else np.column_stack([parcellations[1] for _ in n_parcels]))
 
     # Initialise the heap with the first eigenpair
     evals, emodes = Solver(geometry).eigs(2, rng=rng)
-    counter = count()  # Tiebreaker for degen evals
+    counter = count() # Tiebreaker for degen evals
     heap = [(evals[1], next(counter), emodes[:, 1] >= 0, np.ones(n_verts, dtype=bool))]
 
     # Split parcel with lowest eigenvalue until we reach the largest requested parcel count
