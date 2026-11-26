@@ -5,7 +5,7 @@ Module for validating and manipulating meshes of brain structures.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeVar, overload
 
 import numpy as np
 from lapy import TetMesh, TriaMesh
@@ -15,6 +15,8 @@ from neuromodes.io import fs_extensions
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
+MeshT = TypeVar("MeshT", TriaMesh, TetMesh)
 
 def is_vol(
     geometry: TetMesh | TriaMesh | GiftiImage | str | Path | dict
@@ -76,11 +78,25 @@ def is_vol(
             return False
         raise ValueError(err_str)
 
+@overload
 def mask_mesh(
-    geometry: TriaMesh | TetMesh,
+    geometry: MeshT,
+    mask: NDArray[np.bool_],
+    return_mapping: Literal[False] = False,
+) -> MeshT: ...
+
+@overload
+def mask_mesh(
+    geometry: MeshT,
+    mask: NDArray[np.bool_],
+    return_mapping: Literal[True],
+) -> tuple[MeshT, NDArray[np.integer]]: ...
+
+def mask_mesh(
+    geometry: MeshT,
     mask: NDArray[np.bool_],
     return_mapping: bool = False,
-) -> TriaMesh | TetMesh | tuple[TriaMesh | TetMesh, NDArray[np.integer]]:
+) -> MeshT | tuple[MeshT, NDArray[np.integer]]:
     """
     Remove vertices and cells not fully contained by a vertex mask. Vertices retained by ``mask``
     that do not belong to a retained cell are removed as well, so the returned mesh has no

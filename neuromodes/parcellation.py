@@ -56,8 +56,10 @@ def make_parcellation(
     ------
     TypeError
         If ``geometry`` is not an instance of ``lapy.TriaMesh`` or ``lapy.TetMesh``.
-    ValueError
-        If ``n_parcels`` is not an integer or a sequence of integers in the range [1, ``n_verts``].
+    TypeError
+        If ``n_parcels`` is not an integer or a sequence of integers.
+    ValueError    
+        If any of the values in ``n_parcels`` are not in the range [1, ``n_verts``].
     RuntimeError
         If the highest requested number of parcels failed to be reached due to mesh topology.
     ValueError
@@ -83,14 +85,11 @@ def make_parcellation(
 
     err_msg = ("n_parcels must be an integer or a sequence of integers in the range [1, n_verts = "
                f"{n_verts}]")
-    if scalar_request := isinstance(n_parcels, (int, np.integer)):
+    if scalar_request := isinstance(n_parcels, int):
         n_parcels = [n_parcels]
-    elif isinstance(n_parcels, np.ndarray) and n_parcels.ndim == 1:
-        n_parcels = n_parcels.tolist()
-    elif not (isinstance(n_parcels, (list, tuple)) and len(n_parcels) > 0
-              and all(isinstance(val, (int, np.integer)) for val in n_parcels)):
-        raise ValueError(err_msg)
-    if any(value < 1 or value > n_verts for value in n_parcels):
+    elif not isinstance(n_parcels, Sequence) or not all(isinstance(val, int) for val in n_parcels):
+        raise TypeError(err_msg)
+    if any(val < 1 or val > n_verts for val in n_parcels):
         raise ValueError(err_msg)
     
     n_parcels_set = sorted(set(n_parcels))
