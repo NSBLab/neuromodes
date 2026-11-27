@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, assert_never
 import numpy as np
 from lapy import Solver, TetMesh, TriaMesh
 
-from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
+from neuromodes.mesh import EmptyMaskError, check_surf, check_vol, is_vol, mask_mesh
 
 if TYPE_CHECKING:
     from numpy.random import Generator
@@ -56,16 +56,10 @@ def make_parcellation(
 
     Raises
     ------
-    TypeError
-        If ``geometry`` is not an instance of ``lapy.TriaMesh`` or ``lapy.TetMesh``.
-    TypeError
-        If ``n_parcels`` is not an integer or a sequence of integers.
     ValueError    
         If any of the values in ``n_parcels`` are not in the range [1, ``n_verts``].
     RuntimeError
         If the highest requested number of parcels failed to be reached due to mesh topology.
-    ValueError
-        If ``repair`` is not ``None`` or ``'nearest'``.
 
     References
     ----------
@@ -171,7 +165,7 @@ def _split_parcel(
     for child_mask in (child1_mask, child2_mask):
         try:
             submesh, mapping = mask_mesh(geometry, child_mask, return_mapping=True)
-        except ValueError:  # TODO: make custom error in mask_mesh()
+        except EmptyMaskError:
             # Parcel has no cells, so it cannot be split further (leaf node in the hierarchy)
             leaf_masks.append(child_mask)
             continue

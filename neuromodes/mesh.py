@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 
 MeshT = TypeVar("MeshT", TriaMesh, TetMesh)
 
+class EmptyMaskError(Exception):
+    """Raised when a mask does not retain any complete cell in a mesh."""
+
 def is_vol(
     geometry: TetMesh | TriaMesh | GiftiImage | str | Path | dict
 ) -> bool:
@@ -120,8 +123,8 @@ def mask_mesh(
     ------
     ValueError
         If ``mask`` does not have a length matching the number of vertices in ``geometry``.
-    ValueError
-        If no cell is fully contained by ``mask``.
+    EmptyMaskError
+        If the mask does not retain any complete cell.
     """
     # Format / validate arguments
     mask = np.asarray_chkfinite(mask, dtype=bool)
@@ -132,7 +135,7 @@ def mask_mesh(
     # Keep only cells whose vertices are all retained
     elem_mask = np.all(mask[geometry.t], axis=1)
     if not np.any(elem_mask):
-        raise ValueError("mask does not retain any complete cell")
+        raise EmptyMaskError("mask does not retain any complete cell")
     cells = geometry.t[elem_mask]
 
     # Remove unreferenced vertices and remap cell indices
