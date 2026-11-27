@@ -91,11 +91,12 @@ def test_make_parcellation_max_parcels():
         v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
         t=np.array([[0, 1, 2]]),
     )
-    with pytest.raises(RuntimeError, match="reached 2 parcels"):
-        make_parcellation(geometry, 3)
+    with pytest.warns(UserWarning, match=r"count \(3\) due to scale of mesh. Requests beyond 2"):
+        parcellations = make_parcellation(geometry, [2,3], seed=seed, repair=None)
 
-    parcellation = make_parcellation(geometry, 2, seed=seed, repair=None)
-    _assert_valid_parcellation(geometry, parcellation, 2)
+    # 2 parcels should work fine, but 3 should be entirely omitted
+    _assert_valid_parcellation(geometry, parcellations[:, 0], 2)
+    assert np.all(parcellations[:, 1] == -1)
 
 def test_make_parcellation_n_parcels_overload():
     geometry = TriaMesh(

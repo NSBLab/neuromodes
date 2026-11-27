@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from heapq import heappop, heappush
 from itertools import count
 from typing import TYPE_CHECKING, Literal, assert_never
+from warnings import warn
 
 import numpy as np
 from lapy import Solver, TetMesh, TriaMesh
@@ -58,8 +59,6 @@ def make_parcellation(
     ------
     ValueError    
         If any of the values in ``n_parcels`` are not in the range [1, ``n_verts``].
-    RuntimeError
-        If the highest requested number of parcels failed to be reached due to mesh topology.
 
     References
     ----------
@@ -102,21 +101,22 @@ def make_parcellation(
         # TODO: consider a multiple connected components approach for potential speedup
         _split_parcel(geometry, leaf_masks, heap, counter, seed)
 
-        current_count = len(leaf_masks) + len(heap)
-        if not heap and current_count < n_parcels_set[-1]:
-            # TODO: warn and return -1 cols for unachievable parcel counts
-            raise RuntimeError("Cannot create the highest requested number of parcels; reached "
-                               f"{current_count} parcels")
-
         if parcel_count in n_parcels_set:
             # Use the current masks to create the parcellation
             col = (n_parcels_set == parcel_count).nonzero()[0][0]
             for j, parcel in enumerate([item[3] for item in heap] + leaf_masks):
                 parcellations_set[parcel, col] = j
 
+        # Terminate early if we're out of submeshes
+        if not heap and (current_count := len(leaf_masks) + len(heap)) < n_parcels_set[-1]:
+            warn(f"Failed to reach highest requested parcel count ({n_parcels_set[-1]}) due to "
+                 f"scale of mesh. Requests beyond {current_count} parcels will be set to -1.")
+            break
+
     if repair == "nearest":
         parcellations_set = _fill_omitted_vertices(geometry, parcellations_set)
     elif repair is not None:
+        # TODO: reconsider
         assert_never(repair)
 
     # create parcellations array of shape (n_verts, n_requests), with columns in the order of
