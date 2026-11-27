@@ -343,3 +343,5 @@ def check_surf(
     if not surf.is_manifold():
         raise ValueError('Surface mesh is not manifold: contains edges belonging to more than two '
                          'cells.')
+
+# TODO: consider adding _is_face_contiguous() for parcellations

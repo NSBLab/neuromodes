@@ -676,13 +676,11 @@ def _create_parcellation_matrix(
     mask = parcellation >= 0 # medial wall should be non-negative
 
     # Construct sparse parcellation matrix as (n_parcels, n_verts)
-    parc_mat = csc_matrix(
+    return csc_matrix(
         (np.ones(np.sum(mask)),
          (np.arange(n_verts)[mask], parcellation[mask])),
         shape=(n_verts, np.max(parcellation)+1)
         )
-    
-    return parc_mat
 
 def sigmoid_rescale(
     data: NDArray[np.floating],

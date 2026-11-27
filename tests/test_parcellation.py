@@ -35,23 +35,25 @@ seed = np.random.default_rng(0)
 
 def _assert_valid_parcellation(geometry, parcellation, n_parcels):
     assert parcellation.shape == (len(geometry.v),)
-    parcellation_valid = parcellation[parcellation >= 1]
+    parcellation_valid = parcellation[parcellation >= 0]
 
     # Check that all requested labels are present
-    assert np.array_equal(np.unique(parcellation_valid), np.arange(1, n_parcels + 1))
+    assert np.array_equal(np.unique(parcellation_valid), np.arange(n_parcels))
 
     # Check that each parcel is a single connected component
     adjacency = geometry.adj_sym.tocsr()
-    for label in range(1, n_parcels + 1):
+    for label in range(n_parcels):
         selected = parcellation == label
         assert csgraph.connected_components(
             adjacency[selected][:, selected], directed=False
         )[0] == 1
 
+# TODO: replace with Adjusted Rand Index from MGH
 def _boundary_edges(geometry, parcellation):
     adj_sym = geometry.adj_sym.tocoo()
     upper = adj_sym.row < adj_sym.col
-    valid = upper & (parcellation[adj_sym.row] >= 1) & (parcellation[adj_sym.col] >= 1)
+    # Only consider edges where both vertices are assigned to a parcel
+    valid = upper & (parcellation[adj_sym.row] >= 0) & (parcellation[adj_sym.col] >= 0)
     return {
         (row, col)
         for row, col in zip(adj_sym.row[valid], adj_sym.col[valid])
@@ -106,7 +108,7 @@ def test_make_parcellation_n_parcels_overload():
 def test_make_parcellation_one_parcel():
     geometry, _ = fetch_example_surf(res="4k")
     parcellation = make_parcellation(geometry, 1, seed=seed, repair=None)
-    assert np.array_equal(parcellation, np.ones(len(geometry.v), dtype=int))
+    assert np.array_equal(parcellation, np.zeros(len(geometry.v), dtype=int))
 
 @pytest.mark.parametrize("n_parcels", [[1], [2], [1, 1], [2, 2], [2, 1, 2], [1, 2, 3], [1, 1, 2, 2]])
 def test_make_parcellation_list_requests(n_parcels):
@@ -176,5 +178,5 @@ def test_make_parcellation_repair():
 
 def test_make_parcellation_repair_invalid():
     surf, _ = fetch_example_surf(res="4k")
-    with pytest.raises(ValueError, match="repair must be"):
+    with pytest.raises(AssertionError, match="got: 'puzzle-pipes.com'"):
         make_parcellation(surf, 2, repair="puzzle-pipes.com")
