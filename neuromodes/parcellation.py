@@ -45,7 +45,8 @@ def make_parcellation(
         Whether to check that the input mesh ``geometry`` is manifold with one connected component.
     repair : 'nearest' or None, optional
         Method for assigning vertices omitted from complete induced cells. ``'nearest'`` assigns to
-        the closest labelled adjacent vertex.
+        the nearest labelled adjacent vertex (with ties broken by the most common label, then by the
+        lowest label).
     seed : int or None, optional
         Random seed for reproducibility.
 
@@ -182,8 +183,9 @@ def _fill_omitted_vertices(
     parcellations_set: NDArray[np.integer],
 ) -> NDArray[np.integer]:
     """
-    Relabel parcellations' omitted vertices (denoted by -1) using the label of the nearest
-    non-omitted neighbour.
+    Relabel parcellations' omitted vertices (denoted by -1) using the most frequent label among
+    the nearest non-omitted neighbours. Ties in label frequency are resolved by choosing the
+    lowest label.
 
     Parameters
     ----------
@@ -205,16 +207,17 @@ def _fill_omitted_vertices(
         If a vertex cannot be repaired because it has no labelled neighbours.
     """
     verts_omitted = (parcellations_set == -1).nonzero()
-    if not np.any(verts_omitted):
-        return parcellations_set
-    verts_omitted_union = np.unique(verts_omitted[0])
 
-    adj_sym = geometry.adj_sym.tocsr()
+    if not verts_omitted[0].size:
+        # No omissions, no repair
+        return parcellations_set
+    
+    verts_omitted_union = np.unique(verts_omitted[0])
     neighbours_max = {}
     neighbour_distances_max = {}
     for vertex in verts_omitted_union:
         # Get distances to all neighbours
-        neighbours = adj_sym[vertex].indices
+        neighbours = geometry.adj_sym[:, vertex].indices
         distances = np.linalg.norm(geometry.v[neighbours] - geometry.v[vertex], axis=1)
 
         # Cache sorted distances and neighbour indices
@@ -222,24 +225,33 @@ def _fill_omitted_vertices(
         neighbours_max[vertex] = neighbours[order]
         neighbour_distances_max[vertex] = distances[order]
 
-    # Repair each parcellation independently
     for i in range(parcellations_set.shape[1]):
-        parcellation = parcellations_set[:, i]
+        # Copy parcellation to avoid in-place mods, which can propagate labels beyond neighbours
+        parcellation_og = parcellations_set[:, i].copy()
 
-        # get indices of omitted vertices in this parcellation from verts_omitted
+        # Only vertices labelled before repair can be used as neighbours.
         for vertex in verts_omitted[0][verts_omitted[1] == i]:
-            # Get indices of non-omitted neighbours
+            # Get indices of non-omitted adjacent vertices
             neighbours = neighbours_max[vertex]
-            candidates = (parcellation[neighbours] + 1).nonzero()[0]  # +1 includes label 0 and excludes omitted (-1)
+            # +1 includes label 0 and excludes omitted (-1)
+            candidates = (parcellation_og[neighbours] + 1).nonzero()[0]
+
             if len(candidates) == 0:
                 # TODO: consider if this can happen and if we should expand search to 2 steps
                 raise RuntimeError("cannot repair an unresolved vertex with no labelled neighbour")
 
-            # Assign label of nearest non-omitted neighbour (for ties, use lowest label)
             distances = neighbour_distances_max[vertex][candidates]
             nearest_indices = neighbours[candidates[distances == np.min(distances)]]
-            parcellation[vertex] = np.min(parcellation[nearest_indices])
 
-        parcellations_set[:, i] = parcellation
+            if len(nearest_indices) == 1:
+                # Only one nearest neighbour, so use its label
+                parcellations_set[vertex, i] = parcellation_og[nearest_indices[0]]
+            else:
+                # Break distance ties by label frequency, then by the lowest label
+                labels, label_counts = np.unique(
+                    parcellation_og[nearest_indices],
+                    return_counts=True,
+                )
+                parcellations_set[vertex, i] = labels[label_counts == np.max(label_counts)].min()
 
     return parcellations_set

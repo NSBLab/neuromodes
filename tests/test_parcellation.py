@@ -5,7 +5,7 @@ from scipy.sparse import csgraph
 
 from neuromodes.io import fetch_example_surf, fetch_example_vol
 from neuromodes.mesh import mask_mesh
-from neuromodes.parcellation import make_parcellation
+from neuromodes.parcellation import _fill_omitted_vertices, make_parcellation
 
 surfaces = [
     (structure, species, res, hemi)
@@ -176,6 +176,80 @@ def test_make_parcellation_repair():
     union = len(boundaries | boundaries_repaired)
     assert union > 0
     assert overlap / union >= 0.98
+
+def test_fill_omitted_vertices():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 2, 0], [-3, 0, 0], [0, -4, 0]]),
+        t=np.array([[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]]),
+    )
+
+    parcellations = np.array([[-1, -1], [1, -1], [0, 1], [0, 0], [0, 0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    assert repaired[0, 0] == 1 # vertex 0's closest label is vertex 1
+    assert repaired[0, 1] == 1 # vertex 0's closest label is vertex 2
+    assert repaired[1, 1] == 1 # vertex 1's closest label is vertex 2
+
+def test_fill_omitted_vertices_dist_tie():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        t=np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3]]), 
+    )
+
+    parcellations = np.array([[-1], [1], [1], [0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    # vertex 0 is equidistant from vertices 1-3, so assign most common label
+    assert repaired[0, 0] == 1
+
+def test_fill_omitted_vertices_dist_freq_tie():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0]]),
+        t=np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [0, 3, 4]]), 
+    )
+
+    parcellations = np.array([[-1], [1], [1], [0], [0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    # vertex 0 is equidistant from vertices 1-4, and each label occurs twice, so assign lowest label
+    assert repaired[0, 0] == 0
+
+def test_fill_omitted_vertices_no_labelled_neighbours():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]]),
+        t=np.array([[0, 1, 2], [1, 2, 3]]), 
+    )
+
+    parcellations = np.array([[-1], [-1], [-1], [0]])
+    with pytest.raises(
+        RuntimeError,
+        match="cannot repair an unresolved vertex with no labelled neighbour"
+        ):
+        _fill_omitted_vertices(geometry, parcellations)
+
+def test_fill_omitted_vertices_does_not_propagate_labels():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]]),
+        t=np.array([[0, 1, 2], [0, 2, 3]]),
+    )
+    # vertex 1 has no labelled neighbour
+    parcellations = np.array([[-1], [-1], [-1], [0]])
+
+    with pytest.raises(
+        RuntimeError,
+        match="cannot repair an unresolved vertex with no labelled neighbour",
+    ):
+        _fill_omitted_vertices(geometry, parcellations)
+
+def test_fill_omitted_vertices_no_omissions():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+
+    parcellations = np.array([[0], [1], [1]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+    assert np.array_equal(repaired, parcellations)
 
 def test_make_parcellation_repair_invalid():
     surf, _ = fetch_example_surf(res="4k")
