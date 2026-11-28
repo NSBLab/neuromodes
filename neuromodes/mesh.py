@@ -271,6 +271,7 @@ def check_vol(
         If the volume mesh is not manifold (i.e., contains triangles shared by more than two
         tetrahedra).
     """
+    # TODO: consider checking self-intersection
     if vol.has_free_vertices():
         raise ValueError('Volume mesh contains unreferenced vertices (i.e., not part of any '
                          'tetrahedron).')
@@ -329,6 +330,7 @@ def check_surf(
     ValueError
         If the surface mesh is not manifold (i.e., contains edges belonging to more than two cells).
     """
+    # TODO: consider checking self-intersection
     # Ensure surface has no unreferenced vertices
     referenced = np.zeros(len(surf.v), dtype=bool)
     referenced[surf.t] = True

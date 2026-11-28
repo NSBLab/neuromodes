@@ -1,10 +1,11 @@
 import numpy as np
+import pytest
 from lapy import TetMesh, TriaMesh
-from pytest import raises
 
 from neuromodes.mesh import check_surf, check_vol, mask_mesh
 
-verts = lambda n: np.random.rand(n, 3)
+
+def verts(n, seed=0): return np.random.default_rng(seed).random((n, 3))
 
 def test_mask_surf():
 
@@ -32,7 +33,7 @@ def test_surf_unreferenced_verts():
     invalid_mesh = TriaMesh(v=verts(5), t=cells)
    
     # check_surf should raise ValueError due to unreferenced vertex
-    with raises(ValueError, match="Surface mesh contains .* unreferenced"):
+    with pytest.raises(ValueError, match="Surface mesh contains .* unreferenced"):
         check_surf(invalid_mesh)
 
 def test_surf_not_contiguous():
@@ -41,7 +42,7 @@ def test_surf_not_contiguous():
     disconnected_mesh = TriaMesh(v=verts(6), t=cells)
     
     # check_surf should raise ValueError due to multiple components
-    with raises(ValueError, match="Surface mesh is not contiguous.*connected components"):
+    with pytest.raises(ValueError, match="Surface mesh is not contiguous.*connected components"):
         check_surf(disconnected_mesh)
 
 def test_mask_vol():
@@ -72,7 +73,7 @@ def test_vol_unreferenced_verts():
     vol = TetMesh(v=verts(5), t=tets)
    
     # check_vol should raise ValueError due to unreferenced vertex
-    with raises(ValueError, match="Volume mesh contains unreferenced vertices"):
+    with pytest.raises(ValueError, match="Volume mesh contains unreferenced vertices"):
         check_vol(vol)
 
 def test_vol_boundary_not_contiguous():
@@ -86,8 +87,7 @@ def test_vol_boundary_not_contiguous():
     vol = TetMesh(v=verts(8), t=tets)
     
     # check_vol should raise ValueError due to multiple components
-    with raises(ValueError,
-                match="Surface mesh is not contiguous: 2 connected"):
+    with pytest.raises(ValueError, match="Surface mesh is not contiguous: 2 connected"):
         check_vol(vol)
 
 def test_vol_nonmanifold():
@@ -101,7 +101,7 @@ def test_vol_nonmanifold():
 
     vol = TetMesh(v=verts(6), t=tets)
     
-    with raises(ValueError, match="Volume mesh is not manifold"):
+    with pytest.raises(ValueError, match="Volume mesh is not manifold"):
         check_vol(vol)
 
 def test_mask_mesh_reindexes_cells():

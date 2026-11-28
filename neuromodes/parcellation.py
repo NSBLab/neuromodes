@@ -5,13 +5,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from heapq import heappop, heappush
 from itertools import count
-from typing import TYPE_CHECKING, Literal, assert_never
+from typing import TYPE_CHECKING, Literal
 from warnings import warn
 
 import numpy as np
 from lapy import Solver, TetMesh, TriaMesh
 
-from neuromodes.mesh import EmptyMaskError, check_surf, check_vol, is_vol, mask_mesh
+from neuromodes.mesh import EmptyMaskError, check_surf, check_vol, mask_mesh
 
 if TYPE_CHECKING:
     from numpy.random import Generator
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def make_parcellation(
     geometry: TriaMesh | TetMesh,
-    n_parcels: int | Sequence[int],
+    n_parcels: int | Sequence[int, np.integer],
     check_geometry: bool = True,
     # TODO: consider adding repair="remesh", if it's meaningfully different and not too slow
     # e.g., when an unreferenced vertex appears, add supporting vertices to the mesh where the
@@ -42,7 +42,8 @@ def make_parcellation(
     n_parcels : int or sequence of int
         Number(s) of parcels requested.
     check_geometry : bool
-        Whether to check that the input mesh ``geometry`` is manifold with one connected component.
+        Whether to check that the input mesh ``geometry`` is manifold with one connected component
+        and no unreferenced vertices.
     repair : 'nearest' or None, optional
         Method for assigning vertices omitted from complete induced cells. ``'nearest'`` assigns to
         the nearest labelled adjacent vertex (with ties broken by the most common label, then by the
@@ -58,8 +59,14 @@ def make_parcellation(
 
     Raises
     ------
-    ValueError    
-        If any of the values in ``n_parcels`` are not in the range [1, ``n_verts``].
+    TypeError
+        If ``geometry`` is not an instance of either ``lapy.TriaMesh`` or ``lapy.TetMesh``.
+    TypeError
+        If ``repair`` is not ``None`` or ``'nearest'``.
+    TypeError
+        If ``n_parcels`` is not an integer or a sequence of integers.
+    ValueError
+        If (any value in) ``n_parcels`` is not in the range ``[1, n_verts]``.
 
     References
     ----------
@@ -67,18 +74,25 @@ def make_parcellation(
         mammalian brain. bioRxiv. https://doi.org/10.1101/2025.01.30.635820
     """
     # Format / validate inputs
+    if not isinstance(geometry, (TriaMesh, TetMesh)):
+        raise TypeError(f"geometry must be a TriaMesh or TetMesh, got {type(geometry)}")
     if check_geometry:
-        if is_vol(geometry):
+        if isinstance(geometry, TetMesh):
             check_vol(geometry)
         else:
             check_surf(geometry)
+    
     n_verts = geometry.v.shape[0]
+
+    if repair not in (None, "nearest"):
+        raise TypeError(f"repair must be None or 'nearest', got '{repair}'")
 
     scalar_request = isinstance(n_parcels, (int, np.integer))
     n_parcels = np.atleast_1d(n_parcels)
+    if not all(isinstance(val, (int, np.integer)) for val in n_parcels):
+        raise TypeError("n_parcels must be an integer or a sequence of integers")
     if any(val < 1 or val > n_verts for val in n_parcels):
-        raise ValueError("n_parcels must be an integer or a sequence of integers in the range "
-                         f"[1, n_verts = {n_verts}]")
+        raise ValueError(f"n_parcels must be in the range [1, n_verts = {n_verts}]")
     n_parcels_set = np.unique(n_parcels)
 
     # Handle trivial case of one parcel only
@@ -91,9 +105,9 @@ def make_parcellation(
     if n_parcels_set[0] == 1:
         parcellations_set[:, 0] = 0
 
-    # Initialise the heap with the first eigenpair
+    # Initialise the heap with the first split
     evals, emodes = Solver(geometry).eigs(2, rng=seed)
-    counter = count() # Tiebreaker for degen evals
+    counter = count() # Tiebreaker for equal evals
     heap = [(evals[1], next(counter), emodes[:, 1] >= 0, np.ones(n_verts, dtype=bool))]
 
     # Split parcel with lowest eigenvalue until we reach the largest requested parcel count
@@ -115,13 +129,10 @@ def make_parcellation(
             break
 
     if repair == "nearest":
+        # relabel -1s
         parcellations_set = _fill_omitted_vertices(geometry, parcellations_set)
-    elif repair is not None:
-        # TODO: reconsider
-        assert_never(repair)
 
-    # create parcellations array of shape (n_verts, n_requests), with columns in the order of
-    # n_parcels, feom parcellations_set
+    # assemble parcellations in order requested
     parcellations = parcellations_set[:, np.searchsorted(n_parcels_set, n_parcels)]
     return parcellations[:, 0] if scalar_request else parcellations
 

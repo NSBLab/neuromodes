@@ -106,6 +106,14 @@ def test_make_parcellation_n_parcels_overload():
     with pytest.raises(ValueError, match=r"in the range \[1, n_verts = 3\]"):
         make_parcellation(geometry, 4)
 
+def test_make_parcellation_n_parcels_decimal():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+    with pytest.raises(TypeError, match=r"n_parcels must be an integer or a sequence of integers"):
+        make_parcellation(geometry, 2.400)
+
 def test_make_parcellation_one_parcel():
     geometry, _ = fetch_example_surf(res="4k")
     parcellation = make_parcellation(geometry, 1, seed=seed, repair=None)
@@ -217,7 +225,7 @@ def test_fill_omitted_vertices_dist_freq_tie():
 def test_fill_omitted_vertices_no_labelled_neighbours():
     geometry = TriaMesh(
         v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]]),
-        t=np.array([[0, 1, 2], [1, 2, 3]]), 
+        t=np.array([[0, 1, 2], [0, 2, 3]]), 
     )
 
     parcellations = np.array([[-1], [-1], [-1], [0]])
@@ -225,20 +233,6 @@ def test_fill_omitted_vertices_no_labelled_neighbours():
         RuntimeError,
         match="cannot repair an unresolved vertex with no labelled neighbour"
         ):
-        _fill_omitted_vertices(geometry, parcellations)
-
-def test_fill_omitted_vertices_does_not_propagate_labels():
-    geometry = TriaMesh(
-        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]]),
-        t=np.array([[0, 1, 2], [0, 2, 3]]),
-    )
-    # vertex 1 has no labelled neighbour
-    parcellations = np.array([[-1], [-1], [-1], [0]])
-
-    with pytest.raises(
-        RuntimeError,
-        match="cannot repair an unresolved vertex with no labelled neighbour",
-    ):
         _fill_omitted_vertices(geometry, parcellations)
 
 def test_fill_omitted_vertices_no_omissions():
@@ -253,5 +247,8 @@ def test_fill_omitted_vertices_no_omissions():
 
 def test_make_parcellation_repair_invalid():
     surf, _ = fetch_example_surf(res="4k")
-    with pytest.raises(AssertionError, match="got: 'puzzle-pipes.com'"):
+    with pytest.raises(
+        TypeError,
+        match="repair must be None or 'nearest', got 'puzzle-pipes.com'"
+        ):
         make_parcellation(surf, 2, repair="puzzle-pipes.com")
