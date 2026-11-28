@@ -5,7 +5,7 @@ Module for validating and manipulating meshes of brain structures.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypeVar, overload
 
 import numpy as np
 from lapy import TetMesh, TriaMesh
@@ -15,6 +15,11 @@ from neuromodes.io import fs_extensions
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+
+MeshT = TypeVar("MeshT", TriaMesh, TetMesh)
+
+class EmptyMaskError(Exception):
+    """Raised when a mask does not retain any complete cell in a mesh."""
 
 def is_vol(
     geometry: TetMesh | TriaMesh | GiftiImage | str | Path | dict
@@ -76,31 +81,50 @@ def is_vol(
             return False
         raise ValueError(err_str)
 
+@overload
 def mask_mesh(
-    geometry: TriaMesh,
-    mask: NDArray[np.bool_]
-) -> TriaMesh:
+    geometry: MeshT,
+    mask: NDArray[np.bool_],
+    return_mapping: Literal[False] = False,
+) -> MeshT: ...
+
+@overload
+def mask_mesh(
+    geometry: MeshT,
+    mask: NDArray[np.bool_],
+    return_mapping: Literal[True],
+) -> tuple[MeshT, NDArray[np.integer]]: ...
+
+def mask_mesh(
+    geometry: MeshT,
+    mask: NDArray[np.bool_],
+    return_mapping: bool = False,
+) -> MeshT | tuple[MeshT, NDArray[np.integer]]:
     """
-    Remove specified vertices and corresponding cells from a triangular surface mesh. Note that this
-    may produce a non-contiguous mesh with unreferenced vertices--use :func:`check_surf` to validate
-    the resulting mesh.
+    Remove vertices and cells not fully contained by a vertex mask. Vertices retained by ``mask``
+    that do not belong to a retained cell are removed as well, so the returned mesh has no
+    unreferenced vertices.
 
     Parameters
     ----------
-    geometry : lapy.TriaMesh
-        The input surface mesh.
+    geometry : lapy.TriaMesh or lapy.TetMesh
+        The input mesh.
     mask : array-like
         A boolean array indicating which vertices to keep (``True``) or remove (``False``).
+    return_mapping : bool, optional
+        If ``True``, also return the original indices of vertices in the masked mesh.
 
     Returns
     -------
-    lapy.TriaMesh
-        The masked surface mesh.
+    lapy.TriaMesh, lapy.TetMesh, or tuple
+        The masked mesh, or a tuple containing the mesh, local-to-global mapping.
 
     Raises
     ------
     ValueError
         If ``mask`` does not have a length matching the number of vertices in ``geometry``.
+    EmptyMaskError
+        If the mask does not retain any complete cell.
     """
     # Format / validate arguments
     mask = np.asarray_chkfinite(mask, dtype=bool)
@@ -108,19 +132,20 @@ def mask_mesh(
         raise ValueError(f"mask must have shape ({geometry.v.shape[0]},), matching the number of "
                          "vertices in geometry.")
 
-    # Remove vertices not in mask
-    v_masked = geometry.v[mask] # inherit original type
-
-    # Update vertex indices of elements
-    v_map = unmask_data(np.arange(np.sum(mask)), mask, fill_value=0).astype(geometry.t.dtype) 
-    t_remapped = v_map[geometry.t]
-    
-    # Keep only elements where all vertices are in the mask
+    # Keep only cells whose vertices are all retained
     elem_mask = np.all(mask[geometry.t], axis=1)
-    t_masked = t_remapped[elem_mask]
+    if not np.any(elem_mask):
+        raise EmptyMaskError("mask does not retain any complete cell")
+    cells = geometry.t[elem_mask]
 
-    # Create a new TriaMesh with the masked vertices and elements
-    return geometry.__class__(v=v_masked, t=t_masked)
+    # Remove unreferenced vertices and remap cell indices
+    mapping = np.unique(cells)
+    inverse = np.full(len(geometry.v), -1, dtype=geometry.t.dtype)
+    inverse[mapping] = np.arange(len(mapping), dtype=geometry.t.dtype)
+
+    # Create new mesh
+    masked = geometry.__class__(v=geometry.v[mapping], t=inverse[cells])
+    return (masked, mapping) if return_mapping else masked
 
 def unmask_data(
     data: NDArray[np.floating],
@@ -230,7 +255,8 @@ def check_vol(
     vol: TetMesh
 ) -> None:
     """
-    Check if the volume mesh has no unreferenced vertices and a contiguous surface boundary.
+    Check if the volume mesh is manifold, has no unreferenced vertices, and has a contiguous surface
+    boundary.
     
     Parameters
     ----------
@@ -245,6 +271,7 @@ def check_vol(
         If the volume mesh is not manifold (i.e., contains triangles shared by more than two
         tetrahedra).
     """
+    # TODO: consider checking self-intersection
     if vol.has_free_vertices():
         raise ValueError('Volume mesh contains unreferenced vertices (i.e., not part of any '
                          'tetrahedron).')
@@ -303,6 +330,7 @@ def check_surf(
     ValueError
         If the surface mesh is not manifold (i.e., contains edges belonging to more than two cells).
     """
+    # TODO: consider checking self-intersection
     # Ensure surface has no unreferenced vertices
     referenced = np.zeros(len(surf.v), dtype=bool)
     referenced[surf.t] = True
@@ -320,3 +348,5 @@ def check_surf(
     if not surf.is_manifold():
         raise ValueError('Surface mesh is not manifold: contains edges belonging to more than two '
                          'cells.')
+
+# TODO: consider adding _is_face_contiguous() for parcellations

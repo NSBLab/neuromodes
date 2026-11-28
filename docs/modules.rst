@@ -45,6 +45,8 @@ API Reference
    balloon_model
    compute_gem
    eigenstrap
+   make_parcellation
+   parcellate
    unmask_data
 
 .. autosummary::
@@ -183,6 +185,21 @@ API Reference
    :toctree: generated/
 
    eigenstrap
+
+:mod:`neuromodes.parcellation` - Functions for generating hierarchical parcellations
+---------------------------------------------------------------
+
+.. automodule:: neuromodes.parcellation
+   :no-members:
+   :no-inherited-members:
+
+.. currentmodule:: neuromodes.parcellation
+
+.. autosummary::
+   :template: function.rst
+   :toctree: generated/
+
+   make_parcellation
 
 .. _ref_io:
 

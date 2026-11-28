@@ -35,7 +35,7 @@ def eigenstrap(
     rotation_method: str = 'qr',
     decomp_method: _DecompositionKind = 'project',
     mass: csc_matrix | None = None,
-    seed: int | NDArray | None = None,
+    seed: int | NDArray | None = None,  # TODO: consider supporting np.random.Generator
     checks: _CheckKind = True,
 ) -> NDArray[np.floating]:
     """

@@ -1,0 +1,254 @@
+import numpy as np
+import pytest
+from lapy import TriaMesh
+from scipy.sparse import csgraph
+
+from neuromodes.io import fetch_example_surf, fetch_example_vol
+from neuromodes.mesh import mask_mesh
+from neuromodes.parcellation import _fill_omitted_vertices, make_parcellation
+
+surfaces = [
+    (structure, species, res, hemi)
+    for structure, species, res in (
+        ("midthickness", "human", "4k"),
+        ("midthickness", "human", "32k"),
+        ("midthickness", "macaque", "32k"),
+        ("midthickness", "marmoset", "32k"),
+        ("sphere", "human", "4k"),
+    )
+    for hemi in ("L",)
+]
+
+volumes = [
+    (structure, species, template, res, hemi)
+    for structure, species, template, res in (
+        ("thalamus", "human", "MNI152", "2mm"),
+        ("hippocampus", "human", "MNI152", "2mm"),
+        ("striatum", "human", "MNI152", "2mm"),
+        ("isocortex", "mouse", "AMBA", "200um"),
+    )
+    for hemi in ("L",)
+]
+
+n_parcels = 20
+seed = np.random.default_rng(0)
+
+def _assert_valid_parcellation(geometry, parcellation, n_parcels):
+    assert parcellation.shape == (len(geometry.v),)
+    parcellation_valid = parcellation[parcellation >= 0]
+
+    # Check that all requested labels are present
+    assert np.array_equal(np.unique(parcellation_valid), np.arange(n_parcels))
+
+    # Check that each parcel is a single connected component
+    adjacency = geometry.adj_sym.tocsr()
+    for label in range(n_parcels):
+        selected = parcellation == label
+        assert csgraph.connected_components(
+            adjacency[selected][:, selected], directed=False
+        )[0] == 1
+
+# TODO: replace with Adjusted Rand Index from MGH
+def _boundary_edges(geometry, parcellation):
+    adj_sym = geometry.adj_sym.tocoo()
+    upper = adj_sym.row < adj_sym.col
+    # Only consider edges where both vertices are assigned to a parcel
+    valid = upper & (parcellation[adj_sym.row] >= 0) & (parcellation[adj_sym.col] >= 0)
+    return {
+        (row, col)
+        for row, col in zip(adj_sym.row[valid], adj_sym.col[valid])
+        if parcellation[row] != parcellation[col]
+    }
+
+@pytest.mark.parametrize("structure,species,res,hemi", surfaces)
+def test_make_parcellation_surfaces(structure, species, res, hemi):
+    surf, medmask = fetch_example_surf(
+        structure=structure,
+        species=species,
+        res=res,
+        hemi=hemi
+    )
+    geometry = mask_mesh(surf, medmask)
+
+    parcellation = make_parcellation(geometry, n_parcels, seed=seed, repair=None)
+    _assert_valid_parcellation(geometry, parcellation, n_parcels)
+
+@pytest.mark.parametrize("structure,species,template,res,hemi", volumes)
+def test_make_parcellation_volumes(structure, species, template, res, hemi):
+    geometry = fetch_example_vol(
+        structure=structure,
+        species=species,
+        template=template,
+        res=res,
+        hemi=hemi,
+    )
+
+    parcellation = make_parcellation(geometry, n_parcels, seed=seed, repair=None)
+    _assert_valid_parcellation(geometry, parcellation, n_parcels)
+
+def test_make_parcellation_max_parcels():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+    with pytest.warns(UserWarning, match=r"count \(3\) due to scale of mesh. Requests beyond 2"):
+        parcellations = make_parcellation(geometry, [2,3], seed=seed, repair=None)
+
+    # 2 parcels should work fine, but 3 should be entirely omitted
+    _assert_valid_parcellation(geometry, parcellations[:, 0], 2)
+    assert np.all(parcellations[:, 1] == -1)
+
+def test_make_parcellation_n_parcels_overload():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+    with pytest.raises(ValueError, match=r"in the range \[1, n_verts = 3\]"):
+        make_parcellation(geometry, 4)
+
+def test_make_parcellation_n_parcels_decimal():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+    with pytest.raises(TypeError, match=r"n_parcels must be an integer or a sequence of integers"):
+        make_parcellation(geometry, 2.400)
+
+def test_make_parcellation_one_parcel():
+    geometry, _ = fetch_example_surf(res="4k")
+    parcellation = make_parcellation(geometry, 1, seed=seed, repair=None)
+    assert np.array_equal(parcellation, np.zeros(len(geometry.v), dtype=int))
+
+@pytest.mark.parametrize("n_parcels", [[1], [2], [1, 1], [2, 2], [2, 1, 2], [1, 2, 3], [1, 1, 2, 2]])
+def test_make_parcellation_list_requests(n_parcels):
+    geometry, _ = fetch_example_surf(res="4k")
+    parcellation = make_parcellation(geometry, n_parcels, seed=seed, repair=None)
+    assert parcellation.shape == (len(geometry.v), len(n_parcels))
+    for i in range(len(n_parcels)):
+        pi = parcellation[:, i]
+        _assert_valid_parcellation(geometry, pi, n_parcels[i])
+        for j in range(i):
+            pj = parcellation[:, j]
+            assert np.array_equal(pi, pj) == (n_parcels[i] == n_parcels[j])
+
+def test_make_parcellation_regression():
+    # TODO: the file here was generated by running make_parcellation()--in future we can grab a
+    # pangcellation from Pri to test against James' original implementation
+    geometry, _ = fetch_example_surf(res="32k")
+    parcellation = make_parcellation(geometry, 300, seed=seed, repair=None)
+
+    # Get boundary edges of the current and a prior output
+    boundaries = _boundary_edges(geometry, parcellation)
+    boundaries_prior = _boundary_edges(
+        geometry,
+        np.load("tests/test_data/fslr32k_l_midthickness_parcellation_300.npy")
+        )
+
+    # Check for 99% similarity
+    overlap = len(boundaries_prior & boundaries)
+    union = len(boundaries_prior | boundaries)
+    assert union > 0
+    assert overlap / union >= 0.99
+
+def test_make_parcellation_hierarchy():
+    surf, medmask = fetch_example_surf(res="4k")
+    geometry = mask_mesh(surf, medmask)
+
+    n_parcels = [2, 4, 8]
+    parcellations = make_parcellation(geometry, n_parcels, seed=seed, repair=None)
+
+    # Check that all boundaries of parc2 are in parc4/parc8, and all of parc4 are in parc8
+    parc2_boundaries = _boundary_edges(geometry, parcellations[:, 0])
+    parc4_boundaries = _boundary_edges(geometry, parcellations[:, 1])
+    parc8_boundaries = _boundary_edges(geometry, parcellations[:, 2])
+
+    parc4_valid = parcellations[:, 1] != -1
+    parc8_valid = parcellations[:, 2] != -1
+    
+    assert {edge for edge in parc2_boundaries if parc4_valid[list(edge)].all()} <= parc4_boundaries
+    assert {edge for edge in parc4_boundaries if parc8_valid[list(edge)].all()} <= parc8_boundaries
+
+def test_make_parcellation_repair():
+    surf, medmask = fetch_example_surf(res="4k")
+    geometry = mask_mesh(surf, medmask)
+    parcellation = make_parcellation(geometry, n_parcels, seed=seed, repair=None)
+    parcellation_repaired = make_parcellation(geometry, n_parcels, seed=seed, repair="nearest")
+    assert not np.any(parcellation_repaired == -1)
+
+    # Check that boundaries are similar (repair should only affect a small number of vertices)
+    boundaries = _boundary_edges(geometry, parcellation)
+    boundaries_repaired = _boundary_edges(geometry, parcellation_repaired)
+    _assert_valid_parcellation(geometry, parcellation_repaired, n_parcels)
+
+    overlap = len(boundaries & boundaries_repaired)
+    union = len(boundaries | boundaries_repaired)
+    assert union > 0
+    assert overlap / union >= 0.98
+
+def test_fill_omitted_vertices():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 2, 0], [-3, 0, 0], [0, -4, 0]]),
+        t=np.array([[0, 1, 2], [0, 2, 3], [0, 3, 4], [0, 4, 1]]),
+    )
+
+    parcellations = np.array([[-1, -1], [1, -1], [0, 1], [0, 0], [0, 0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    assert repaired[0, 0] == 1 # vertex 0's closest label is vertex 1
+    assert repaired[0, 1] == 1 # vertex 0's closest label is vertex 2
+    assert repaired[1, 1] == 1 # vertex 1's closest label is vertex 2
+
+def test_fill_omitted_vertices_dist_tie():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]]),
+        t=np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3]]), 
+    )
+
+    parcellations = np.array([[-1], [1], [1], [0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    # vertex 0 is equidistant from vertices 1-3, so assign most common label
+    assert repaired[0, 0] == 1
+
+def test_fill_omitted_vertices_dist_freq_tie():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [-1, 0, 0]]),
+        t=np.array([[0, 1, 2], [0, 1, 3], [0, 2, 3], [0, 3, 4]]), 
+    )
+
+    parcellations = np.array([[-1], [1], [1], [0], [0]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+
+    # vertex 0 is equidistant from vertices 1-4, and each label occurs twice, so assign lowest label
+    assert repaired[0, 0] == 0
+
+def test_fill_omitted_vertices_no_labelled_neighbours():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]]),
+        t=np.array([[0, 1, 2], [0, 2, 3]]), 
+    )
+
+    parcellations = np.array([[-1], [-1], [-1], [0]])
+    with pytest.raises(
+        RuntimeError,
+        match="cannot repair an unresolved vertex with no labelled neighbour"
+        ):
+        _fill_omitted_vertices(geometry, parcellations)
+
+def test_fill_omitted_vertices_no_omissions():
+    geometry = TriaMesh(
+        v=np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]]),
+        t=np.array([[0, 1, 2]]),
+    )
+
+    parcellations = np.array([[0], [1], [1]])
+    repaired = _fill_omitted_vertices(geometry, parcellations)
+    assert np.array_equal(repaired, parcellations)
+
+def test_make_parcellation_repair_invalid():
+    surf, _ = fetch_example_surf(res="4k")
+    with pytest.raises(
+        TypeError,
+        match="repair must be None or 'nearest', got 'puzzle-pipes.com'"
+        ):
+        make_parcellation(surf, 2, repair="puzzle-pipes.com")

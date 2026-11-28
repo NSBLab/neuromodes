@@ -27,9 +27,8 @@ Asterisk (*) indicates features under development that are not yet available.
 - io: Access triangular surface meshes for human, macaque, and marmoset cortices
 - morphometry *(coming soon)*: Quantify multiscale anatomical differences using Mode-Based
   Morphometry from `Cao et al. (2024) <https://doi.org/10.1002/hbm.26640>`_
-- parcellation *(coming soon)*: Create parcellations with any number of regions using the
-  hierarchical bipartitioning method from `Pang et al. (2025)
-  <https://doi.org/10.1101/2025.01.30.635820>`_
+- parcellation: Create parcellations with any number of regions using the hierarchical
+  bipartitioning method from `Pang et al. (2025) <https://doi.org/10.1101/2025.01.30.635820>`_
 
 Installation
 ------------
@@ -74,26 +73,46 @@ Citing
 ------
 If you use ``neuromodes`` in your work, please cite the following three papers:
 
-J.C. Pang, K.M. Aquino, M. Oldehinkel, P.A. Robinson, B.D. Fulcher, M. Breakspear, A. Fornito, Geometric constraints on human brain function, Nature, 618, 566–574 (2023) (DOI: 10.1038/s41586-023-06098-1)
+J.C. Pang, K.M. Aquino, M. Oldehinkel, P.A. Robinson, B.D. Fulcher, M. Breakspear, A. Fornito,
+Geometric constraints on human brain function, Nature, 618, 566–574 (2023) (DOI:
+10.1038/s41586-023-06098-1)
 
-M\. Reuter, F-E. Wolter, N. Peinecke, Laplace-Beltrami spectra as 'Shape-DNA' of surfaces and solids, Computer-Aided Design, 38(4), 342-366 (2006). (DOI: 10.1016/j.cad.2005.10.011)
+M\. Reuter, F-E. Wolter, N. Peinecke, Laplace-Beltrami spectra as 'Shape-DNA' of surfaces and
+solids, Computer-Aided Design, 38(4), 342-366 (2006). (DOI: 10.1016/j.cad.2005.10.011)
 
-C\. Wachinger, P. Golland, W. Kremen, B. Fischl, M. Reuter, BrainPrint: a discriminative characterization of brain morphology, Neuroimage, 109, 232-248 (2015). (DOI: 10.1016/j.neuroimage.2015.01.032)
+C\. Wachinger, P. Golland, W. Kremen, B. Fischl, M. Reuter, BrainPrint: a discriminative
+characterization of brain morphology, Neuroimage, 109, 232-248 (2015). (DOI:
+10.1016/j.neuroimage.2015.01.032)
 
 If you use the ``hetero`` parameter in ``EigenSolver``, please also cite:
 
-V\. Barnes, J. Cruddas, T. Cao, I.Z. Pope, T. Xu, T. Funck, N. Palomero-Gallagher, J.C. Pang, A. Fornito, Regional heterogeneity shapes macroscopic wave dynamics of the human and non-human primate cortex, BioRxiv (2026) (DOI: 10.64898/2026.01.22.701178)
+V\. Barnes, J. Cruddas, T. Cao, I.Z. Pope, T. Xu, T. Funck, N. Palomero-Gallagher, J.C. Pang, A.
+Fornito, Regional heterogeneity shapes macroscopic wave dynamics of the human and non-human primate
+cortex, BioRxiv (2026) (DOI: 10.64898/2026.01.22.701178)
 
 If you use the ``compute_gem`` function, please also cite:
 
-F\. Normand, M. Gajwani, T. Cao, J. Cruddas, A. Sangchooli, S. Oldham, A. Holmes, P.A. Robinson, J.C. Pang, A. Fornito, Geometric constraints on the architecture of mammalian cortical connectomes, BioRxiv (2025) (DOI: 10.1101/2025.09.17.676944)
+F\. Normand, M. Gajwani, T. Cao, J. Cruddas, A. Sangchooli, S. Oldham, A. Holmes, P.A. Robinson,
+J.C. Pang, A. Fornito, Geometric constraints on the architecture of mammalian cortical connectomes,
+Cell (2026) (DOI: 10.1016/j.cell.2026.05.048)
 
 If you use the ``eigenstrap`` function, please also cite:
 
-N.C. Koussis, J.C. Pang, R. Phogat, J. Jeganathan, B. Paton, A. Fornito, P.A. Robinson, B. Misic, M. Breakspear,  Generation of surrogate brain maps preserving spatial autocorrelation through random rotation of geometric eigenmodes, Imaging neuroscience (2025) (DOI: 10.1162/IMAG.a.71)
+N.C. Koussis, J.C. Pang, R. Phogat, J. Jeganathan, B. Paton, A. Fornito, P.A. Robinson, B. Misic, M.
+Breakspear,  Generation of surrogate brain maps preserving spatial autocorrelation through random
+rotation of geometric eigenmodes, Imaging neuroscience (2025) (DOI: 10.1162/IMAG.a.71)
 
-Citations for cortical surface meshes and maps can be found in `neuromodes/data/included_data.csv <https://github.com/NSBLab/neuromodes/blob/main/neuromodes/data/included_data.csv>`_
+If you use the ``make_parcellation`` function, please also cite:
+J.C. Pang, P.A. Robinson, K.M. Aquino, P.T. Levi, A. Holmes, M. Markicevic, X. Shen, F. Mandino, T.
+Funck, N. Palomero-Gallagher, R. Kong, B.T.T. Yeo, J. Tiego, M.A. Bellgrove, R.T. Constable, E.
+Lake, M. Breakspear, A. Fornito, Geometric influences on the regional organization of the mammalian
+brain, BioRxiv (2025) (DOI: 10.1101/2025.01.30.635820)
+
+Citations for cortical surface meshes and maps can be found in `neuromodes/data/included_data.csv
+<https://github.com/NSBLab/neuromodes/blob/main/neuromodes/data/included_data.csv>`_
 
 License information
 -------------------
-This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License (``cc-by-nc-sa``). See the `LICENSE <LICENCE-CC-BY-NC-SA-4.0.md>`_ file for details.
+This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International License (``cc-by-nc-sa``). See the `LICENSE <LICENCE-CC-BY-NC-SA-4.0.md>`_ file for
+details.

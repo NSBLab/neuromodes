@@ -5,14 +5,14 @@ Module for computing geometric eigenmodes of brain structures from surface and v
 from __future__ import annotations
 
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING, overload
 from warnings import warn
-from importlib.metadata import version
 
+import h5py
 import numpy as np
 from lapy import Solver
 from scipy.sparse import csc_matrix, isspmatrix_csc
-import h5py
 
 from neuromodes.io import read_surf, read_vol
 from neuromodes.mesh import check_surf, check_vol, is_vol, mask_mesh
@@ -692,6 +692,44 @@ class EigenSolver(Solver):
             checks='maps',
             **kwargs
         )
+
+    def make_parcellation(
+        self,
+        n_parcels: int | list[int] | tuple[int],
+        **kwargs
+    ) -> NDArray[np.floating]:
+        """
+        This is a wrapper for :func:`~neuromodes.parcellation.make_parcellation`. Note that
+        ``geometry`` and ``check_geometry`` are passed automatically by the ``EigenSolver``
+        instance.
+        """
+        from neuromodes.parcellation import make_parcellation as _make_parcellation
+
+        return _make_parcellation(
+            n_parcels=n_parcels,
+            geometry=self.geometry,
+            check_geometry=False,
+            **kwargs
+    )
+
+    def parcellate(
+        self,
+        data: NDArray[np.floating],
+        parcellation: NDArray[np.integer],
+        **kwargs
+    ) -> NDArray[np.floating]:
+        """
+        This is a wrapper for :func:`~neuromodes.parcellation.parcellate`. Note that ``mass`` is
+        passed automatically by the ``EigenSolver`` instance.
+        """
+        from neuromodes.stats import parcellate as _parcellate
+
+        return _parcellate(
+            data=data,
+            parcellation=parcellation,
+            mass=self.mass,
+            **kwargs
+    )
 
     def unmask_data(
         self,

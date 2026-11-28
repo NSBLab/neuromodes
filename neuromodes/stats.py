@@ -633,7 +633,10 @@ def parcellate(
     # output = p.T @ mass @ data / (p @ mass @ 1) if method == 'mean'
     parc_mass = _create_parcellation_matrix(parcellation).T @ _create_mass_matrix(ved.mass, data.shape[0])
     if method == 'mean':
-        parc_mass /= parc_mass.sum(axis=1) 
+        # Normalise by parcel areas while avoiding division by zero for vertexless parcels
+        parc_areas = parc_mass.sum(axis=1)
+        parc_areas[parc_areas == 0] = 1
+        parc_mass /= parc_areas
 
     is_data_vec = (data.ndim == 1)
     data_2d = data[:, np.newaxis] if is_data_vec else data
@@ -670,16 +673,14 @@ def _create_parcellation_matrix(
         raise ValueError("Parcellation map must be 1D.")
     
     n_verts = parcellation.shape[0]
-    mask = parcellation >= 0 # medial wall should be negative
-    
+    mask = parcellation >= 0 # medial wall should be non-negative
+
     # Construct sparse parcellation matrix as (n_parcels, n_verts)
-    parc_mat = csc_matrix(
+    return csc_matrix(
         (np.ones(np.sum(mask)),
          (np.arange(n_verts)[mask], parcellation[mask])),
         shape=(n_verts, np.max(parcellation)+1)
         )
-    
-    return parc_mat
 
 def sigmoid_rescale(
     data: NDArray[np.floating],
